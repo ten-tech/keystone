@@ -1,0 +1,28 @@
+[package]
+name = "ks-collectors"
+description = "Collecteurs Keystone — LECTURE SEULE. Aucun collecteur n'a le droit d'écrire."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+ks-core.workspace = true
+chrono.workspace = true
+serde.workspace = true
+sysinfo.workspace = true
+
+# Les collecteurs spécifiques à Windows (TPM, BitLocker, Defender, WMI, registre)
+# arrivent en Phase 0.2. Ils sont déclarés ici pour que la cible soit explicite,
+# et absents de la compilation Linux — ce qui permet de tester ks-core et la CLI
+# n'importe où, y compris en intégration continue sur un agent Linux.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_SystemInformation",
+    "Win32_System_Registry",
+] }
+
+[lints.rust]
+unsafe_code = "warn"   # inévitable côté Win32, mais chaque bloc doit être justifié.

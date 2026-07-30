@@ -1,0 +1,176 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # ── Le socle portable ──────────────────────────────────────────────────
+  # ks-core, ks-collectors, ks-cli et ks-agent-linux compilent partout : c'est
+  # ce qui rend cette étape rapide et exécutable sur un agent Linux. Elle garde
+  # `main` vert sur l'essentiel sans attendre un agent Windows.
+  portable:
+    name: Socle portable (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy — aucun avertissement toléré
+        run: cargo clippy -p ks-core -p ks-collectors -p ks-cli -p ks-agent-linux --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test -p ks-core -p ks-collectors -p ks-cli -p ks-agent-linux
+
+      - name: La CLI répond
+        run: |
+          cargo run -q -p ks-cli -- status
+          cargo run -q -p ks-cli -- scan --json > /dev/null
+
+  # ── La cible réelle du produit ─────────────────────────────────────────
+  windows:
+    name: Cible du produit (Windows, MSVC)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy sur tout le workspace, broker compris
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace
+
+      # Cette étape n'est pas décorative : le test
+      # `aucun_verbe_ne_transporte_dexecution_arbitraire` est une BARRIÈRE DE
+      # CONCEPTION (SEC-02, critère A11). Il casse si quelqu'un ajoute un verbe
+      # transportant une commande, un script ou un chemin d'exécutable — pour
+      # que la discussion ait lieu avant la fusion, pas après l'incident.
+      - name: Barrière SEC-02 — aucune exécution arbitraire dans l'API du broker
+        run: cargo test -p ks-broker aucun_verbe_ne_transporte_dexecution_arbitraire -- --exact --nocapture
+
+  # ── L'agent Linux, tel qu'il est livré ─────────────────────────────────
+  agent-musl:
+    name: Agent Linux (musl statique)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Compilation
+        run: cargo build -p ks-agent-linux --release --target x86_64-unknown-linux-musl
+
+      - name: Vérifier que le binaire est bien statique
+        run: |
+          f=target/x86_64-unknown-linux-musl/release/ks-agent
+          file "$f"
+          # Un agent lié dynamiquement échouerait sur une distro à glibc trop
+          # ancienne — et on ne le découvrirait que chez l'utilisateur.
+          if ldd "$f" 2>&1 | grep -qv "not a dynamic executable"; then
+            echo "::error::le binaire n'est pas statique"; exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ks-agent-musl
+          path: target/x86_64-unknown-linux-musl/release/ks-agent
+
+  # ── Le schéma et son exemple ───────────────────────────────────────────
+  schema:
+    name: Schéma workstation.yaml
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install jsonschema pyyaml
+
+      # Attrape notamment les pièges de typage implicite de YAML 1.1 :
+      # `expires: 2026-09-01` devient une date, `boost: off` devient false.
+      - name: Le schéma est valide et l'exemple s'y conforme
+        run: |
+          python - <<'EOF'
+          import json, sys, yaml
+          from jsonschema import Draft202012Validator, FormatChecker
+          schema = json.load(open('schema/workstation.schema.json'))
+          Draft202012Validator.check_schema(schema)
+          v = Draft202012Validator(schema, format_checker=FormatChecker())
+          doc = yaml.safe_load(open('schema/examples/workstation.yaml'))
+          errs = sorted(v.iter_errors(doc), key=lambda e: list(e.path))
+          for e in errs:
+              print('::error::' + '/'.join(map(str, e.path)) + ' → ' + e.message)
+          sys.exit(1 if errs else 0)
+          EOF
+
+  # ── Chaîne d'approvisionnement ─────────────────────────────────────────
+  # Sur un composant privilégié, chaque crate ajoutée est une surface ajoutée
+  # (voir docs/04-MODELE-DE-MENACE.md, adversaire A4).
+  audit:
+    name: Audit des dépendances
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Cohérence de la documentation ──────────────────────────────────────
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # « Un comportement non documenté est un défaut » : les documents cités
+      # dans le README et l'index doivent exister.
+      - name: Les documents référencés existent
+        run: |
+          manquants=0
+          for f in \
+            docs/00-INDEX.md docs/01-CAHIER-DES-CHARGES.md docs/02-BRIEF-DESIGN.md \
+            docs/03-ARCHITECTURE.md docs/04-MODELE-DE-MENACE.md \
+            docs/05-ENVIRONNEMENT-DE-DEV.md docs/06-VM-DE-LABO.md \
+            docs/07-FEUILLE-DE-ROUTE.md docs/08-CONVENTIONS.md docs/09-GLOSSAIRE.md \
+            docs/adr/TEMPLATE.md design/tokens.css design/palette-validation.md \
+            design/keystone-cockpit.html schema/workstation.schema.json ; do
+            [ -f "$f" ] || { echo "::error::document manquant : $f"; manquants=1; }
+          done
+          exit $manquants
+
+      # Garde-fou de vocabulaire. Le glossaire proscrit ces formulations : elles
+      # relèvent du dark pattern de la peur ou du charlatanisme (principe P9).
+      #
+      # Le second filtre écarte les lignes qui CITENT une formulation pour la
+      # condamner — la documentation en contient beaucoup, et c'est sain.
+      - name: Vocabulaire proscrit
+        run: |
+          hits=$(grep -rniE "détecte (toute|toutes) les? intrusion|optimise votre (PC|système|machine)|accélérateur de (RAM|mémoire)|nettoyeur de registre" \
+                   docs/ README.md 2>/dev/null \
+                 | grep -viE "aucun|pas de|jamais|proscri|interdit|faux ami|refus|«|mensonge|dangereux" || true)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::formulation proscrite — voir docs/09-GLOSSAIRE.md § Faux amis"
+            exit 1
+          fi
+          echo "✓ aucune formulation proscrite employée à son compte"

@@ -1,0 +1,23 @@
+[package]
+name = "ks-cli"
+description = "La CLI `ks` — surface de référence de Keystone. L'interface graphique n'en est qu'un client."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "ks"
+path = "src/main.rs"
+
+[dependencies]
+ks-core.workspace = true
+ks-collectors.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"

@@ -1,0 +1,24 @@
+[package]
+name = "ks-broker"
+description = "Service Windows privilégié. Le composant sensible du projet — surface volontairement minuscule."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "ks-broker"
+path = "src/main.rs"
+
+[dependencies]
+ks-core.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.7"
+
+[lints.rust]
+unsafe_code = "warn"

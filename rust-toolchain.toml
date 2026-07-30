@@ -1,0 +1,9 @@
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+
+# La cible du produit est MSVC, pas MinGW : le broker tape dans WMI, DPAPI-NG,
+# WFP et l'API TPM. Un binaire -gnu n'est pas le binaire qu'on livre.
+# musl sert à l'agent Linux, cross-compilé depuis Windows (scripts/build-agent.ps1).
+targets = ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-musl"]
+profile = "default"

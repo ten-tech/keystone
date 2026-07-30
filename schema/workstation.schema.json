@@ -1,0 +1,379 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://keystone.invalid/schema/workstation.schema.json",
+  "title": "Keystone — workstation.yaml",
+  "description": "État désiré d'un poste de travail. Source de vérité unique, versionnée en git (exigence D2-01).",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata"],
+  "additionalProperties": false,
+
+  "properties": {
+    "apiVersion": { "const": "keystone/v1" },
+    "kind": { "const": "Workstation" },
+
+    "metadata": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,63}$",
+          "description": "Nom de la machine. Clé de la surcouche de flotte (D13-01)."
+        },
+        "inherits": {
+          "type": "string",
+          "description": "Chemin d'un fichier de base commun. Héritage base + surcouche (D2-10)."
+        },
+        "owner": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "secureBoot": { "$ref": "#/$defs/toggle" },
+        "tpm": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "present": { "type": "boolean" },
+            "version": { "type": "string", "enum": ["1.2", "2.0"] }
+          }
+        },
+        "vbs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "hvci": { "type": "string", "enum": ["off", "audit", "enforced"] }
+          }
+        },
+        "lsaProtection": { "$ref": "#/$defs/toggle" },
+        "credentialGuard": { "$ref": "#/$defs/toggle" },
+        "dmaProtection": { "$ref": "#/$defs/toggle" },
+        "bitlocker": {
+          "type": "object",
+          "description": "Par volume. La présence de la clé de récupération est vérifiée (D1-04).",
+          "patternProperties": {
+            "^[A-Z]$": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "required": { "type": "boolean" },
+                "method": {
+                  "type": "string",
+                  "enum": ["Aes128", "Aes256", "XtsAes128", "XtsAes256"]
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+
+    "updates": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "windows": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "quality": { "$ref": "#/$defs/updatePolicy" },
+            "features": { "$ref": "#/$defs/updatePolicy" },
+            "drivers": {
+              "$ref": "#/$defs/updatePolicy",
+              "description": "`pinned` recommandé : les pilotes passent par le flux constructeur, jamais par Windows Update (D3-12)."
+            }
+          }
+        },
+        "securityFastLane": {
+          "type": "boolean",
+          "description": "Une vulnérabilité critique et activement exploitée court-circuite les anneaux (D3-03)."
+        },
+        "maintenanceWindow": { "$ref": "#/$defs/window" },
+        "rings": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "canary": { "$ref": "#/$defs/packageList" },
+            "stable": { "$ref": "#/$defs/packageList" },
+            "manual": { "$ref": "#/$defs/packageList" }
+          }
+        },
+        "pinned": {
+          "type": "object",
+          "description": "Épinglages de version. Raison ET expiration obligatoires (D3-02) : pas de gel silencieux.",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["version", "reason", "expires"],
+            "additionalProperties": false,
+            "properties": {
+              "version": { "type": "string" },
+              "reason": { "type": "string", "minLength": 8 },
+              "expires": { "type": "string", "format": "date" }
+            }
+          }
+        },
+        "smokeTests": {
+          "type": "array",
+          "description": "Seul juge du résultat d'une mise à jour (D3-09). Un échec déclenche le retour arrière.",
+          "items": {
+            "type": "object",
+            "required": ["id", "cmd"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+              "cmd": { "type": "string" },
+              "timeout": { "type": "integer", "minimum": 1, "maximum": 3600 }
+            }
+          }
+        }
+      }
+    },
+
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defender": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "realtime": { "$ref": "#/$defs/toggle" },
+            "asrRules": { "type": "array", "items": { "type": "string" } },
+            "exclusions": {
+              "type": "array",
+              "description": "Ciblées et justifiées uniquement. Jamais d'exclusion globale (D11-02).",
+              "items": {
+                "type": "object",
+                "required": ["path", "reason", "expires"],
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string" },
+                  "reason": { "type": "string", "minLength": 8 },
+                  "expires": { "type": "string", "format": "date" }
+                }
+              }
+            }
+          }
+        },
+        "wdac": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": { "type": "string", "enum": ["off", "audit", "enforced"] }
+          }
+        },
+        "watch": {
+          "type": "array",
+          "description": "Les diffs surveillés, dont tout changement produit un constat (D5-02 à D5-05).",
+          "items": {
+            "type": "string",
+            "enum": [
+              "rootCertificates",
+              "persistence",
+              "listeningPorts",
+              "egressBaseline",
+              "localAdmins",
+              "scheduledTasks",
+              "startupSignatures"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "canaries": {
+          "type": "object",
+          "description": "Détection comportementale — attrape un adversaire inconnu (D5-08).",
+          "additionalProperties": false,
+          "properties": {
+            "files": { "type": "array", "items": { "type": "string" } },
+            "cloudKey": { "type": "boolean" },
+            "honeyAccount": { "type": "boolean" }
+          }
+        }
+      }
+    },
+
+    "backup": {
+      "type": "object",
+      "description": "Protège le TRAVAIL. Un instantané de rollback n'est pas une sauvegarde (D6).",
+      "additionalProperties": false,
+      "properties": {
+        "engine": { "type": "string", "enum": ["restic", "kopia"] },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "schedule"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string" },
+              "schedule": { "type": "string", "enum": ["hourly", "daily", "weekly"] },
+              "retention": { "type": "string" }
+            }
+          }
+        },
+        "offsite": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "encryptedClientSide": { "type": "boolean" }
+          }
+        },
+        "verifyRestore": {
+          "type": "object",
+          "description": "Une sauvegarde jamais restaurée n'est pas une sauvegarde (D6-03).",
+          "additionalProperties": false,
+          "properties": {
+            "schedule": { "type": "string", "enum": ["daily", "weekly", "monthly"] },
+            "sampleSize": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "rpo": { "$ref": "#/$defs/duration" },
+        "rto": { "$ref": "#/$defs/duration" },
+        "unpushedWorkAlert": {
+          "type": "object",
+          "description": "Cause n°1 réelle de perte de données sur un poste d'ingénieur (D6-04).",
+          "additionalProperties": false,
+          "properties": {
+            "after": { "$ref": "#/$defs/duration" }
+          }
+        }
+      }
+    },
+
+    "wsl": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "distros": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "from": { "type": "string", "description": "Distro de référence à cloner (D9-01)." },
+              "resources": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "memory": { "$ref": "#/$defs/size" },
+                  "processors": { "type": "integer", "minimum": 1 },
+                  "swap": { "$ref": "#/$defs/size" }
+                }
+              },
+              "autoCompact": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "whenFragmentationOver": { "type": "integer", "minimum": 1, "maximum": 99 }
+                }
+              },
+              "packages": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": { "file": { "type": "string" } }
+              },
+              "snapshots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "schedule": { "type": "string", "enum": ["hourly", "daily", "weekly"] },
+                  "keep": { "type": "integer", "minimum": 1 }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "profiles": {
+      "type": "object",
+      "description": "Profils contextuels (D8). Toute bascule automatique reste annulable.",
+      "properties": {
+        "triggers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["when", "use"],
+            "additionalProperties": false,
+            "properties": {
+              "when": { "type": "string" },
+              "use": { "type": "string" },
+              "restoreDisplays": {
+                "type": "boolean",
+                "description": "Restauration de la disposition des écrans par dock (D10-03)."
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "power": { "type": "string", "enum": ["max", "balanced", "efficiency"] },
+          "boost": { "type": "string", "enum": ["aggressive", "enabled", "off"] },
+          "dnd": { "type": "boolean" },
+          "chargeLimit": { "type": "integer", "minimum": 50, "maximum": 100 },
+          "vmCpuCap": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "vpn": { "type": "string", "enum": ["forced", "optional", "off"] },
+          "usbAllowlistOnly": { "type": "boolean" },
+          "lockTimeout": { "type": "integer", "minimum": 15 }
+        }
+      }
+    },
+
+    "acceptedDrift": {
+      "type": "array",
+      "description": "Écarts tolérés. Raison ET expiration OBLIGATOIRES (D2-06) — c'est ce qui empêche ce fichier de pourrir en trois ans.",
+      "items": {
+        "type": "object",
+        "required": ["item", "reason", "expires", "decidedBy", "decidedAt"],
+        "additionalProperties": false,
+        "properties": {
+          "item": { "type": "string" },
+          "reason": { "type": "string", "minLength": 8 },
+          "expires": { "type": "string", "format": "date" },
+          "decidedBy": { "type": "string" },
+          "decidedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  },
+
+  "$defs": {
+    "toggle": { "type": "string", "enum": ["enabled", "disabled"] },
+    "updatePolicy": { "type": "string", "enum": ["auto", "manual", "pinned", "off"] },
+    "packageList": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "window": {
+      "type": "object",
+      "required": ["from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "days": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] },
+          "uniqueItems": true
+        },
+        "from": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" },
+        "to": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+      }
+    },
+    "duration": { "type": "string", "pattern": "^[0-9]+(m|h|d)$" },
+    "size": { "type": "string", "pattern": "^[0-9]+(MB|GB)$" }
+  }
+}

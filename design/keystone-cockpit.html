@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="fr" data-state="sain">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keystone — Poste de pilotage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   KEYSTONE — direction « Poste de pilotage »
+   Thèse : le calme est la fonctionnalité.
+   Palette vérifiée par calcul (contraste WCAG + séparation CVD).
+   ═══════════════════════════════════════════════════════════════ */
+
+:root{
+  /* Surfaces & encre */
+  --surface-0:#0B0F14;
+  --surface-1:#131A22;
+  --surface-2:#1B242F;
+  --surface-3:#222E3B;
+  --hairline:rgba(255,255,255,.07);
+  --hairline-strong:rgba(255,255,255,.12);
+  --grid:#1F2A36;
+  --ink-1:#E6EDF3;   /* 14.8:1 */
+  --ink-2:#9FB0C0;   /*  7.9:1 */
+  --ink-3:#6E8091;   /*  4.3:1 */
+
+  /* Accents d'état — icône + libellé obligatoires, jamais la couleur seule */
+  --vital:#4FD1C5;      /* 9.4:1 */
+  --attention:#E8A33D;  /* 8.1:1 */
+  --grave:#E5534B;      /* 4.7:1 */
+  --good:#4BC97D;       /* 8.3:1 */
+
+  /* Séries de données — ordre fixe, jamais recyclé */
+  --s1:#2BAAA0; --s2:#C98500; --s3:#3987E5;
+  --s4:#D55181; --s5:#008300; --s6:#9085E9;
+
+  /* Typo */
+  --sans:'Inter','Segoe UI',system-ui,sans-serif;
+  --tight:'Inter Tight','Inter',system-ui,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+
+  /* Rythme */
+  --t-micro:120ms; --t-state:200ms; --t-enter:400ms;
+  --e-out:cubic-bezier(.2,.8,.2,1);
+  --e-soft:cubic-bezier(.16,1,.3,1);
+  --breathe:4000ms;
+
+  --r-ctl:6px; --r-card:10px; --r-sheet:14px;
+
+  /* Couleur d'état courante, pilotée par [data-state] */
+  --state:var(--vital);
+  --state-dim:rgba(79,209,197,.14);
+}
+html[data-state="attention"]{--state:var(--attention);--state-dim:rgba(232,163,61,.14);--breathe:5200ms}
+html[data-state="grave"]    {--state:var(--grave);   --state-dim:rgba(229,83,75,.14); --breathe:6500ms}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--surface-0);color:var(--ink-1);
+  font:400 14px/1.55 var(--sans);
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
+/* La lumière vient du haut — source lumineuse cohérente */
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(120% 60% at 50% -12%, rgba(120,180,220,.055), transparent 62%);
+}
+/* Le grain : tue le banding des dégradés sombres, donne une texture de matériel */
+body::after{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:9998;opacity:.02;
+  mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+:focus-visible{outline:2px solid var(--vital);outline-offset:2px;border-radius:4px}
+::selection{background:rgba(79,209,197,.25)}
+
+/* ─── Trame d'application ─────────────────────────────────── */
+.app{position:relative;z-index:1;display:grid;grid-template-columns:216px 1fr;grid-template-rows:52px 1fr;height:100vh}
+
+/* Filet d'état — 2px en haut, remplace toute bannière colorée */
+.statebar{position:fixed;top:0;left:0;right:0;height:2px;z-index:60;background:var(--state);
+  opacity:0;transition:opacity var(--t-state) var(--e-out)}
+html:not([data-state="sain"]) .statebar{opacity:1}
+
+/* ─── Barre supérieure ────────────────────────────────────── */
+.topbar{grid-column:1/-1;display:flex;align-items:center;gap:20px;padding:0 20px;
+  border-bottom:1px solid var(--hairline);background:rgba(11,15,20,.72);backdrop-filter:blur(14px)}
+.brand{display:flex;align-items:center;gap:9px;font-family:var(--tight);font-weight:600;
+  letter-spacing:.14em;font-size:12.5px;text-transform:uppercase}
+.brand .mk{width:13px;height:13px;border-radius:50%;border:2px solid var(--state);
+  box-shadow:0 0 10px var(--state-dim);transition:border-color var(--t-state) var(--e-out)}
+.machine{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);
+  padding-left:20px;border-left:1px solid var(--hairline)}
+.machine b{color:var(--ink-1);font-weight:500}
+.spacer{flex:1}
+.profile{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2);
+  background:var(--surface-1);border:1px solid var(--hairline);border-radius:999px;padding:5px 12px 5px 10px}
+.profile .dot{width:6px;height:6px;border-radius:50%;background:var(--s1)}
+.kbd{font-family:var(--mono);font-size:11px;color:var(--ink-2);background:var(--surface-1);
+  border:1px solid var(--hairline);border-radius:5px;padding:3px 7px}
+.cmdk{display:flex;align-items:center;gap:9px;background:var(--surface-1);border:1px solid var(--hairline);
+  border-radius:var(--r-ctl);padding:6px 10px;color:var(--ink-3);font-size:13px;cursor:pointer;
+  transition:border-color var(--t-micro) var(--e-out),color var(--t-micro) var(--e-out)}
+.cmdk:hover{border-color:var(--hairline-strong);color:var(--ink-2)}
+
+/* ─── Rail ────────────────────────────────────────────────── */
+.rail{border-right:1px solid var(--hairline);padding:16px 10px;display:flex;flex-direction:column;gap:2px;
+  background:linear-gradient(180deg,rgba(255,255,255,.012),transparent 40%)}
+.rail-label{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);
+  padding:12px 10px 6px}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r-ctl);
+  color:var(--ink-2);font-size:13.5px;cursor:pointer;border:none;background:none;width:100%;
+  text-align:left;font-family:inherit;
+  transition:background var(--t-micro) var(--e-out),color var(--t-micro) var(--e-out)}
+.nav:hover{background:var(--surface-1);color:var(--ink-1)}
+.nav[aria-current="page"]{background:var(--surface-2);color:var(--ink-1)}
+.nav .ic{width:16px;height:16px;flex:none;opacity:.85}
+.nav .tag{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.nav.flagged .tag{color:var(--state)}
+
+/* Bouton d'isolement — contour uniquement, jamais un aplat rouge */
+.panic{margin-top:auto;display:none;align-items:center;gap:9px;width:100%;
+  background:transparent;border:1px solid var(--grave);color:var(--grave);
+  border-radius:var(--r-ctl);padding:9px 11px;font:500 13px var(--sans);cursor:pointer;
+  transition:background var(--t-micro) var(--e-out)}
+.panic:hover{background:rgba(229,83,75,.09)}
+html:not([data-state="sain"]) .panic{display:flex}
+.panic-note{display:none;font-size:11.5px;color:var(--ink-3);padding:8px 4px 0;line-height:1.45}
+html:not([data-state="sain"]) .panic-note{display:block}
+
+/* ─── Zone de contenu ─────────────────────────────────────── */
+.main{overflow-y:auto;padding:24px 28px 56px;scrollbar-width:thin;
+  scrollbar-color:var(--surface-3) transparent}
+.main::-webkit-scrollbar{width:9px}
+.main::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:9px}
+.wrap{max-width:1440px;margin:0 auto}
+.view{display:none;animation:enter var(--t-enter) var(--e-soft) both}
+.view.on{display:block}
+@keyframes enter{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+h1{font:500 22px/1.3 var(--tight);margin:0 0 3px;letter-spacing:-.01em}
+.sub{color:var(--ink-2);font-size:13.5px;margin:0 0 22px}
+h2{font:500 16px/1.4 var(--tight);margin:0}
+
+.card{background:var(--surface-1);border:1px solid var(--hairline);border-radius:var(--r-card)}
+.card-h{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--hairline)}
+.card-h .spacer{flex:1}
+.card-b{padding:18px}
+
+/* ─── Anneau de santé ─────────────────────────────────────── */
+.hero{display:grid;grid-template-columns:5fr 7fr;gap:20px;margin-bottom:20px}
+@media (max-width:1180px){.hero{grid-template-columns:1fr}}
+
+.ringcard{position:relative;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;padding:30px 20px 26px;overflow:hidden}
+.ringcard::before{content:'';position:absolute;inset:0;
+  background:radial-gradient(60% 50% at 50% 34%,var(--state-dim),transparent 70%);opacity:.6}
+.ringwrap{position:relative;width:300px;height:300px}
+.ringwrap svg{width:100%;height:100%;transform:rotate(-90deg)}
+.track{fill:none;stroke:rgba(255,255,255,.06);stroke-width:10}
+.arc{fill:none;stroke:var(--state);stroke-width:10;stroke-linecap:round;
+  transition:stroke-dashoffset 900ms var(--e-soft),stroke var(--t-state) var(--e-out);
+  animation:breathe var(--breathe) ease-in-out infinite}
+@keyframes breathe{
+  0%,100%{opacity:.86;filter:drop-shadow(0 0 8px var(--state-dim))}
+  50%    {opacity:1;  filter:drop-shadow(0 0 15px var(--state-dim))}
+}
+.ringmid{position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:2px;text-align:center;padding:0 52px}
+.hero-n{font:500 76px/1 var(--tight);letter-spacing:-.035em;font-variant-numeric:proportional-nums}
+.hero-u{font-size:13px;color:var(--ink-3);margin-top:-2px}
+.hero-s{font-size:13px;color:var(--ink-2);margin-top:9px;line-height:1.45}
+.hero-t{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);margin-top:5px}
+.unfold{margin-top:20px;background:none;border:1px solid var(--hairline);color:var(--ink-2);
+  border-radius:999px;padding:6px 14px;font:400 12.5px var(--sans);cursor:pointer;
+  transition:border-color var(--t-micro) var(--e-out),color var(--t-micro) var(--e-out)}
+.unfold:hover{border-color:var(--hairline-strong);color:var(--ink-1)}
+.formula{display:none;margin-top:14px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);
+  background:var(--surface-0);border:1px solid var(--hairline);border-radius:var(--r-ctl);
+  padding:11px 13px;line-height:1.8;max-width:340px}
+.formula.on{display:block}
+
+/* ─── Tuiles vitales ──────────────────────────────────────── */
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-content:start}
+@media (max-width:640px){.tiles{grid-template-columns:1fr}}
+.tile{background:var(--surface-1);border:1px solid var(--hairline);border-radius:var(--r-card);
+  padding:16px 17px;transition:background var(--t-micro) var(--e-out),border-color var(--t-micro) var(--e-out)}
+.tile:hover{background:var(--surface-2);border-color:var(--hairline-strong)}
+.tile-h{display:flex;align-items:center;gap:8px;margin-bottom:11px}
+.tile-l{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.badge{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:11.5px;
+  padding:2px 8px 2px 6px;border-radius:999px;border:1px solid var(--hairline);color:var(--ink-2)}
+.badge svg{width:12px;height:12px;flex:none}
+.badge.ok{color:var(--vital)} .badge.att{color:var(--attention)} .badge.bad{color:var(--grave)}
+.tile-v{font:500 34px/1.05 var(--tight);letter-spacing:-.02em;display:flex;align-items:baseline;gap:6px}
+.tile-v span{font:400 13px var(--sans);color:var(--ink-2);letter-spacing:0}
+.meter{height:4px;border-radius:4px;background:rgba(255,255,255,.07);margin:12px 0 9px;overflow:hidden}
+.meter i{display:block;height:100%;border-radius:4px;transition:width 900ms var(--e-soft)}
+.tile-c{font-size:12.5px;color:var(--ink-2);line-height:1.45}
+.counts{display:flex;gap:16px;margin:13px 0 10px;font-size:12.5px;color:var(--ink-3);flex-wrap:wrap}
+.counts b{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--ink-2);
+  font-variant-numeric:tabular-nums;margin-right:3px}
+.counts .c-acc b{color:var(--ink-2)}
+.counts .c-act b{color:var(--attention)}
+.counts .c-act{color:var(--attention)}
+.spark{display:block;margin:10px 0 8px}
+
+/* ─── Table de dérive ─────────────────────────────────────── */
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.chip{background:var(--surface-1);border:1px solid var(--hairline);color:var(--ink-2);
+  border-radius:999px;padding:5px 13px;font:400 12.5px var(--sans);cursor:pointer;
+  transition:all var(--t-micro) var(--e-out)}
+.chip:hover{border-color:var(--hairline-strong);color:var(--ink-1)}
+.chip[aria-pressed="true"]{background:var(--surface-3);color:var(--ink-1);border-color:var(--hairline-strong)}
+
+.drow{display:grid;grid-template-columns:132px 1fr 250px 168px auto;gap:14px;align-items:center;
+  padding:13px 18px;border-bottom:1px solid var(--hairline);
+  transition:background var(--t-micro) var(--e-out)}
+.drow:last-child{border-bottom:none}
+.drow:hover{background:var(--surface-2)}
+.drow.head{padding:10px 18px;background:var(--surface-0);
+  font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.path{font-family:var(--mono);font-size:12.5px;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.delta{font-family:var(--mono);font-size:12px}
+.delta .want{color:var(--ink-2)}
+.delta .arw{color:var(--ink-3);padding:0 5px}
+.delta .got{color:var(--ink-1)}
+.src{font-size:12.5px;color:var(--ink-2);display:flex;align-items:center;gap:6px}
+.src.unknown{color:var(--attention)}
+.acts{display:flex;gap:6px;justify-content:flex-end}
+.mini{background:none;border:1px solid var(--hairline);color:var(--ink-2);border-radius:5px;
+  padding:4px 9px;font:400 12px var(--sans);cursor:pointer;white-space:nowrap;
+  transition:all var(--t-micro) var(--e-out)}
+.mini:hover{border-color:var(--hairline-strong);color:var(--ink-1);background:var(--surface-3)}
+.mini.pri{border-color:rgba(79,209,197,.4);color:var(--vital)}
+.mini.pri:hover{background:rgba(79,209,197,.1)}
+.sev{display:flex;align-items:center;gap:6px;font-size:12.5px}
+.sev svg{width:13px;height:13px;flex:none}
+.sev.att{color:var(--attention)} .sev.bad{color:var(--grave)} .sev.info{color:var(--ink-2)}
+.accepted{opacity:.5}
+
+/* ─── Carte de plan ───────────────────────────────────────── */
+.grid2{display:grid;grid-template-columns:1.35fr 1fr;gap:20px}
+@media (max-width:1100px){.grid2{grid-template-columns:1fr}}
+.wave{border:1px solid var(--hairline);border-radius:var(--r-ctl);margin-bottom:10px;overflow:hidden}
+.wave-h{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--surface-0);
+  cursor:pointer;font-size:13.5px}
+.wave-h .n{font-family:var(--mono);font-size:11px;color:var(--ink-3);
+  background:var(--surface-2);border-radius:4px;padding:2px 6px}
+.wave-h .spacer{flex:1}
+.wave-h .meta{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+.wave-b{padding:4px 14px 12px;display:none}
+.wave.open .wave-b{display:block}
+.item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--hairline);
+  font-size:13px}
+.item:last-child{border-bottom:none}
+.item .nm{font-family:var(--mono);font-size:12.5px}
+.item .vv{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+.pill{font-size:11px;padding:1.5px 7px;border-radius:999px;border:1px solid var(--hairline);color:var(--ink-2)}
+.pill.cve{color:var(--attention);border-color:rgba(232,163,61,.35)}
+.pill.ring{color:var(--s1);border-color:rgba(43,170,160,.35)}
+
+.safety{display:flex;gap:11px;align-items:flex-start;background:var(--surface-0);
+  border:1px solid var(--hairline);border-left:2px solid var(--s1);border-radius:var(--r-ctl);
+  padding:13px 15px;margin:16px 0;font-size:13px;color:var(--ink-2);line-height:1.5}
+.safety b{color:var(--ink-1);font-weight:500}
+.smoke{display:flex;align-items:center;gap:9px;padding:8px 0;font-size:13px;border-bottom:1px solid var(--hairline)}
+.smoke:last-child{border-bottom:none}
+.smoke .id{font-family:var(--mono);font-size:12.5px}
+.smoke .t{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+
+.foot{display:flex;align-items:center;gap:11px;padding:15px 18px;border-top:1px solid var(--hairline)}
+.btn{border-radius:var(--r-ctl);padding:9px 17px;font:500 13.5px var(--sans);cursor:pointer;
+  border:1px solid var(--hairline);background:var(--surface-2);color:var(--ink-1);
+  transition:all var(--t-micro) var(--e-out)}
+.btn:hover{background:var(--surface-3)}
+.btn.pri{background:var(--vital);color:#06231f;border-color:transparent;font-weight:600}
+.btn.pri:hover{filter:brightness(1.08)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.foot .hint{font-size:12.5px;color:var(--ink-3);margin-left:auto;text-align:right;line-height:1.4}
+
+/* ─── Bandeau de rollback : un succès, pas une erreur ─────── */
+.rollback{background:var(--surface-2);border:1px solid var(--hairline);
+  border-left:2px solid var(--good);border-radius:var(--r-card);padding:17px 19px;margin-bottom:20px}
+.rollback h3{font:500 15px/1.4 var(--tight);margin:0 0 9px;display:flex;align-items:center;gap:9px}
+.rollback h3 svg{width:15px;height:15px;color:var(--good)}
+.rollback dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:13.5px}
+.rollback dt{color:var(--ink-3);font-style:italic;white-space:nowrap}
+.rollback dd{margin:0;color:var(--ink-2)}
+.rollback dd b{color:var(--ink-1);font-weight:450}
+.rollback .acts{margin-top:14px;justify-content:flex-start}
+
+/* ─── Attribution d'espace ────────────────────────────────── */
+.tabs{display:flex;gap:2px;background:var(--surface-0);border-radius:var(--r-ctl);padding:2px}
+.tab{background:none;border:none;color:var(--ink-3);font:400 12.5px var(--sans);
+  padding:5px 12px;border-radius:5px;cursor:pointer;transition:all var(--t-micro) var(--e-out)}
+.tab[aria-selected="true"]{background:var(--surface-2);color:var(--ink-1)}
+.stack{display:flex;gap:2px;height:34px;border-radius:5px;overflow:hidden;margin:6px 0 16px}
+.seg{position:relative;cursor:pointer;transition:filter var(--t-micro) var(--e-out)}
+.seg:hover{filter:brightness(1.18)}
+.legend{display:flex;flex-wrap:wrap;gap:8px 20px}
+.lg{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-2)}
+.lg .sw{width:10px;height:10px;border-radius:3px;flex:none}
+.lg .v{font-family:var(--mono);font-size:12px;color:var(--ink-1);font-variant-numeric:tabular-nums}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);
+  font-weight:400;padding:8px 10px;border-bottom:1px solid var(--hairline)}
+td{padding:9px 10px;border-bottom:1px solid var(--hairline);color:var(--ink-2)}
+td:first-child{color:var(--ink-1)}
+td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;color:var(--ink-1)}
+tr:last-child td{border-bottom:none}
+.hidden{display:none}
+
+/* ─── Timeline ────────────────────────────────────────────── */
+.tl{position:relative;height:48px;margin-top:2px}
+.tl-axis{position:absolute;left:0;right:0;bottom:22px;height:1px;background:var(--grid)}
+.tl-tick{position:absolute;bottom:2px;transform:translateX(-50%);font-family:var(--mono);
+  font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.tl-tick::before{content:'';position:absolute;left:50%;bottom:18px;width:1px;height:5px;background:var(--grid)}
+.ev{position:absolute;bottom:22px;width:9px;height:9px;border-radius:50%;
+  transform:translate(-50%,50%);cursor:pointer;border:2px solid var(--surface-1);
+  transition:transform var(--t-micro) var(--e-out)}
+.ev:hover,.ev:focus-visible{transform:translate(-50%,50%) scale(1.5)}
+
+/* ─── Infobulle ───────────────────────────────────────────── */
+.tip{position:fixed;z-index:9000;pointer-events:none;opacity:0;
+  background:var(--surface-2);border:1px solid var(--hairline-strong);border-radius:var(--r-ctl);
+  padding:9px 12px;font-size:12.5px;max-width:270px;line-height:1.5;
+  box-shadow:0 14px 34px rgba(0,0,0,.55);transition:opacity var(--t-micro) var(--e-out)}
+.tip.on{opacity:1}
+.tip .tt{font-weight:500;color:var(--ink-1);margin-bottom:3px}
+.tip .tv{font-family:var(--mono);font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+
+/* ─── Palette de commandes ────────────────────────────────── */
+.scrim{position:fixed;inset:0;z-index:9100;background:rgba(4,7,10,.62);
+  display:none;align-items:flex-start;justify-content:center;padding-top:14vh}
+.scrim.on{display:flex}
+.palette{width:min(660px,92vw);background:rgba(19,26,34,.82);backdrop-filter:blur(22px) saturate(140%);
+  border:1px solid var(--hairline-strong);border-radius:var(--r-sheet);overflow:hidden;
+  box-shadow:0 32px 80px rgba(0,0,0,.6);animation:pop 200ms var(--e-soft) both}
+@keyframes pop{from{opacity:0;transform:translateY(-8px) scale(.985)}to{opacity:1;transform:none}}
+.palette input{width:100%;background:none;border:none;border-bottom:1px solid var(--hairline);
+  color:var(--ink-1);font:400 15px var(--sans);padding:16px 18px;outline:none}
+.palette input::placeholder{color:var(--ink-3)}
+.psec{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);padding:12px 18px 5px}
+.pitem{display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:13.5px;cursor:pointer}
+.pitem:hover,.pitem.sel{background:var(--surface-2)}
+.pitem .cli{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+.pfoot{padding:10px 18px;border-top:1px solid var(--hairline);font-size:11.5px;color:var(--ink-3)}
+
+/* ─── Panneau de démonstration ────────────────────────────── */
+.demo{position:fixed;right:18px;bottom:18px;z-index:70;display:flex;align-items:center;gap:9px;
+  background:rgba(19,26,34,.9);backdrop-filter:blur(16px);border:1px solid var(--hairline-strong);
+  border-radius:999px;padding:7px 9px 7px 14px;font-size:12px;color:var(--ink-3)}
+.demo .sw{display:flex;gap:2px;background:var(--surface-0);border-radius:999px;padding:2px}
+.demo button{background:none;border:none;color:var(--ink-3);font:400 12px var(--sans);
+  padding:5px 11px;border-radius:999px;cursor:pointer;transition:all var(--t-micro) var(--e-out)}
+.demo button[aria-pressed="true"]{background:var(--surface-3);color:var(--ink-1)}
+
+.note{font-size:12.5px;color:var(--ink-3);line-height:1.6;margin-top:16px;
+  border-left:1px solid var(--hairline);padding-left:14px}
+
+/* ─── Respect du mouvement réduit ─────────────────────────── */
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important}
+  .arc{opacity:.93;filter:drop-shadow(0 0 11px var(--state-dim))}
+}
+</style>
+</head>
+<body>
+
+<div class="statebar" aria-hidden="true"></div>
+
+<div class="app">
+
+  <!-- ══ Barre supérieure ══ -->
+  <header class="topbar">
+    <div class="brand"><span class="mk"></span>Keystone</div>
+    <div class="machine"><b>WKS-TENE-01</b> · Win 11 26H1 · 3 distros · 2 VM</div>
+    <div class="spacer"></div>
+    <div class="profile"><span class="dot"></span>Profil <b style="color:var(--ink-1);font-weight:500">Build</b> · dock TB4-BUREAU</div>
+    <button class="cmdk" onclick="openPalette()">Rechercher une action ou un item <span class="kbd">⌘K</span></button>
+  </header>
+
+  <!-- ══ Rail ══ -->
+  <nav class="rail" aria-label="Navigation principale">
+    <button class="nav" aria-current="page" data-view="overview">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.2"/></svg>
+      Vue d'ensemble
+    </button>
+    <button class="nav" data-view="drift">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16M4 12h9M4 17h13"/></svg>
+      Dérive <span class="tag">3</span>
+    </button>
+    <button class="nav" data-view="updates">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
+      Mises à jour <span class="tag">14</span>
+    </button>
+    <button class="nav" data-view="security" id="nav-sec">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l7 3v6c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3z"/></svg>
+      Sécurité <span class="tag">—</span>
+    </button>
+    <button class="nav" data-view="space">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg>
+      Espace <span class="tag">72%</span>
+    </button>
+
+    <div class="rail-label">Systèmes</div>
+    <button class="nav" data-view="soon">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 20h8"/></svg>
+      WSL &amp; VM
+    </button>
+    <button class="nav" data-view="soon">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 8v8m0 0-3-3m3 3 3-3M4 4h16"/></svg>
+      Sauvegarde
+    </button>
+    <button class="nav" data-view="soon">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+      Journal
+    </button>
+
+    <button class="panic" onclick="alert('Confirmation Windows Hello requise.\n\nCoupe le réseau hors canal d\'administration, verrouille la session, capture un instantané forensique et scelle le journal.')">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v9m0 4h.01M5.2 5.2a9.6 9.6 0 1 0 13.6 0"/></svg>
+      Isoler la machine
+    </button>
+    <p class="panic-note">Un changement non expliqué est en cours d'examen. Cette action préserve les preuves au lieu de les détruire.</p>
+  </nav>
+
+  <!-- ══ Contenu ══ -->
+  <main class="main">
+  <div class="wrap">
+
+    <!-- ─────────── VUE D'ENSEMBLE ─────────── -->
+    <section class="view on" id="view-overview">
+      <h1>Vue d'ensemble</h1>
+      <p class="sub" id="ov-sub">Dernier contrôle il y a 40 secondes · prochaine fenêtre de maintenance ce soir 20:00</p>
+
+      <div class="hero">
+        <div class="card ringcard">
+          <div class="ringwrap">
+            <svg viewBox="0 0 300 300" aria-hidden="true">
+              <circle class="track" cx="150" cy="150" r="140"/>
+              <circle class="arc" id="arc" cx="150" cy="150" r="140"
+                      stroke-dasharray="879.6" stroke-dashoffset="52.8"/>
+            </svg>
+            <div class="ringmid" role="meter" aria-valuemin="0" aria-valuemax="100"
+                 aria-valuenow="94" aria-valuetext="Posture 94 sur 100, conforme" aria-label="Posture de la machine">
+              <div class="hero-n" id="hero-n">94</div>
+              <div class="hero-u">posture · sur 100</div>
+              <div class="hero-s" id="hero-s">Conforme · rien n'a changé depuis 19 h</div>
+              <div class="hero-t" id="hero-t">14:02:11 · 312 items observés</div>
+            </div>
+          </div>
+          <button class="unfold" onclick="toggleFormula()" aria-expanded="false">Déplier le calcul</button>
+          <div class="formula" id="formula">
+posture = 0.40 × sécurité(96)<br>
+        + 0.25 × conformité(91)<br>
+        + 0.20 × maintenance(93)<br>
+        + 0.15 × ressources(95)<br>
+────────────────────────────<br>
+        = 94 · aucun item pondéré à zéro
+          </div>
+        </div>
+
+        <div class="tiles">
+          <!-- Sécurité -->
+          <article class="tile">
+            <div class="tile-h">
+              <span class="tile-l">Posture sécurité</span>
+              <span class="badge ok" id="sec-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 12.5l5 5L20 6.5"/></svg><span>Conforme</span></span>
+            </div>
+            <div class="tile-v" id="sec-v">96<span>/ 100</span></div>
+            <div class="meter"><i id="sec-meter" style="width:96%;background:var(--s1)"></i></div>
+            <p class="tile-c" id="sec-c">Defender, BitLocker, HVCI, LSA actifs · WDAC en audit · 0 nouvelle persistance</p>
+          </article>
+
+          <!-- Dérive -->
+          <article class="tile">
+            <div class="tile-h">
+              <span class="tile-l">Dérive de configuration</span>
+              <span class="badge att"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 8v5m0 3h.01"/><circle cx="12" cy="12" r="9"/></svg>3 écarts</span>
+            </div>
+            <div class="tile-v">3<span>écarts sur 312 items</span></div>
+            <!-- Pas de jauge ici : 3/312 rendrait un remplissage invisible ou mensonger.
+                 Trois comptes étiquetés directement disent le vrai. -->
+            <div class="counts">
+              <span><b>309</b> conformes</span>
+              <span class="c-acc"><b>2</b> acceptées</span>
+              <span class="c-act"><b>1</b> active</span>
+            </div>
+            <p class="tile-c">L'écart actif est <b style="color:var(--attention);font-weight:450">sans auteur identifié</b> · 1 acceptation expire le 15 octobre</p>
+          </article>
+
+          <!-- Mises à jour, avec micro-courbe -->
+          <article class="tile">
+            <div class="tile-h">
+              <span class="tile-l">Mises à jour en attente</span>
+              <span class="badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Planifié</span>
+            </div>
+            <div class="tile-v">14<span>dont 1 CVE exploité</span></div>
+            <svg class="spark" width="100%" height="30" viewBox="0 0 220 30" preserveAspectRatio="none" aria-hidden="true">
+              <polyline points="0,22 31,19 63,24 94,14 126,17 157,9 188,12 214,6" fill="none"
+                        stroke="var(--s3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="214" cy="6" r="3.4" fill="var(--s3)" stroke="var(--surface-1)" stroke-width="2"/>
+            </svg>
+            <p class="tile-c">Plan prêt · 1 redémarrage regroupé · 4 tests de fumée jugeront le résultat</p>
+          </article>
+
+          <!-- Espace -->
+          <article class="tile">
+            <div class="tile-h">
+              <span class="tile-l">Occupation du volume C:</span>
+              <span class="badge ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 12.5l5 5L20 6.5"/></svg>Sain</span>
+            </div>
+            <div class="tile-v">72<span>% de 1,86 To</span></div>
+            <div class="meter"><i style="width:72%;background:var(--s1)"></i></div>
+            <p class="tile-c"><b style="color:var(--ink-1);font-weight:450">47,2 Go récupérables</b> sans risque · saturation projetée dans 14 mois</p>
+          </article>
+        </div>
+      </div>
+
+      <!-- Timeline -->
+      <div class="card">
+        <div class="card-h">
+          <h2>Ce qui a changé</h2>
+          <span class="spacer"></span>
+          <div class="legend" style="gap:6px 16px">
+            <span class="lg"><span class="sw" style="background:var(--s1)"></span>Keystone</span>
+            <span class="lg"><span class="sw" style="background:var(--s3)"></span>Windows</span>
+            <span class="lg"><span class="sw" style="background:var(--s4)"></span>Application</span>
+            <span class="lg"><span class="sw" style="background:var(--s2)"></span>Source inconnue</span>
+          </div>
+        </div>
+        <div class="card-b">
+          <div class="tl" id="tl"></div>
+          <p class="note">Toute valeur lisible au survol est aussi accessible au clavier et dans le journal complet — l'infobulle enrichit, elle ne conditionne jamais l'accès à l'information.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── DÉRIVE ─────────── -->
+    <section class="view" id="view-drift">
+      <h1>Dérive de configuration</h1>
+      <p class="sub">3 écarts entre <code style="font-family:var(--mono);font-size:12.5px">workstation.yaml</code> et l'état réel · dernière mesure il y a 40 secondes</p>
+
+      <div class="filters">
+        <button class="chip" aria-pressed="true">Tous les domaines</button>
+        <button class="chip" aria-pressed="false">Sécurité</button>
+        <button class="chip" aria-pressed="false">Services</button>
+        <button class="chip" aria-pressed="false">Réseau</button>
+        <button class="chip" aria-pressed="false">Source inconnue</button>
+        <button class="chip" aria-pressed="false">Dérive acceptée</button>
+      </div>
+
+      <div class="card">
+        <div class="drow head">
+          <span>Gravité</span><span>Item</span><span>Voulu → constaté</span><span>Source du changement</span><span></span>
+        </div>
+
+        <div class="drow">
+          <span class="sev att"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 8v5m0 3h.01"/><circle cx="12" cy="12" r="9"/></svg>Attention</span>
+          <span class="path">security.defender.exclusions[2]</span>
+          <span class="delta"><span class="want">absent</span><span class="arw">→</span><span class="got">D:\tmp\*</span></span>
+          <span class="src unknown"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.7m0 3h.01"/><circle cx="12" cy="12" r="9"/></svg>Inconnue · 03:14</span>
+          <span class="acts">
+            <button class="mini pri">Faire converger</button>
+            <button class="mini">Accepter</button>
+            <button class="mini">Expliquer</button>
+          </span>
+        </div>
+
+        <div class="drow">
+          <span class="sev info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/></svg>Information</span>
+          <span class="path">power.plan.activeScheme</span>
+          <span class="delta"><span class="want">Performance</span><span class="arw">→</span><span class="got">Équilibré</span></span>
+          <span class="src"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 19h14"/></svg>Windows Update · hier 21:40</span>
+          <span class="acts">
+            <button class="mini pri">Faire converger</button>
+            <button class="mini">Accepter</button>
+            <button class="mini">Expliquer</button>
+          </span>
+        </div>
+
+        <div class="drow accepted">
+          <span class="sev info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 12.5l5 5L20 6.5"/></svg>Acceptée</span>
+          <span class="path">services.Fax.startupType</span>
+          <span class="delta"><span class="want">Disabled</span><span class="arw">→</span><span class="got">Manual</span></span>
+          <span class="src"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.4"/><path d="M5 20c1.5-3.5 4-5 7-5s5.5 1.5 7 5"/></svg>Moi · 18 juil. 09:12</span>
+          <span class="acts">
+            <button class="mini">Expire le 15 oct.</button>
+            <button class="mini">Voir la raison</button>
+          </span>
+        </div>
+      </div>
+
+      <p class="note">
+        La colonne <b style="color:var(--ink-2);font-weight:450">source du changement</b> est le cœur de cet écran. Une dérive avec un auteur connu est une information ;
+        une dérive <b style="color:var(--attention);font-weight:450">sans auteur identifié</b> est un signal de sécurité, et elle est remontée comme telle.<br><br>
+        Accepter un écart exige une raison <em>et</em> une date d'expiration. Aucune exception permanente silencieuse — c'est ce qui empêche le fichier de configuration de pourrir sur trois ans.
+      </p>
+    </section>
+
+    <!-- ─────────── MISES À JOUR ─────────── -->
+    <section class="view" id="view-updates">
+      <h1>Plan de mise à jour</h1>
+      <p class="sub">14 items · 3 vagues ordonnées · 1 redémarrage regroupé · durée estimée 22 min</p>
+
+      <!-- Moment M5 : le rollback, traité comme un succès -->
+      <div class="rollback">
+        <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 1 0 8-8M4 12V7m0 5h5"/></svg>Revenu en arrière</h3>
+        <dl>
+          <dt>Ce qui s'est passé</dt><dd>Le pilote <b>NVIDIA 570.12</b> a été installé à 20:14, puis annulé à 20:19.</dd>
+          <dt>Ce qui a échoué</dt><dd>Le test <b>cuda-smoke</b> ne trouvait plus de GPU depuis <code style="font-family:var(--mono);font-size:12px">ubuntu-dev</code>.</dd>
+          <dt>Ce que j'ai fait</dt><dd>Restauration du point pris à 20:12, pilote épinglé en <b>566.36</b> jusqu'au 1<sup>er</sup> septembre.</dd>
+          <dt>Où vous en êtes</dt><dd>État identique à 20:12. <b>Rien à faire de votre côté.</b></dd>
+        </dl>
+        <div class="acts"><button class="mini">Voir le journal</button><button class="mini">Lever l'épingle</button></div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="card-h"><h2>Vagues</h2><span class="spacer"></span>
+            <span class="pill">dépendances respectées</span></div>
+          <div class="card-b">
+
+            <div class="wave open">
+              <div class="wave-h" onclick="this.parentElement.classList.toggle('open')">
+                <span class="n">V1</span>Sécurité — couloir prioritaire
+                <span class="spacer"></span><span class="meta">4 items · 6 min</span>
+              </div>
+              <div class="wave-b">
+                <div class="item"><span class="nm">windows.quality.KB5062001</span><span class="pill cve">CVE exploité</span><span class="vv">redémarrage</span></div>
+                <div class="item"><span class="nm">7zip</span><span class="pill cve">CVE 9.1</span><span class="vv">24.09 → 25.01</span></div>
+                <div class="item"><span class="nm">openssl (ubuntu-dev)</span><span class="vv">3.0.13 → 3.0.15</span></div>
+                <div class="item"><span class="nm">curl (debian-ci)</span><span class="vv">8.5.0 → 8.11.1</span></div>
+              </div>
+            </div>
+
+            <div class="wave">
+              <div class="wave-h" onclick="this.parentElement.classList.toggle('open')">
+                <span class="n">V2</span>Anneau stable — J+7 écoulés
+                <span class="spacer"></span><span class="meta">7 items · 11 min</span>
+              </div>
+              <div class="wave-b">
+                <div class="item"><span class="nm">docker-desktop</span><span class="pill ring">stable</span><span class="vv">4.38 → 4.41</span></div>
+                <div class="item"><span class="nm">nodejs</span><span class="pill ring">stable</span><span class="vv">22.11 → 22.14</span></div>
+                <div class="item"><span class="nm">gh, ripgrep, fd, jq, bat</span><span class="pill ring">canary</span><span class="vv">5 items</span></div>
+              </div>
+            </div>
+
+            <div class="wave">
+              <div class="wave-h" onclick="this.parentElement.classList.toggle('open')">
+                <span class="n">V3</span>Isolée — jamais avec V2
+                <span class="spacer"></span><span class="meta">3 items · 5 min</span>
+              </div>
+              <div class="wave-b">
+                <div class="item"><span class="nm">wsl-kernel</span><span class="vv">6.6.87 → 6.6.92</span></div>
+                <div class="item" style="color:var(--ink-3)"><span class="nm">nvidia-driver</span><span class="pill">épinglé</span><span class="vv">566.36 · expire 01/09</span></div>
+                <div class="item" style="color:var(--ink-3)"><span class="nm">uefi-firmware</span><span class="pill">manuel</span><span class="vv">jamais automatique</span></div>
+              </div>
+            </div>
+
+            <div class="safety">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--s1)" stroke-width="1.8" style="flex:none;margin-top:2px"><path d="M12 3l7 3v6c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3z"/></svg>
+              <div><b>Filet de sécurité avant la vague 1.</b> Point de restauration système,
+              <code style="font-family:var(--mono);font-size:12px">wsl --export ubuntu-dev</code> (2,1 Go),
+              point de contrôle Hyper-V sur <code style="font-family:var(--mono);font-size:12px">win11-test</code>.
+              Retour arrière estimé à 3 min 20 s.</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="card" style="margin-bottom:20px">
+            <div class="card-h"><h2>Tests de fumée</h2><span class="spacer"></span>
+              <span class="pill">seul juge du résultat</span></div>
+            <div class="card-b" style="padding-top:6px">
+              <div class="smoke"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg><span class="id">build-ref</span><span class="t">600 s max</span></div>
+              <div class="smoke"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg><span class="id">cuda-smoke</span><span class="t">30 s max</span></div>
+              <div class="smoke"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg><span class="id">vpn-up</span><span class="t">60 s max</span></div>
+              <div class="smoke"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg><span class="id">docker-hello</span><span class="t">45 s max</span></div>
+              <p class="note" style="margin-top:14px;border:none;padding:0">Un échec déclenche le retour arrière automatique et l'épinglage du composant fautif.</p>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-h"><h2>Fenêtre d'application</h2></div>
+            <div class="card-b" style="font-size:13.5px;color:var(--ink-2);line-height:1.7">
+              Ce soir <b style="color:var(--ink-1);font-weight:500">20:00 – 23:00</b><br>
+              <span style="color:var(--ink-3)">Conditions vérifiées :</span> aucun build en cours · aucun événement d'agenda · secteur branché · réseau non facturé au volume.
+            </div>
+            <div class="foot">
+              <button class="btn pri" onclick="runDry(this)">Simuler</button>
+              <button class="btn" id="btn-apply" disabled>Appliquer</button>
+              <span class="hint" id="apply-hint">Appliquer reste verrouillé<br>jusqu'à la simulation</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="note"><b style="color:var(--ink-2);font-weight:450">Simuler est l'action primaire</b> — décision de conception, pas détail d'implémentation. La valeur par défaut de ce produit est de montrer, pas de faire.</p>
+    </section>
+
+    <!-- ─────────── SÉCURITÉ ─────────── -->
+    <section class="view" id="view-security">
+      <h1>Posture de sécurité</h1>
+      <p class="sub">Keystone n'est pas un EDR. Il garantit que la posture de l'EDR n'a pas été sabotée, et que rien n'a changé sans que vous le sachiez.</p>
+
+      <div class="grid2">
+        <div class="card">
+          <div class="card-h"><h2>Diffs surveillés</h2><span class="spacer"></span><span class="pill" id="sec-pill">rien depuis 19 h</span></div>
+          <div class="card-b" style="padding-top:6px" id="sec-list">
+            <div class="smoke"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--vital)" stroke-width="2.2"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="id">Autorités de certification racine</span><span class="t">184 · inchangé</span></div>
+            <div class="smoke"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--vital)" stroke-width="2.2"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="id">Persistance (Run, services, tâches, WMI, COM)</span><span class="t">412 · inchangé</span></div>
+            <div class="smoke"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--vital)" stroke-width="2.2"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="id">Ports en écoute</span><span class="t">11 · inchangé</span></div>
+            <div class="smoke"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--vital)" stroke-width="2.2"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="id">Référence de trafic sortant</span><span class="t">63 processus</span></div>
+            <div class="smoke"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--vital)" stroke-width="2.2"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="id">Attestation TPM (PCR 0-7, DRTM)</span><span class="t">conforme</span></div>
+            <div class="smoke"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--vital)" stroke-width="2.2"><path d="M4 12.5l5 5L20 6.5"/></svg><span class="id">Canaris (3 fichiers, 1 clé cloud piège)</span><span class="t">intacts</span></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="card" style="margin-bottom:20px">
+            <div class="card-h"><h2>Ancres externes</h2></div>
+            <div class="card-b" style="font-size:13.5px;color:var(--ink-2);line-height:1.75">
+              Un agent qui tourne sur la machine qu'il surveille ne peut pas être cru quand il la déclare saine.<br><br>
+              <span style="color:var(--ink-1)">Journal expédié</span> — dernier envoi il y a 38 s, destination en écriture seule<br>
+              <span style="color:var(--ink-1)">Battement de cœur</span> — attendu toutes les 60 s ; <span style="color:var(--attention)">le silence est lui-même une alerte</span><br>
+              <span style="color:var(--ink-1)">Référence PCR</span> — conservée hors machine, comparée à chaque démarrage
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h2>Ce que Keystone ne verra jamais</h2></div>
+            <div class="card-b" style="font-size:13px;color:var(--ink-2);line-height:1.75">
+              Rootkit noyau ou firmware · attaque purement en mémoire · vol de jeton OAuth par canal légitime · hyperviseur compromis · attaque physique (DMA, cold boot).<br>
+              <span style="color:var(--ink-3)">Ces limites sont structurelles et documentées en première page, pas en annexe. Aucun outil ne détecte toute intrusion — celui qui le prétend est le plus dangereux.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── ESPACE ─────────── -->
+    <section class="view" id="view-space">
+      <h1>Attribution de l'espace</h1>
+      <p class="sub">Volume C: · 1,86 To · 1,34 To occupé · 47,2 Go récupérables sans risque</p>
+
+      <div class="card">
+        <div class="card-h">
+          <h2>Qui consomme le disque</h2><span class="spacer"></span>
+          <div class="tabs" role="tablist">
+            <button class="tab" role="tab" aria-selected="true" onclick="spaceTab(0,this)">Graphique</button>
+            <button class="tab" role="tab" aria-selected="false" onclick="spaceTab(1,this)">Tableau</button>
+          </div>
+        </div>
+        <div class="card-b">
+          <div id="space-chart">
+            <div class="stack" id="stack"></div>
+            <div class="legend" id="legend"></div>
+          </div>
+          <div id="space-table" class="hidden">
+            <table>
+              <caption style="text-align:left;color:var(--ink-3);font-size:12.5px;padding-bottom:10px">Équivalent textuel intégral — aucune valeur n'est accessible uniquement au survol</caption>
+              <thead><tr><th>Consommateur</th><th style="text-align:right">Taille</th><th style="text-align:right">Récupérable</th><th>Méthode</th></tr></thead>
+              <tbody id="space-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:20px">
+        <div class="card-h"><h2>Quarantaine</h2><span class="spacer"></span><span class="pill">restaurable en un geste</span></div>
+        <div class="card-b" style="padding-top:6px">
+          <div class="smoke"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="id">node_modules × 47 (dépôts inactifs &gt; 6 mois)</span><span class="t">12,4 Go · 26 j restants</span></div>
+          <div class="smoke"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="id">Windows.old</span><span class="t">8,9 Go · 12 j restants</span></div>
+          <div class="smoke"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="id">Vidages sur incident (14 fichiers)</span><span class="t">3,1 Go · 29 j restants</span></div>
+          <p class="note" style="margin-top:14px;border:none;padding:0">Rien n'est supprimé. Tout part en quarantaine avec une durée de vie de 30 jours. La purge définitive exige une confirmation Windows Hello — parce que son coût est réel.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── À VENIR ─────────── -->
+    <section class="view" id="view-soon">
+      <h1>Écran à cadrer</h1>
+      <p class="sub">Cette section fait partie du périmètre P1 du cahier des charges, à maquetter après validation des sept écrans prioritaires.</p>
+      <div class="card"><div class="card-b" style="color:var(--ink-2);line-height:1.7">
+        WSL &amp; VM (domaine D9) · Sauvegarde et reconstruction (D6) · Journal forensique (D14).<br>
+        <span style="color:var(--ink-3)">Voir <code style="font-family:var(--mono);font-size:12.5px">KEYSTONE-CDC.md</code> §7 et <code style="font-family:var(--mono);font-size:12.5px">KEYSTONE-BRIEF-DESIGN.md</code> §7 (écran E8).</span>
+      </div></div>
+    </section>
+
+  </div>
+  </main>
+</div>
+
+<!-- Panneau de démonstration -->
+<div class="demo">
+  <span>Démo · état</span>
+  <div class="sw">
+    <button aria-pressed="true"  onclick="setState('sain',this)">Sain</button>
+    <button aria-pressed="false" onclick="setState('attention',this)">Attention</button>
+    <button aria-pressed="false" onclick="setState('grave',this)">Grave</button>
+  </div>
+</div>
+
+<!-- Palette de commandes -->
+<div class="scrim" id="scrim" onclick="if(event.target===this)closePalette()">
+  <div class="palette" role="dialog" aria-modal="true" aria-label="Palette de commandes">
+    <input id="pinput" placeholder="Une action, un item, une distro, un volume…" autocomplete="off">
+    <div class="psec">Actions</div>
+    <div class="pitem sel"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h9M4 17h13"/></svg>Simuler la convergence<span class="cli">ks converge --dry-run</span></div>
+    <div class="pitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 19h14"/></svg>Planifier les mises à jour<span class="cli">ks plan updates</span></div>
+    <div class="pitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12a8 8 0 1 0 8-8M4 12V7m0 5h5"/></svg>Revenir à un instantané<span class="cli">ks rollback</span></div>
+    <div class="pitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="14" rx="2"/></svg>Basculer sur le profil Réunion<span class="cli">ks profile use Réunion</span></div>
+    <div class="pitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 8v8m0 0-3-3m3 3 3-3"/><rect x="3" y="4" width="18" height="16" rx="2"/></svg>Vérifier une restauration de sauvegarde<span class="cli">ks backup verify</span></div>
+    <div class="psec">Items</div>
+    <div class="pitem"><span style="font-family:var(--mono);font-size:12.5px">security.defender.exclusions[2]</span><span class="cli">source inconnue</span></div>
+    <div class="pitem"><span style="font-family:var(--mono);font-size:12.5px">ubuntu-dev</span><span class="cli">distro WSL · 41,2 Go</span></div>
+    <div class="pfoot">Parité totale avec la CLI — chaque résultat affiche sa commande équivalente. On apprend son propre outil en s'en servant. <span class="kbd" style="margin-left:6px">Esc</span> pour fermer</div>
+  </div>
+</div>
+
+<div class="tip" id="tip" role="tooltip"></div>
+
+<script>
+/* ── Navigation ─────────────────────────────────────────── */
+document.querySelectorAll('.nav').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('.nav').forEach(x=>x.removeAttribute('aria-current'));
+    b.setAttribute('aria-current','page');
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
+    const v=document.getElementById('view-'+b.dataset.view);
+    if(v)v.classList.add('on');
+    document.querySelector('.main').scrollTop=0;
+  });
+});
+
+/* ── Filtres et onglets ─────────────────────────────────── */
+document.querySelectorAll('.filters .chip').forEach(c=>{
+  c.addEventListener('click',()=>{
+    c.parentElement.querySelectorAll('.chip').forEach(x=>x.setAttribute('aria-pressed','false'));
+    c.setAttribute('aria-pressed','true');
+  });
+});
+function spaceTab(i,el){
+  el.parentElement.querySelectorAll('.tab').forEach(t=>t.setAttribute('aria-selected','false'));
+  el.setAttribute('aria-selected','true');
+  document.getElementById('space-chart').classList.toggle('hidden',i===1);
+  document.getElementById('space-table').classList.toggle('hidden',i===0);
+}
+function toggleFormula(){
+  const f=document.getElementById('formula'),b=f.previousElementSibling;
+  const on=f.classList.toggle('on');
+  b.setAttribute('aria-expanded',on);
+  b.textContent=on?'Replier le calcul':'Déplier le calcul';
+}
+
+/* ── États émotionnels ──────────────────────────────────── */
+const STATES={
+  sain:{n:94,arc:.94,s:"Conforme · rien n'a changé depuis 19 h",
+        t:'14:02:11 · 312 items observés',
+        sub:'Dernier contrôle il y a 40 secondes · prochaine fenêtre de maintenance ce soir 20:00'},
+  attention:{n:71,arc:.71,
+        s:"Attention · une autorité de certification racine a été ajoutée hier à 23:14",
+        t:'14:02:11 · source du changement : inconnue',
+        sub:'Un changement non expliqué est en cours d\u2019examen · la respiration ralentit, rien ne clignote'},
+  grave:{n:38,arc:.38,
+        s:'Grave · la protection en temps réel a été désactivée sans auteur identifié',
+        t:'14:02:11 · journal externe scellé à 14:01:52',
+        sub:'Tant que cet écart persiste, les protections de la machine ne sont plus garanties'}
+};
+const C=2*Math.PI*140;
+function setState(k,btn){
+  document.documentElement.dataset.state=k;
+  document.querySelectorAll('.demo button').forEach(b=>b.setAttribute('aria-pressed','false'));
+  if(btn)btn.setAttribute('aria-pressed','true');
+  const s=STATES[k];
+  document.getElementById('arc').setAttribute('stroke-dashoffset',(C*(1-s.arc)).toFixed(1));
+  document.getElementById('hero-n').textContent=s.n;
+  document.getElementById('hero-s').textContent=s.s;
+  document.getElementById('hero-t').textContent=s.t;
+  document.getElementById('ov-sub').textContent=s.sub;
+  const m=document.querySelector('.ringmid');
+  m.setAttribute('aria-valuenow',s.n);
+  m.setAttribute('aria-valuetext','Posture '+s.n+' sur 100, '+
+    (k==='sain'?'conforme':k==='attention'?'attention requise':'état grave'));
+  const nav=document.getElementById('nav-sec');
+  nav.classList.toggle('flagged',k!=='sain');
+  nav.querySelector('.tag').textContent=k==='sain'?'—':k==='attention'?'1':'2';
+  const pill=document.getElementById('sec-pill');
+  pill.textContent=k==='sain'?'rien depuis 19 h':k==='attention'?'1 constat ouvert':'2 constats ouverts';
+
+  /* La tuile Sécurité suit l'état : une tuile « Conforme » à côté d'un anneau
+     en alerte serait une incohérence — et c'est exactement le genre de détail
+     qui détruit la confiance dans un instrument. */
+  const SEC={
+    sain:      {v:96,badge:'ok', label:'Conforme', col:'var(--s1)',
+                c:'Defender, BitLocker, HVCI, LSA actifs · WDAC en audit · 0 nouvelle persistance'},
+    attention: {v:78,badge:'att',label:'1 constat',col:'var(--s2)',
+                c:'Autorité de certification racine ajoutée · non reconnue · tant qu’elle est là, le trafic HTTPS peut être lu'},
+    grave:     {v:41,badge:'bad',label:'2 constats',col:'var(--grave)',
+                c:'Protection en temps réel désactivée · règle ASR retirée · aucun auteur identifié'}
+  }[k];
+  document.getElementById('sec-v').innerHTML=SEC.v+'<span>/ 100</span>';
+  document.getElementById('sec-meter').style.width=SEC.v+'%';
+  document.getElementById('sec-meter').style.background=SEC.col;
+  document.getElementById('sec-c').textContent=SEC.c;
+  /* L'icône change avec le libellé : un état n'est jamais porté par la couleur
+     seule, et une coche verte à côté du mot « constat » serait un mensonge. */
+  const ICON={
+    ok :'<path d="M4 12.5l5 5L20 6.5"/>',
+    att:'<circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/>',
+    bad:'<circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6m0-6l6 6"/>'
+  }[SEC.badge];
+  const sb=document.getElementById('sec-badge');
+  sb.className='badge '+SEC.badge;
+  sb.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">'
+             + ICON + '</svg><span>' + SEC.label + '</span>';
+}
+document.getElementById('arc').setAttribute('stroke-dasharray',C.toFixed(1));
+setState('sain',document.querySelector('.demo button'));
+
+/* ── Simulation puis application ────────────────────────── */
+function runDry(btn){
+  const apply=document.getElementById('btn-apply'),hint=document.getElementById('apply-hint');
+  btn.disabled=true;btn.textContent='Simulation…';
+  hint.innerHTML='Calcul du diff · aucune écriture';
+  let n=0;const iv=setInterval(()=>{
+    n++;hint.innerHTML='Vague '+n+' sur 3 simulée · aucune écriture';
+    if(n===3){
+      clearInterval(iv);
+      btn.disabled=false;btn.textContent='Simuler à nouveau';
+      apply.disabled=false;
+      hint.innerHTML='<span style="color:var(--good)">Simulation conforme</span><br>14 items · 1 redémarrage · retour arrière 3 min 20 s';
+    }
+  },520);
+}
+
+/* ── Attribution d'espace ───────────────────────────────── */
+const SPACE=[
+  {n:'Docker · WSL (vhdx gonflés)',v:186,r:41.0,c:'var(--s1)',m:'fstrim puis compaction'},
+  {n:'Caches de chaînes d\u2019outils',v:97,r:22.4,c:'var(--s2)',m:'ramasse-miettes par outil'},
+  {n:'node_modules abandonnés',v:64,r:12.4,c:'var(--s3)',m:'quarantaine 30 jours'},
+  {n:'WinSxS · Windows.old',v:48,r:8.9,c:'var(--s4)',m:'nettoyage de composants'},
+  {n:'Vidages · shaders · MSIX orphelins',v:31,r:3.1,c:'var(--s5)',m:'quarantaine 30 jours'},
+  /* Le reste n'est pas une catégorie d'intérêt : il prend un gris neutre,
+     pas une teinte de série — sinon il domine le graphique sans rien dire. */
+  {n:'Autre (données de travail, système)',v:914,r:0,c:'#39485A',m:'—'}
+];
+const tot=SPACE.reduce((a,b)=>a+b.v,0);
+document.getElementById('stack').innerHTML=SPACE.map((d,i)=>
+  `<div class="seg" tabindex="0" data-i="${i}" style="flex:${d.v};background:${d.c}"
+        aria-label="${d.n} : ${d.v} gigaoctets"></div>`).join('');
+document.getElementById('legend').innerHTML=SPACE.map(d=>
+  `<span class="lg"><span class="sw" style="background:${d.c}"></span>${d.n}
+   <span class="v">${d.v} Go</span></span>`).join('');
+document.getElementById('space-tbody').innerHTML=SPACE.map(d=>
+  `<tr><td>${d.n}</td><td class="num">${d.v} Go</td>
+   <td class="num">${d.r?d.r.toFixed(1)+' Go':'—'}</td><td>${d.m}</td></tr>`).join('');
+
+/* ── Timeline ───────────────────────────────────────────── */
+const EV=[
+  {h:2.3, c:'var(--s3)', t:'Windows Update',   d:'KB5061999 installé · 02:18'},
+  {h:3.2, c:'var(--s2)', t:'Source inconnue',  d:'Exclusion Defender ajoutée · D:\\tmp\\* · 03:14'},
+  {h:6.0, c:'var(--s1)', t:'Keystone',         d:'Compaction ext4.vhdx ubuntu-dev · 3,1 Go libérés'},
+  {h:8.4, c:'var(--s4)', t:'Application',      d:'Chrome 141.0.7390 → 141.0.7412 (auto-mise-à-jour)'},
+  {h:9.1, c:'var(--s1)', t:'Keystone',         d:'Sauvegarde horaire · 412 fichiers · restauration vérifiée'},
+  {h:12.5,c:'var(--s3)', t:'Windows',          d:'Profil d\u2019alimentation remis à Équilibré'},
+  {h:13.7,c:'var(--s1)', t:'Keystone',         d:'Attestation TPM conforme · PCR 0-7 inchangés'},
+  {h:14.0,c:'var(--s4)', t:'Application',      d:'Docker Desktop 4.38.1 démarré'}
+];
+document.getElementById('tl').innerHTML=
+  [0,4,8,12,16,20,24].map(h=>`<span class="tl-tick" style="left:${h/24*100}%">${String(h).padStart(2,'0')}:00</span>`).join('')+
+  '<div class="tl-axis"></div>'+
+  EV.map((e,i)=>`<span class="ev" tabindex="0" data-ev="${i}" style="left:${e.h/24*100}%;background:${e.c}"
+       aria-label="${e.t} : ${e.d}"></span>`).join('');
+
+/* ── Infobulle (survol et focus clavier, même contenu) ──── */
+const tip=document.getElementById('tip');
+function show(el,title,val){
+  tip.innerHTML=`<div class="tt">${title}</div><div class="tv">${val}</div>`;
+  tip.classList.add('on');
+  const r=el.getBoundingClientRect();
+  tip.style.left=Math.min(Math.max(8,r.left+r.width/2-135),innerWidth-278)+'px';
+  tip.style.top=Math.max(8,r.top-tip.offsetHeight-10)+'px';
+}
+function hide(){tip.classList.remove('on')}
+document.addEventListener('mouseover',e=>{
+  const s=e.target.closest('.seg');
+  if(s){const d=SPACE[s.dataset.i];
+    return show(s,d.n,`${d.v} Go · ${(d.v/tot*100).toFixed(1)} % du volume`+(d.r?` · ${d.r.toFixed(1)} Go récupérables`:''));}
+  const v=e.target.closest('.ev');
+  if(v){const d=EV[v.dataset.ev];return show(v,d.t,d.d);}
+});
+document.addEventListener('mouseout',e=>{if(e.target.closest('.seg,.ev'))hide()});
+document.addEventListener('focusin',e=>{
+  const s=e.target.closest('.seg');
+  if(s){const d=SPACE[s.dataset.i];return show(s,d.n,`${d.v} Go · ${(d.v/tot*100).toFixed(1)} %`);}
+  const v=e.target.closest('.ev');
+  if(v){const d=EV[v.dataset.ev];return show(v,d.t,d.d);}
+  hide();
+});
+document.addEventListener('focusout',hide);
+
+/* ── Palette de commandes ───────────────────────────────── */
+function openPalette(){document.getElementById('scrim').classList.add('on');
+  setTimeout(()=>document.getElementById('pinput').focus(),40)}
+function closePalette(){document.getElementById('scrim').classList.remove('on')}
+addEventListener('keydown',e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openPalette()}
+  if(e.key==='Escape'){closePalette();hide()}
+});
+</script>
+</body>
+</html>

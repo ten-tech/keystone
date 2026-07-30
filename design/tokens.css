@@ -1,0 +1,179 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   KEYSTONE — tokens de design
+   Direction « Poste de pilotage » · mode sombre natif
+
+   Thèse : LE CALME EST LA FONCTIONNALITÉ.
+   La récompense offerte à l'utilisateur est un écran silencieux, pas une
+   stimulation. Tout choix se juge à cette aune.
+
+   ⚠  Les couleurs ci-dessous sont VÉRIFIÉES PAR CALCUL : contraste WCAG contre
+      les trois surfaces, bande de luminosité, plancher de chroma, séparation en
+      vision déficiente (protan / deutan / tritan).
+      → voir palette-validation.md
+      NE PAS substituer une valeur à l'œil. Recalculer, et mettre à jour la note
+      de validation dans le même commit.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  color-scheme: dark;
+
+  /* ─── Surfaces ─────────────────────────────────────────────────────────
+     Trois plans seulement. La profondeur vient de la LUMIÈRE, jamais d'une
+     ombre portée noire. Séparation par un liseré unique, jamais par une
+     bordure franche.                                                        */
+  --surface-0: #0B0F14;   /* plan de page — « nuit avant l'aube »            */
+  --surface-1: #131A22;   /* panneau — surface de référence des graphiques   */
+  --surface-2: #1B242F;   /* élément surélevé, ligne survolée                */
+  --surface-3: #222E3B;   /* contrôle actif                                  */
+
+  --hairline: rgba(255, 255, 255, .07);
+  --hairline-strong: rgba(255, 255, 255, .12);
+  --grid: #1F2A36;        /* grille de graphique, filet — solide, jamais pointillé */
+
+  /* ─── Encre ───────────────────────────────────────────────────────────
+     Contrastes mesurés contre --surface-1.                                 */
+  --ink-1: #E6EDF3;       /* primaire        14,8:1                         */
+  --ink-2: #9FB0C0;       /* secondaire       7,9:1                         */
+  --ink-3: #6E8091;       /* atténué          4,3:1 — PAS sur --surface-2   */
+
+  /* ─── États ───────────────────────────────────────────────────────────
+     Usage : icônes, arcs, filets, texte d'état. PAS comme couleur de série.
+     Toujours accompagnés d'une icône ET d'un libellé : aucun sens n'est
+     jamais porté par la couleur seule (NF-05).                             */
+  --vital:     #4FD1C5;   /*  9,4:1  la mesure, le vivant, l'état sain      */
+  --attention: #E8A33D;   /*  8,1:1  ce qui mérite un regard — PAS une alarme */
+  --grave:     #E5534B;   /*  4,7:1  état confirmé grave                     */
+  --good:      #4BC97D;   /*  8,3:1  confirmation d'action réussie           */
+
+  /* Budget du rouge : ≤ 1 % de la surface de l'écran, et jamais en aplat.
+     Le rouge doit rester si rare qu'il fasse lever la tête.                 */
+
+  /* ─── Séries de données ───────────────────────────────────────────────
+     ORDRE FIXE. Jamais recyclé, jamais réassigné par rang : un lecteur qui a
+     appris « Docker est cyan » ne doit pas être trahi par un filtre.
+     Les trois premiers slots passent aussi la validation en « toutes paires »
+     (nuage de points, carte). Au-delà de trois séries dans ces formes, replier
+     la queue en « Autre » ou facetter. Pas de 7ᵉ couleur générée.           */
+  --s1: #2BAAA0;   /* cyan-teal */
+  --s2: #C98500;   /* ambre     */
+  --s3: #3987E5;   /* bleu      */
+  --s4: #D55181;   /* magenta   */
+  --s5: #008300;   /* vert      */
+  --s6: #9085E9;   /* violet    */
+
+  /* Le reste / « Autre » n'est PAS une catégorie d'intérêt : il prend un gris
+     neutre, jamais une teinte de série — sinon il domine le graphique sans
+     rien dire.                                                              */
+  --s-other: #39485A;
+
+  /* ─── Typographie ─────────────────────────────────────────────────────
+     Aucune police à empattement, aucune display. L'instrument de précision se
+     signale par la neutralité.                                              */
+  --font-tight: 'Inter Tight', 'Inter', system-ui, sans-serif;  /* titres, chiffre héros */
+  --font-sans:  'Inter', 'Segoe UI', system-ui, sans-serif;     /* corps, UI   */
+  --font-mono:  'JetBrains Mono', ui-monospace, monospace;      /* télémétrie  */
+
+  --fs-hero: 76px;      --lh-hero: 1.0;     /* chiffre héros — proportionnel  */
+  --fs-display: 34px;   --lh-display: 1.05; /* chiffre de tuile              */
+  --fs-h1: 22px;        --lh-h1: 1.3;
+  --fs-h2: 16px;        --lh-h2: 1.4;
+  --fs-body: 14px;      --lh-body: 1.55;
+  --fs-sm: 13px;        --lh-sm: 1.5;
+  --fs-mono: 12.5px;    --lh-mono: 1.6;
+  --fs-label: 11px;     --ls-label: .09em;  /* sur-titres, capitales         */
+
+  /* Règle des chiffres, contre-intuitive et importante :
+       · chiffre héros et valeurs de tuile → chiffres PROPORTIONNELS.
+         `tabular-nums` en grande taille fait flotter les nombres.
+       · télémétrie, tables, ticks d'axe   → `tabular-nums` obligatoire,
+         pour que la mise en page ne saute pas quand la valeur change en direct. */
+
+  /* ─── Rythme ──────────────────────────────────────────────────────────
+     Le tempo est ce que le corps perçoit avant l'œil.                       */
+  --t-micro: 120ms;     /* toggle, bouton, cran mécanique                   */
+  --t-state: 200ms;     /* transition d'état, ouverture de panneau           */
+  --t-enter: 400ms;     /* apparition de contenu, entrée en scène            */
+  --t-reveal: 700ms;    /* révélation du rapport matinal, cascade de 60 ms   */
+
+  --e-out: cubic-bezier(.2, .8, .2, 1);
+  --e-soft: cubic-bezier(.16, 1, .3, 1);
+
+  /* La respiration : 0,25 Hz = un cycle de 4 s, la fréquence respiratoire
+     d'un adulte au repos. Le système nerveux la reconnaît comme apaisée.
+
+     ET LE CONTRE-INSTINCT QUI FAIT LE PRODUIT : quand l'état se dégrade, la
+     respiration RALENTIT au lieu de s'accélérer ou de clignoter. Un instrument
+     qui panique fait paniquer son pilote.                                    */
+  --breathe-sain: 4000ms;
+  --breathe-attention: 5200ms;
+  --breathe-grave: 6500ms;
+
+  /* Règle absolue : une animation peut COUVRIR une latence, jamais l'AJOUTER. */
+
+  /* ─── Géométrie ───────────────────────────────────────────────────────
+     Base 4 px.                                                              */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+
+  --r-ctl: 6px;    /* contrôles        */
+  --r-card: 10px;  /* cartes           */
+  --r-sheet: 14px; /* feuilles modales */
+  --r-pill: 999px;
+
+  --stroke-hairline: 1px;  /* filets et axes — SOLIDES, jamais pointillés */
+  --stroke-data: 2px;      /* courbes de données                          */
+  --gap-fill: 2px;         /* écart de surface entre deux remplissages    */
+
+  --rail-w: 216px;
+  --topbar-h: 52px;
+  --content-max: 1440px;
+}
+
+/* ═══ État courant, piloté par [data-state] sur <html> ═══════════════════
+   Un seul jeu de variables change : la couleur d'état et le rythme de la
+   respiration. Toute l'interface suit — c'est ce qui fait qu'elle « change de
+   tenue » sans qu'aucune bannière colorée n'apparaisse.                     */
+:root {
+  --state: var(--vital);
+  --state-dim: rgba(79, 209, 197, .14);
+  --breathe: var(--breathe-sain);
+}
+html[data-state="attention"] {
+  --state: var(--attention);
+  --state-dim: rgba(232, 163, 61, .14);
+  --breathe: var(--breathe-attention);
+}
+html[data-state="grave"] {
+  --state: var(--grave);
+  --state-dim: rgba(229, 83, 75, .14);
+  --breathe: var(--breathe-grave);
+}
+
+/* ═══ Focus clavier — jamais supprimé ═══════════════════════════════════ */
+:focus-visible {
+  outline: 2px solid var(--vital);
+  outline-offset: 2px;
+}
+
+/* ═══ Mouvement réduit ══════════════════════════════════════════════════
+   La respiration est un RENFORT, jamais le seul porteur d'un sens : la figer
+   ne fait perdre aucune information.                                        */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+/* ═══ Contraste forcé (mode contraste Windows) ══════════════════════════
+   À traiter explicitement, avec la trame de texture 45°/135° en remplacement
+   de la couleur sur les remplissages de données.                            */
+@media (forced-colors: active) {
+  :root {
+    --hairline: CanvasText;
+    --grid: CanvasText;
+  }
+}

@@ -1,0 +1,54 @@
+# ─── Rust ─────────────────────────────────────────────────────
+/target
+**/target
+*.pdb
+*.rlib
+
+# ─── Windows ──────────────────────────────────────────────────
+Thumbs.db
+desktop.ini
+*.lnk
+
+# ─── Secrets et matériel cryptographique ──────────────────────
+# Ne JAMAIS versionner ces éléments. Le modèle de menace (docs/04) en dépend :
+# un dépôt qui contient une clé de dev est un dépôt qui contient une porte d'entrée.
+*.pfx
+*.p12
+*.snk
+*.key
+*.pem
+.env
+.env.*
+!.env.example
+secrets/
+certs/dev-*
+
+# ─── Sorties locales et instantanés ───────────────────────────
+# Un journal local peut contenir des chemins et des noms de machine.
+/local/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+journal/*.jsonl
+snapshots/
+quarantine/
+*.vhdx
+*.vhd
+
+# ─── Artefacts de build de l'agent Linux ──────────────────────
+/dist/
+ks-agent
+
+# ─── Éditeurs ─────────────────────────────────────────────────
+.vscode/*
+!.vscode/settings.json.example
+!.vscode/extensions.json
+.idea/
+*.swp
+*~
+
+# ─── Configuration réelle du poste ────────────────────────────
+# L'exemple est versionné ; le vrai fichier d'un poste donné ne l'est pas ici.
+# Il vit dans SON PROPRE dépôt (voir docs/08-CONVENTIONS.md § « deux dépôts »).
+/workstation.yaml
+/base.yaml

@@ -1,0 +1,21 @@
+[package]
+name = "ks-agent-linux"
+description = "Agent Keystone pour les distributions WSL2 et les VM Linux. Même protocole que l'hôte."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "ks-agent"
+path = "src/main.rs"
+
+[dependencies]
+ks-core.workspace = true
+ks-collectors.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+
+[lints.rust]
+unsafe_code = "forbid"

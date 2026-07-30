@@ -1,0 +1,208 @@
+# ═══════════════════════════════════════════════════════════════════════════
+#  EXEMPLE de workstation.yaml — machine FICTIVE
+#
+#  Ce fichier est versionné dans le dépôt de l'outil à titre d'exemple.
+#  TON fichier réel vit dans TON dépôt, séparé et privé : il contient les noms
+#  de tes machines, tes chemins, tes exceptions, la topologie de ton réseau.
+#  C'est de la reconnaissance offerte à qui le lirait.
+#  → voir docs/08-CONVENTIONS.md § « Les deux dépôts »
+#
+#  Validation :  yaml-language-server pointe déjà sur ../workstation.schema.json
+# ═══════════════════════════════════════════════════════════════════════════
+
+apiVersion: keystone/v1
+kind: Workstation
+
+metadata:
+  name: WKS-EXEMPLE-01
+  inherits: ./base.yaml          # surcouche de flotte (D2-10, D13-01)
+  owner: exemple
+  description: Poste d'ingénieur, Windows 11 + WSL2 + Hyper-V.
+
+# ─── Plateforme ────────────────────────────────────────────────────────────
+platform:
+  secureBoot: enabled
+  tpm:
+    present: true
+    version: "2.0"
+  vbs:
+    enabled: true
+    hvci: enforced
+  lsaProtection: enabled
+  credentialGuard: enabled
+  dmaProtection: enabled
+  bitlocker:
+    C: { required: true, method: XtsAes256 }
+    D: { required: true, method: XtsAes256 }
+
+# ─── Mises à jour ──────────────────────────────────────────────────────────
+updates:
+  windows:
+    quality: auto      # correctifs de sécurité : automatiques
+    features: manual   # jamais de saut de version sans validation
+    drivers: pinned    # Windows Update ne touche pas aux pilotes (D3-12)
+
+  securityFastLane: true   # un CVE exploité court-circuite les anneaux (D3-03)
+
+  maintenanceWindow:
+    days: [Tue, Thu]
+    from: "20:00"
+    to: "23:00"
+
+  rings:
+    canary: [vscode, gh, ripgrep, fd, jq, bat]
+    stable: [docker-desktop, nodejs, python]
+    manual: [visualstudio, wsl-kernel]
+
+  # Un épinglage porte TOUJOURS une raison et une date d'expiration (D3-02).
+  # Sans expiration, on se réveille avec quarante versions gelées dont personne
+  # ne sait plus pourquoi. À l'échéance, Keystone relance la question.
+  pinned:
+    nvidia-driver:
+      version: "566.36"
+      reason: "régression CUDA constatée sur la branche 570.x"
+      expires: "2026-09-01"
+
+  # Les tests de fumée sont le SEUL juge du résultat (D3-09).
+  # Un échec déclenche le retour arrière automatique et l'épinglage du fautif.
+  smokeTests:
+    - { id: build-ref,    cmd: "ks run build-reference",             timeout: 600 }
+    - { id: cuda-smoke,   cmd: "wsl -d ubuntu-dev -- nvidia-smi",    timeout: 30 }
+    - { id: vpn-up,       cmd: "ks probe vpn",                       timeout: 60 }
+    - { id: docker-hello, cmd: "docker run --rm hello-world",        timeout: 45 }
+
+# ─── Sécurité ──────────────────────────────────────────────────────────────
+security:
+  defender:
+    realtime: enabled
+    asrRules:
+      - BlockOfficeChildProcess
+      - BlockCredentialStealing
+      - BlockScriptObfuscation
+      - BlockExecutableFromEmail
+
+    # Ciblées et justifiées uniquement (D11-02). Jamais sur le dépôt entier,
+    # jamais sur D:\src. On ne s'accorde pas à soi-même ce qu'on refuse à
+    # l'utilisateur — et cette règle vaut aussi pour le dossier target\ de Rust.
+    exclusions:
+      - path: 'D:\src\monorepo\target'
+        reason: "artefacts de build Rust, 400k fichiers, +6 min par build"
+        expires: "2027-01-01"
+
+  wdac:
+    mode: audit        # `enforced` est l'objectif ; on y va par l'audit
+
+  # Les diffs surveillés. `rootCertificates` est le signal à plus forte valeur
+  # du produit : c'est la signature d'une interception TLS (D5-03).
+  watch:
+    - rootCertificates
+    - persistence
+    - listeningPorts
+    - egressBaseline
+    - localAdmins
+    - startupSignatures
+
+  # Détection comportementale : attrape un adversaire dont on n'a jamais
+  # entendu parler, parce qu'elle ne repose sur aucune signature (D5-08).
+  canaries:
+    files:
+      - 'D:\src\_ne-pas-ouvrir\credentials.txt'
+    cloudKey: true       # clé cloud factice, dont tout usage déclenche une alerte
+    honeyAccount: true
+
+# ─── Sauvegarde ────────────────────────────────────────────────────────────
+# Protège le TRAVAIL, pas la machine. Un instantané de rollback n'est pas une
+# sauvegarde — voir docs/09-GLOSSAIRE.md.
+backup:
+  engine: restic
+  targets:
+    - { path: 'D:\src',                     schedule: hourly, retention: "7d,4w,12m" }
+    - { path: '%USERPROFILE%\Documents',    schedule: daily,  retention: "30d,12m" }
+    - { path: 'D:\vms\templates',           schedule: weekly, retention: "8w" }
+  offsite:
+    enabled: true
+    encryptedClientSide: true
+
+  # Une sauvegarde jamais restaurée n'est pas une sauvegarde (D6-03).
+  verifyRestore:
+    schedule: weekly
+    sampleSize: 50
+
+  rpo: 1h
+  rto: 4h
+
+  # Cause n°1 réelle de perte de données sur un poste d'ingénieur (D6-04).
+  unpushedWorkAlert:
+    after: 8h
+
+# ─── WSL ───────────────────────────────────────────────────────────────────
+wsl:
+  distros:
+    - name: ubuntu-dev
+      from: golden/ubuntu-24.04         # clonage en secondes (D9-01)
+      resources: { memory: 16GB, processors: 8, swap: 4GB }
+      autoCompact: { whenFragmentationOver: 30 }
+      packages: { file: ./wsl/ubuntu-dev.packages }
+      snapshots: { schedule: daily, keep: 7 }
+
+    - name: debian-ci
+      from: golden/debian-12
+      resources: { memory: 8GB, processors: 4 }
+      snapshots: { schedule: daily, keep: 3 }
+
+# ─── Profils contextuels ───────────────────────────────────────────────────
+profiles:
+  Build:
+    power: max
+    boost: aggressive
+    dnd: true
+
+  Réunion:
+    power: balanced
+    dnd: true
+    vmCpuCap: 25
+
+  Batterie:
+    power: efficiency
+    boost: "off"        # guillemets OBLIGATOIRES — voir la note en fin de fichier
+    chargeLimit: 80
+
+  Déplacement:
+    vpn: forced
+    usbAllowlistOnly: true      # défense contre les périphériques malveillants
+    lockTimeout: 60
+
+  # Bascule automatique. Toujours annulable à la main (D8-03).
+  triggers:
+    - { when: "onBattery",                use: Batterie }
+    - { when: "dock == 'TB4-BUREAU'",     use: Build, restoreDisplays: true }
+    - { when: "calendar.busy",             use: Réunion }
+    - { when: "calendar.travel",           use: Déplacement }
+
+# ─── Écarts acceptés ───────────────────────────────────────────────────────
+# Raison ET expiration obligatoires (D2-06). À l'échéance, l'écart redevient
+# actif tout seul : aucune exception permanente silencieuse.
+acceptedDrift:
+  - item: services.Fax.startupType
+    reason: "requis temporairement par le driver du scanner du labo"
+    expires: "2026-10-15"
+    decidedBy: exemple
+    decidedAt: "2026-07-18T09:12:00+02:00"
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Note : pourquoi les dates et « off » sont entre guillemets
+#
+#  YAML 1.1 fait de la conversion implicite, et c'est un piège classique :
+#
+#    expires: 2026-09-01     →  devient un objet date, pas une chaîne
+#    boost: off              →  devient le booléen false  (« off », « no »,
+#                               « yes », « on » sont des booléens en YAML 1.1)
+#
+#  Le schéma attend des chaînes, et le parseur du produit aussi. Les valeurs
+#  sont donc systématiquement citées. Cette famille de pièges — celle qui fait
+#  que le code pays « NO » de la Norvège devient `false` — mérite d'être connue
+#  avant d'y perdre une soirée.
+#
+#  La validation de ce fichier contre le schéma tourne en intégration continue,
+#  précisément pour que ce genre d'erreur ne survive pas à un commit.
+# ═══════════════════════════════════════════════════════════════════════════

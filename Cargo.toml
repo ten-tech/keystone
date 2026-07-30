@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ks-core",
+    "crates/ks-cli",
+    "crates/ks-collectors",
+    "crates/ks-broker",
+    "crates/ks-agent-linux",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "Apache-2.0"
+authors = ["Projet Keystone"]
+repository = "https://example.invalid/keystone"
+
+[workspace.dependencies]
+ks-core = { path = "crates/ks-core" }
+ks-collectors = { path = "crates/ks-collectors" }
+
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sysinfo = "0.32"
+thiserror = "2"
+
+# Le profil de release est volontairement strict : le broker est un composant
+# privilégié, on ne veut ni symboles bavards ni panique silencieuse.
+[profile.release]
+opt-level = 2
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.dev]
+# Le cycle de dev passe par une VM : on privilégie la vitesse d'itération.
+opt-level = 0
+debug = 1
