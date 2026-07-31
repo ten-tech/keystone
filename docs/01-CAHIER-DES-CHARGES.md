@@ -432,9 +432,9 @@ Priorités : **P0** = indispensable au premier usage réel · **P1** = valeur fo
 apiVersion: keystone/v1
 kind: Workstation
 metadata:
-  name: WKS-TENE-01
+  name: WKS-ORION-04
   inherits: ./base.yaml            # surcouche de flotte (D13-01)
-  owner: tene
+  owner: alix
 
 platform:
   secureBoot: enabled
