@@ -1,0 +1,31 @@
+# Propriétaires de code — revue obligatoire sur les zones sensibles.
+#
+# Ce fichier n'a d'effet qu'avec la protection de branche activée sur `main`
+# (Settings → Branches → Require review from Code Owners). Sans elle, il reste
+# une déclaration d'intention utile mais non appliquée.
+
+# Par défaut
+*                       @ten-tech
+
+# ── Le composant privilégié ───────────────────────────────────────────
+# Sa compromission est fatale : aucune modification sans revue.
+/crates/ks-broker/      @ten-tech
+
+# ── Les décisions d'architecture ──────────────────────────────────────
+# Une ADR ne se réécrit jamais : elle se remplace par une nouvelle.
+/docs/adr/              @ten-tech
+
+# ── Le modèle de menace et la politique de sécurité ───────────────────
+/docs/04-MODELE-DE-MENACE.md   @ten-tech
+/SECURITY.md                   @ten-tech
+/deny.toml                     @ten-tech
+
+# ── Les portes de qualité ─────────────────────────────────────────────
+# Un affaiblissement de la CI est un affaiblissement de tout le reste.
+/.github/workflows/     @ten-tech
+/.githooks/             @ten-tech
+
+# ── La palette ────────────────────────────────────────────────────────
+# Les valeurs sont vérifiées par calcul, jamais choisies à l'œil.
+/design/tokens.css              @ten-tech
+/design/palette-validation.md   @ten-tech

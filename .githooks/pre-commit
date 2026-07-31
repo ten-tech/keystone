@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+#
+# Contrôles rapides avant commit — moins de deux secondes.
+#
+# Un hook lent est un hook qu'on contourne au `--no-verify`. Les portes
+# coûteuses (clippy, tests) vivent dans pre-push, où l'attente se justifie.
+
+set -u
+
+echec=0
+signale() { echo "  ✗ $1"; echec=1; }
+
+indexes=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$indexes" ] && exit 0
+
+# ── 1. Format Rust ────────────────────────────────────────────────────
+if printf '%s\n' "$indexes" | grep -q '\.rs$'; then
+  if command -v cargo >/dev/null 2>&1; then
+    if ! cargo fmt --all --check >/dev/null 2>&1; then
+      signale "cargo fmt : le code n'est pas formaté. Lance « cargo fmt --all »."
+    fi
+  else
+    echo "  ⚠ cargo introuvable — format non vérifié."
+  fi
+fi
+
+# ── 2. Fichiers qui ne doivent jamais entrer ──────────────────────────
+# La configuration réelle d'un poste est de la reconnaissance offerte à qui
+# la lirait ; une clé de signature est une porte d'entrée.
+while IFS= read -r f; do
+  case "$f" in
+    workstation.yaml|base.yaml)
+      signale "« $f » est la configuration réelle d'un poste : elle vit dans TON dépôt privé (docs/08-CONVENTIONS.md)." ;;
+    *.pfx|*.p12|*.pem|*.key|certs/dev-*)
+      signale "« $f » ressemble à une clé ou un certificat. Un dépôt qui contient une clé de signature contient une porte d'entrée." ;;
+    target/*|dist/*)
+      signale "« $f » est un artefact de build." ;;
+  esac
+done <<EOF
+$indexes
+EOF
+
+# ── 3. Secrets évidents dans le contenu ajouté ────────────────────────
+# Grossier par conception : c'est un filet, pas un scanner. `scripts/scan`
+# et le job `audit` de la CI font le vrai travail.
+#
+# `.githooks/` est exclu, et ce n'est pas une commodité : ce fichier CONTIENT
+# les motifs qu'il cherche. Sans exclusion, le hook bloque son propre commit —
+# constaté au premier usage réel.
+ajouts=$(git diff --cached -U0 --diff-filter=ACMR -- . ':(exclude).githooks/' \
+         | grep '^+' | grep -v '^+++' || true)
+if printf '%s' "$ajouts" | grep -qiE '(aws_secret_access_key|BEGIN [A-Z ]*PRIVATE KEY|ghp_[A-Za-z0-9]{30,}|xox[baprs]-[A-Za-z0-9-]{10,})'; then
+  signale "un secret semble ajouté dans le diff. Vérifie avant de continuer."
+fi
+
+# ── 4. Marqueurs de conflit ───────────────────────────────────────────
+if printf '%s' "$ajouts" | grep -qE '^\+(<<<<<<< |>>>>>>> )'; then
+  signale "marqueur de conflit de fusion resté dans le diff."
+fi
+
+# ── 5. TODO sans issue ────────────────────────────────────────────────
+# « La dette se prend explicitement » : un TODO orphelin est de la dette
+# invisible, donc éternelle.
+orphelins=$(printf '%s' "$ajouts" | grep -nE '\+.*(TODO|FIXME)' | grep -vE 'TODO\(#[0-9]+\)' || true)
+if [ -n "$orphelins" ]; then
+  echo "  ⚠ TODO/FIXME sans numéro d'issue — préfère « TODO(#123): raison » :"
+  printf '%s\n' "$orphelins" | head -3 | sed 's/^/      /'
+fi
+
+if [ "$echec" -ne 0 ]; then
+  echo ""
+  echo "  Commit interrompu. « git commit --no-verify » force le passage — à tes risques."
+  echo ""
+  exit 1
+fi
+
+exit 0

@@ -1,0 +1,44 @@
+# Fins de ligne — tranchées dans le dépôt, pas sur chaque poste.
+#
+# `.editorconfig` dit ce que l'éditeur doit écrire ; il ne dit rien à git.
+# Sans ce fichier, la normalisation dépend du `core.autocrlf` de chacun :
+# deux contributeurs réglés différemment produisent des diffs entiers sans
+# le moindre changement réel. Le piège est documenté en
+# docs/05-ENVIRONNEMENT-DE-DEV.md § « Fins de ligne ».
+#
+# La règle reproduit `.editorconfig` : LF partout, CRLF pour PowerShell seul.
+
+* text=auto eol=lf
+
+# ─── PowerShell ───────────────────────────────────────────────
+# CRLF assumé : c'est la convention de l'écosystème, et certains hôtes
+# d'exécution plus anciens s'en accommodent mal autrement.
+*.ps1   text eol=crlf
+*.psm1  text eol=crlf
+*.psd1  text eol=crlf
+
+# ─── Fichiers qui ne doivent jamais être normalisés ───────────
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.vhd   binary
+*.vhdx  binary
+*.exe   binary
+*.dll   binary
+
+# ─── Métadonnées de dépôt ─────────────────────────────────────
+# Cargo.lock est versionné (le workspace livre des binaires) mais généré :
+# le marquer évite qu'il pollue les statistiques et les revues de diff.
+Cargo.lock text eol=lf linguist-generated=true
+
+# La maquette et le runtime importés de Claude Design sont du code produit
+# par un outil : même traitement.
+design/import-claude-design/support.js linguist-generated=true

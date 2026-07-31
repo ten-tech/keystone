@@ -1,0 +1,18 @@
+# <type>(<portée>): <sujet, à l'impératif, ≤ 72 car., sans point final> (<EXIGENCE>)
+#
+# ── Corps : POURQUOI, pas quoi. Le diff dit déjà quoi. ────────────────
+#
+#
+# ── Rappels ───────────────────────────────────────────────────────────
+# type    : feat · fix · docs · refactor · test · perf · chore · ci · build · revert
+# portée  : core · cli · broker · collectors · agent · d1…d16 · sec · docs · ci · design · schema
+# exigence: D5-03 · SEC-02 · NF-07 · A11 · P3 · M5   → docs/00-INDEX.md
+#
+# Le code et sa documentation partent dans le MÊME commit.
+# Si un changement rend une exigence fausse, corrige l'exigence ici aussi.
+#
+# Exemple :
+#   feat(d5): détecte l'ajout d'une CA racine dans le magasin (D5-03)
+#
+#   Compare le magasin Root à l'empreinte de référence à chaque scan.
+#   Ne couvre pas encore le magasin par utilisateur — suite en 0.2.
