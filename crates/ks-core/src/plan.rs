@@ -1,10 +1,19 @@
 //! Le plan : ce que Keystone s'apprête à faire, montré avant d'être fait.
 //!
-//! C'est ici que vivent les deux invariants les plus importants du projet, et ils
-//! sont portés par le **typage**, pas par la relecture :
+//! C'est ici que vivent les deux règles les plus importantes du projet :
 //!
 //! * P2 — une action qui ne sait pas se simuler ne peut pas être appliquée ;
 //! * P3 — une action qui ne sait pas s'annuler ne peut pas être automatisée.
+//!
+//! Elles sont tenues par un **contrôle d'admission** — [`Action::ensure_appliable`]
+//! et [`Action::ensure_schedulable`] — et par les tests qui les couvrent, **pas par
+//! le typage** : [`Capabilities`] est une structure de booléens, et rien n'empêche
+//! un appelant de ne jamais consulter ces fonctions.
+//!
+//! La formulation compte. Écrire « porté par le typage » laisserait croire que le
+//! compilateur ferme la porte ; il ne la ferme pas. Le jour où un exécuteur réel
+//! existera (Phase 2), la question à trancher sera de passer à un typestate
+//! (`Plan<Simulated>` distinct de `Plan<Draft>`) ou d'assumer le contrôle runtime.
 
 use serde::{Deserialize, Serialize};
 
@@ -12,8 +21,10 @@ use crate::{Error, Result, SnapshotKind, Timestamp};
 
 /// Ce qu'un exécuteur déclare savoir faire.
 ///
-/// Le broker vérifie ces capacités **au chargement du module**, pas à l'exécution.
-/// Un module qui ne déclare pas `dry_run` est rejeté avant d'avoir pu agir.
+/// À terme, le broker vérifiera ces capacités **au chargement du module**, pas à
+/// l'exécution : un module qui ne déclare pas `dry_run` sera rejeté avant d'avoir
+/// pu agir. Ce chargeur n'existe pas encore, et le manifeste complet du §5.3 du
+/// cahier des charges compte huit champs quand cette structure en porte trois.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Capabilities {
     /// Le module sait calculer et montrer son diff sans rien écrire.
