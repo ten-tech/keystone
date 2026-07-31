@@ -46,9 +46,17 @@ use anyhow::Result;
 /// Chaque nouveau verbe doit répondre à quatre questions, documentées dans son ADR :
 /// sait-il se simuler ? sait-il s'annuler ? exige-t-il une présence humaine ?
 /// est-il idempotent ?
+// Pas de `#[non_exhaustive]`, et c'est une décision de sécurité, pas un oubli.
+//
+// Il n'apporte rien ici — aucun crate externe ne consomme ce type — et il
+// désarmerait la barrière SEC-02 dès que `Verb` sortira de ce binaire (extraction
+// d'un `ks-proto` pour la CLI et l'UI, ajout d'une cible `lib`, déplacement du
+// test dans `tests/`). Hors du crate définisseur, `#[non_exhaustive]` rend un
+// `match` sans bras `_` impossible : rustc suggère lui-même `_ => todo!()`, le
+// contributeur suit la suggestion, et la garantie disparaît sans que personne
+// ne le voie.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "verb")]
-#[non_exhaustive]
 pub enum Verb {
     /// Lit l'inventaire. Aucun privilège requis, listé ici pour l'uniformité du journal.
     Scan { domain: Option<String> },
@@ -139,6 +147,151 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
 
+    /// Le texte source de ce fichier, incorporé à la compilation.
+    ///
+    /// C'est la seule source de vérité qu'un attribut ne peut pas déplacer. Les
+    /// contrôles fondés sur serde ont été mis en échec par injection réelle :
+    /// `#[serde(rename = "apply-template")]` sur une variante et
+    /// `#[serde(rename = "template")]` sur son champ font passer un
+    /// `RunCommand { cmd: String }` complet — test vert, clippy propre, verbe
+    /// pleinement invocable depuis un client. `#[serde(skip)]` le fait
+    /// simplement disparaître de la liste dérivée.
+    ///
+    /// L'identifiant Rust, lui, est ce qu'un relecteur lit dans l'énumération.
+    const SOURCE: &str = include_str!("main.rs");
+
+    /// Extrait le corps d'un bloc délimité par des accolades, à partir d'une
+    /// **déclaration en début de ligne**.
+    ///
+    /// « En début de ligne » n'est pas un détail : les appels à cette fonction
+    /// contiennent eux-mêmes le texte recherché, en littéral. Un simple `find`
+    /// tombait sur l'appel plutôt que sur la déclaration, et le test lisait alors
+    /// son propre code. Exiger que l'ancre ouvre sa ligne écarte les littéraux.
+    fn bloc_apres(source: &str, declaration: &str) -> String {
+        let debut = source
+            .match_indices(declaration)
+            .map(|(i, _)| i)
+            .find(|i| {
+                let debut_ligne = source[..*i].rfind('\n').map_or(0, |n| n + 1);
+                source[debut_ligne..*i].trim().is_empty()
+            })
+            .unwrap_or_else(|| panic!("déclaration « {declaration} » introuvable"));
+        let reste = &source[debut..];
+        let ouvrante = reste.find('{').expect("le bloc doit avoir une accolade");
+        let mut profondeur = 0usize;
+        for (i, c) in reste[ouvrante..].char_indices() {
+            match c {
+                '{' => profondeur += 1,
+                '}' => {
+                    profondeur -= 1;
+                    if profondeur == 0 {
+                        return reste[ouvrante + 1..ouvrante + i].to_owned();
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("bloc « {declaration} » non refermé");
+    }
+
+    /// Les identifiants de variantes déclarés dans `enum Verb`, lus dans le source.
+    fn variantes_declarees(bloc: &str) -> Vec<String> {
+        bloc.lines()
+            .map(str::trim)
+            .filter(|l| !l.starts_with("//") && !l.starts_with('#'))
+            .filter_map(|l| {
+                let ident: String = l.chars().take_while(char::is_ascii_alphanumeric).collect();
+                let suite = &l[ident.len()..];
+                let est_variante = ident.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+                    && (suite.starts_with(" {")
+                        || suite.starts_with(',')
+                        || suite.starts_with('('));
+                est_variante.then_some(ident)
+            })
+            .collect()
+    }
+
+    /// Barrière SEC-02, niveau source — celle qui résiste aux attributs.
+    ///
+    /// Trois contrôles que ni `rename`, ni `skip`, ni un bras de `match` trompeur
+    /// ne peuvent contourner, parce qu'ils portent sur le texte que le relecteur
+    /// humain a sous les yeux.
+    #[test]
+    fn lenumeration_des_verbes_est_lisible_telle_quelle() {
+        let bloc = bloc_apres(SOURCE, "pub enum Verb");
+
+        // 1. Aucun renommage ni masquage sur les variantes ou leurs champs.
+        //    Le `rename_all` global, lui, est sur la ligne du type, hors du bloc.
+        assert!(
+            !bloc.contains("#[serde("),
+            "SEC-02 : un attribut serde dans le corps de `Verb` découple l'identifiant \
+             Rust du nom transporté. C'est précisément par là qu'un verbe interdit \
+             passe en se faisant appeler autrement. Retire-le."
+        );
+
+        // 2. `#[non_exhaustive]` désarmerait le `match` exhaustif dès que le type
+        //    quitte ce crate.
+        assert!(
+            !SOURCE.contains("#[non_exhaustive]\npub enum Verb"),
+            "SEC-02 : `#[non_exhaustive]` sur `Verb` autorise un bras `_` hors de ce \
+             crate, donc supprime la barrière de compilation."
+        );
+
+        // 3. Chaque identifiant déclaré a son bras dans `nom_du_verbe`, sous son
+        //    vrai nom. Un verbe ajouté ne peut donc être ni oublié, ni déguisé.
+        let variantes = variantes_declarees(&bloc);
+        assert!(
+            variantes.len() >= 7,
+            "extraction des variantes défaillante : {variantes:?}"
+        );
+        let arms = bloc_apres(SOURCE, "fn nom_du_verbe");
+        for v in &variantes {
+            assert!(
+                arms.contains(&format!("Verb::{v}")),
+                "SEC-02 : la variante « {v} » n'a pas de bras dans `nom_du_verbe`. \
+                 Ajoute-le, échantillonne le verbe, et ouvre son ADR."
+            );
+            for mot in mots_de_pascal_case(v) {
+                assert!(
+                    !INTERDITS.contains(&mot.as_str()),
+                    "SEC-02 violé : la variante « {v} » est nommée comme une primitive \
+                     d'exécution. Voir docs/04-MODELE-DE-MENACE.md § « verbes interdits »."
+                );
+            }
+        }
+    }
+
+    /// « RunCommand » → [« run », « command »].
+    fn mots_de_pascal_case(ident: &str) -> Vec<String> {
+        let mut mots = Vec::new();
+        let mut courant = String::new();
+        for c in ident.chars() {
+            if c.is_ascii_uppercase() && !courant.is_empty() {
+                mots.push(std::mem::take(&mut courant));
+            }
+            courant.push(c.to_ascii_lowercase());
+        }
+        if !courant.is_empty() {
+            mots.push(courant);
+        }
+        mots
+    }
+
+    /// Les mots qui trahissent une primitive d'exécution.
+    const INTERDITS: &[&str] = &[
+        "cmd",
+        "command",
+        "script",
+        "shell",
+        "exec",
+        "eval",
+        "powershell",
+        "run",
+        "invoke",
+        "spawn",
+        "process",
+    ];
+
     /// Tous les noms de verbes, tels que **serde** les connaît.
     ///
     /// On désérialise un verbe inexistant et on lit la liste des variantes attendues
@@ -208,19 +361,7 @@ mod tests {
     /// raccourci évident bruyant, pas de rendre la revue superflue.
     #[test]
     fn aucun_verbe_ne_transporte_dexecution_arbitraire() {
-        let interdits = [
-            "cmd",
-            "command",
-            "script",
-            "shell",
-            "exec",
-            "eval",
-            "powershell",
-            "run",
-            "invoke",
-            "spawn",
-            "process",
-        ];
+        let interdits = INTERDITS;
 
         let echantillons = vec![
             Verb::Scan { domain: None },
