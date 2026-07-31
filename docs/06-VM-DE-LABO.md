@@ -123,7 +123,8 @@ Copy-Item .\target\release\ks-broker.exe -Destination C:\ks\ -ToSession $s
 Copy-Item .\target\release\ks.exe        -Destination C:\ks\ -ToSession $s
 
 # 3. Exécuter et observer
-Invoke-Command -Session $s -ScriptBlock { C:\ks\ks.exe converge --dry-run }
+# Sans `--apply`, `converge` simule : c'est le comportement par défaut (P2).
+Invoke-Command -Session $s -ScriptBlock { C:\ks\ks.exe converge }
 
 # 4. Remettre à zéro
 .\scripts\lab-vm-reset.ps1

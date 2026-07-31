@@ -102,16 +102,42 @@ mécanismes répondent à cela, et aucun ne dépend de l'intégrité de la machi
 
 | Crate | Rôle | Plateforme | Privilège | État |
 |---|---|---|---|---|
-| `ks-core` | vocabulaire : `Item`, `Drift`, `Plan`, `Action`, `Snapshot`, `JournalEntry` | portable | aucun | ✅ 19 tests |
-| `ks-collectors` | collecte **lecture seule** | portable + extensions Windows | aucun | ✅ 4 tests, socle portable |
-| `ks-cli` | la CLI `ks`, surface de référence | Windows (et Linux pour le dev) | aucun | ✅ `scan`/`status`/`explain` |
-| `ks-broker` | service privilégié | **Windows uniquement** | élevé | 🔨 énumération des verbes + barrière de test |
-| `ks-agent-linux` | agent satellite | Linux musl | aucun | 🔨 scan local |
+| `ks-core` | vocabulaire : `Item`, `Drift`, `Plan`, `Action`, `Snapshot`, `JournalEntry` | portable | aucun | ✅ 23 tests, exécutés |
+| `ks-collectors` | collecte **lecture seule** | portable ; extensions Windows *à écrire* (Phase 0.2) | aucun | ✅ 5 tests, socle portable |
+| `ks-cli` | la CLI `ks`, surface de référence | Windows (et Linux pour le dev) | aucun | ✅ `scan`/`status`/`explain`, 4 tests |
+| `ks-broker` | service privilégié | Windows visé ; compile aussi ailleurs, sans effet | élevé | 🔨 verbes énumérés + barrière SEC-02, 2 tests — aucun verbe implémenté |
+| `ks-agent-linux` | agent satellite | Linux musl | aucun | 🔨 scan local, 0 test |
 
-## Les invariants portés par le typage
+**34 tests au total**, tous portables et tous exécutés — `cargo test --workspace`,
+`cargo clippy --workspace --all-targets -- -D warnings` et `cargo fmt --all --check`
+passent. Ce n'était pas le cas au premier commit : rien n'avait alors jamais été
+compilé, et les comptes annoncés étaient des déclarations.
+
+## Les invariants portés par le modèle
 
 Plutôt que par la relecture humaine — parce que la relecture humaine fatigue et que
 le compilateur, non.
+
+**Deux mécanismes distincts, et il faut les distinguer honnêtement.**
+
+*Rendus impossibles par le typage* — ces états ne se compilent pas. `Item.provenance`
+et `Item.observed_at` ne sont pas des `Option` : un item sans origine ni horodatage
+est inconstructible. `DriftStatus::Accepted` porte `reason`, `expires`, `decided_by`
+et `decided_at` en champs obligatoires : une exception sans motif ni date
+d'expiration n'existe pas. `Verb::AddDefenderExclusion` de même. `Snapshot` et
+`BackupSet` sont deux types sans conversion : on ne peut pas passer l'un pour
+l'autre, ce qui était l'angle mort de la première conception.
+
+*Vérifiés à l'exécution, et testés* — les fonctions du tableau ci-dessous renvoient
+un `Result` ; elles refusent, elles n'empêchent pas d'appeler. `Capabilities` est une
+structure de booléens, pas un typestate : rien dans le système de types n'oblige un
+futur exécuteur à consulter `ensure_appliable` avant d'écrire. C'est un contrôle
+d'admission, bien couvert par les tests — pas une garantie du compilateur.
+
+La distinction est sans conséquence aujourd'hui, puisqu'aucun exécuteur n'existe.
+Elle en aura une en Phase 2, et c'est le bon moment pour décider si ces invariants
+doivent migrer vers un typestate (`Plan<Simulated>` distinct de `Plan<Draft>`) ou
+rester des contrôles d'admission assumés.
 
 | Invariant | Où il vit |
 |---|---|

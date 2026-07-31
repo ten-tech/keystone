@@ -125,7 +125,7 @@ Pour que la validation YAML fonctionne, ajouter dans les réglages du workspace 
 ### Phase 0 — sur l'hôte, sans risque
 
 ```powershell
-cargo test --workspace          # 25 tests, tous portables
+cargo test --workspace          # 34 tests, tous portables
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p ks-cli -- scan
 cargo run -p ks-cli -- status
