@@ -56,6 +56,56 @@ pub enum Outcome {
     },
 }
 
+impl Actor {
+    /// Étiquette **stable** pour le matériau d'empreinte.
+    ///
+    /// Surtout pas `{:?}` : la documentation de `Debug` prévient que le format
+    /// dérivé n'est pas stable et peut changer d'une version de Rust à l'autre.
+    /// Une empreinte adossée à `Debug` rend invérifiable, après une simple montée
+    /// de compilateur, un journal déjà expédié hors machine — et « invérifiable »
+    /// est indiscernable de « falsifié ».
+    ///
+    /// Le `match` est exhaustif : ajouter un acteur oblige à décider son étiquette.
+    /// Ces valeurs **ne se renomment jamais** ; elles font partie du format.
+    #[must_use]
+    pub const fn etiquette_stable(&self) -> &'static str {
+        match self {
+            Self::Human(_) => "human",
+            Self::Scheduler => "scheduler",
+            Self::Copilot => "copilot",
+            Self::System => "system",
+        }
+    }
+}
+
+impl Outcome {
+    /// Étiquette stable du résultat. Même raison que [`Actor::etiquette_stable`].
+    #[must_use]
+    pub const fn etiquette_stable(&self) -> &'static str {
+        match self {
+            Self::Simulated => "simulated",
+            Self::Applied => "applied",
+            Self::Refused { .. } => "refused",
+            Self::RolledBack { .. } => "rolled-back",
+            Self::Failed { .. } => "failed",
+        }
+    }
+
+    /// La charge utile du résultat, vide pour les variantes qui n'en portent pas.
+    ///
+    /// Elle entre dans l'empreinte : sans elle, on pourrait changer le motif d'un
+    /// refus ou le test de fumée fautif sans casser la chaîne.
+    #[must_use]
+    pub fn detail_stable(&self) -> &str {
+        match self {
+            Self::Simulated | Self::Applied => "",
+            Self::Refused { reason } => reason,
+            Self::RolledBack { failed_test } => failed_test,
+            Self::Failed { detail } => detail,
+        }
+    }
+}
+
 /// Une entrée de journal. Écrite une fois, jamais modifiée.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JournalEntry {
@@ -124,16 +174,25 @@ impl JournalEntry {
             // Préfixe de longueur : rend le découpage non ambigu.
             material.push_str(&format!("{}:{s}", s.len()));
         };
+        // Étiquette de domaine et de version. Sans elle, une autre structure hachée
+        // un jour par le même schéma pourrait produire le matériau d'une entrée de
+        // journal. Elle change si le format change, ce qui rend la rupture visible
+        // au lieu d'être silencieuse.
+        champ("ks-journal-v1");
         champ(&self.seq.to_string());
         champ(&self.at.to_rfc3339());
-        champ(&format!("{:?}", self.actor));
+        champ(self.actor.etiquette_stable());
+        if let Actor::Human(nom) = &self.actor {
+            champ(nom);
+        }
         champ(&self.verb);
         champ(&self.target);
         champ(self.diff.as_deref().unwrap_or(""));
         // Distingue `Some("")` de `None` : sans ce marqueur, un diff vide et un
         // diff absent produiraient la même empreinte.
         champ(if self.diff.is_some() { "1" } else { "0" });
-        champ(&format!("{:?}", self.outcome));
+        champ(self.outcome.etiquette_stable());
+        champ(self.outcome.detail_stable());
         champ(&self.prev_digest);
 
         let mut h: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a — NON cryptographique
