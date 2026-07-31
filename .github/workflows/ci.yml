@@ -6,9 +6,31 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Le jeton par défaut ne sert qu'à lire le dépôt. Chaque job qui a besoin de
+# plus le déclare lui-même. Cohérence avec l'adversaire A4 du modèle de menace :
+# un workflow trop permissif est une surface de chaîne d'approvisionnement.
+permissions:
+  contents: read
+
+# Un push qui en remplace un autre annule le run devenu inutile.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
+  # PAS de `RUSTFLAGS: "-D warnings"` ici, et c'est délibéré.
+  #
+  # Cargo transmet RUSTFLAGS à TOUTES les crates, dépendances comprises : un
+  # simple `deprecated` chez un tiers ferait tomber toute la CI. Surtout, un
+  # `-D warnings` global transforme en erreur le `unsafe_code = "warn"` que
+  # docs/08-CONVENTIONS.md pose volontairement sur ks-collectors et ks-broker.
+  # La Phase 0.2 (TPM, Secure Boot, BitLocker) est entièrement faite d'appels
+  # `unsafe` au crate `windows` : la CI deviendrait rouge au premier bloc, et
+  # la voie de moindre résistance serait un `#![allow(unsafe_code)]` global —
+  # soit la neutralisation exacte du garde-fou.
+  #
+  # `-D warnings` reste appliqué à clippy, explicitement, sur NOTRE code seul.
 
 jobs:
   # ── Le socle portable ──────────────────────────────────────────────────
@@ -19,43 +41,47 @@ jobs:
     name: Socle portable (Linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # branche stable
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Format
         run: cargo fmt --all --check
 
+      # `--locked` : Cargo.lock est versionné, et la CI doit échouer s'il n'est
+      # plus à jour plutôt que de le réécrire en silence. Sur un projet qui
+      # livre un composant privilégié, une dépendance résolue à la volée est
+      # une dépendance non tracée.
       - name: Clippy — aucun avertissement toléré
-        run: cargo clippy -p ks-core -p ks-collectors -p ks-cli -p ks-agent-linux --all-targets -- -D warnings
+        run: cargo clippy --locked -p ks-core -p ks-collectors -p ks-cli -p ks-agent-linux --all-targets -- -D warnings
 
       - name: Tests
-        run: cargo test -p ks-core -p ks-collectors -p ks-cli -p ks-agent-linux
+        run: cargo test --locked -p ks-core -p ks-collectors -p ks-cli -p ks-agent-linux
 
       - name: La CLI répond
         run: |
-          cargo run -q -p ks-cli -- status
-          cargo run -q -p ks-cli -- scan --json > /dev/null
+          cargo run --locked -q -p ks-cli -- status
+          cargo run --locked -q -p ks-cli -- scan --json > /dev/null
 
   # ── La cible réelle du produit ─────────────────────────────────────────
   windows:
     name: Cible du produit (Windows, MSVC)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # branche stable
         with:
           targets: x86_64-pc-windows-msvc
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Clippy sur tout le workspace, broker compris
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       - name: Tests
-        run: cargo test --workspace
+        run: cargo test --locked --workspace
 
       # Cette étape n'est pas décorative : le test
       # `aucun_verbe_ne_transporte_dexecution_arbitraire` est une BARRIÈRE DE
@@ -63,34 +89,58 @@ jobs:
       # transportant une commande, un script ou un chemin d'exécutable — pour
       # que la discussion ait lieu avant la fusion, pas après l'incident.
       - name: Barrière SEC-02 — aucune exécution arbitraire dans l'API du broker
-        run: cargo test -p ks-broker aucun_verbe_ne_transporte_dexecution_arbitraire -- --exact --nocapture
+        shell: bash
+        run: |
+          # Le chemin de module `tests::` est obligatoire avec `--exact`. Sans lui,
+          # le filtre n'appariait AUCUN test : l'étape sortait en succès avec
+          # « 0 passed; 2 filtered out ». Un garde-fou vert qui ne s'exécute pas
+          # est pire qu'une absence de garde-fou — on lui fait confiance.
+          sortie=$(cargo test --locked -p ks-broker \
+            tests::aucun_verbe_ne_transporte_dexecution_arbitraire \
+            -- --exact --nocapture 2>&1)
+          echo "$sortie"
+          # Et on vérifie que la barrière a bel et bien tourné : c'est ce contrôle
+          # qui empêche de retomber dans le succès à vide.
+          echo "$sortie" | grep -q "^test result: ok\. 1 passed" || {
+            echo "::error::la barrière SEC-02 n'a pas été exécutée — filtre de test invalide"
+            exit 1
+          }
 
   # ── L'agent Linux, tel qu'il est livré ─────────────────────────────────
   agent-musl:
     name: Agent Linux (musl statique)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # branche stable
         with:
           targets: x86_64-unknown-linux-musl
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Compilation
-        run: cargo build -p ks-agent-linux --release --target x86_64-unknown-linux-musl
+        run: cargo build --locked -p ks-agent-linux --release --target x86_64-unknown-linux-musl
 
       - name: Vérifier que le binaire est bien statique
         run: |
           f=target/x86_64-unknown-linux-musl/release/ks-agent
           file "$f"
+          readelf -l "$f" | grep -E "INTERP|Requesting" || true
           # Un agent lié dynamiquement échouerait sur une distro à glibc trop
           # ancienne — et on ne le découvrirait que chez l'utilisateur.
-          if ldd "$f" 2>&1 | grep -qv "not a dynamic executable"; then
-            echo "::error::le binaire n'est pas statique"; exit 1
+          #
+          # Le critère est l'ABSENCE de segment PT_INTERP, pas la sortie de
+          # `ldd` : la cible musl de Rust produit aujourd'hui un static-PIE
+          # (ELF de type DYN), pour lequel `ldd` affiche « statically linked »
+          # et non « not a dynamic executable ». Tester la chaîne rejetterait
+          # donc un binaire parfaitement statique.
+          if readelf -l "$f" | grep -q "INTERP"; then
+            echo "::error::le binaire n'est pas statique (segment PT_INTERP présent)"
+            exit 1
           fi
+          echo "✓ aucun interpréteur de programme : binaire autonome"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ks-agent-musl
           path: target/x86_64-unknown-linux-musl/release/ks-agent
@@ -100,11 +150,15 @@ jobs:
     name: Schéma workstation.yaml
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-      - run: pip install jsonschema pyyaml
+      # `rfc3339-validator` n'est pas cosmétique : en Draft 2020-12, `format`
+      # est une simple annotation, et `jsonschema` ne vérifie `date-time` que si
+      # ce paquet est présent. Sans lui, `decidedAt` du bloc acceptedDrift
+      # passait sans contrôle alors que le job prétendait le valider.
+      - run: pip install jsonschema pyyaml rfc3339-validator
 
       # Attrape notamment les pièges de typage implicite de YAML 1.1 :
       # `expires: 2026-09-01` devient une date, `boost: off` devient false.
@@ -123,24 +177,62 @@ jobs:
           sys.exit(1 if errs else 0)
           EOF
 
+  # ── La version minimale annoncée est-elle vraie ? ──────────────────────
+  # `rust-version` dans Cargo.toml est une promesse faite aux contributeurs.
+  # Sans ce job, elle n'est vérifiée par personne : la valeur initiale (1.80)
+  # était fausse de cinq versions, et n'a été découverte qu'en compilant.
+  #
+  # `cargo +VERSION` est nécessaire : rust-toolchain.toml épingle « stable » et
+  # l'emporterait autrement sur la toolchain installée par l'action.
+  msrv:
+    name: Version minimale (MSRV)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@8641a17e25bf5b40c118d48fe0f81e8655731839 # branche 1.85.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Le workspace compile sur la MSRV déclarée
+        run: cargo +1.85.0 check --locked --workspace --all-targets
+
   # ── Chaîne d'approvisionnement ─────────────────────────────────────────
   # Sur un composant privilégié, chaque crate ajoutée est une surface ajoutée
   # (voir docs/04-MODELE-DE-MENACE.md, adversaire A4).
   audit:
     name: Audit des dépendances
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # L'action publie son résultat sous forme de « check run ». Elle n'ouvre
+      # d'issue que sur déclenchement `schedule`, que ce workflow n'a pas —
+      # `issues: write` serait donc une permission accordée pour rien.
+      checks: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── Licences, doublons, provenance ─────────────────────────────────────
+  # docs/08-CONVENTIONS.md § « Dépendances » prescrit `cargo deny check`.
+  # L'outil était demandé au développeur par scripts/dev-setup.ps1 sans qu'aucune
+  # configuration ne l'accompagne : il ne servait à rien. La configuration est
+  # maintenant dans deny.toml, à la racine.
+  deny:
+    name: Licences et provenance des dépendances
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          command: check
+          arguments: --all-features
 
   # ── Cohérence de la documentation ──────────────────────────────────────
   docs:
     name: Documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # « Un comportement non documenté est un défaut » : les documents cités
       # dans le README et l'index doivent exister.
@@ -152,8 +244,11 @@ jobs:
             docs/03-ARCHITECTURE.md docs/04-MODELE-DE-MENACE.md \
             docs/05-ENVIRONNEMENT-DE-DEV.md docs/06-VM-DE-LABO.md \
             docs/07-FEUILLE-DE-ROUTE.md docs/08-CONVENTIONS.md docs/09-GLOSSAIRE.md \
-            docs/adr/TEMPLATE.md design/tokens.css design/palette-validation.md \
-            design/keystone-cockpit.html schema/workstation.schema.json ; do
+            docs/adr/TEMPLATE.md docs/adr/0001-rust-pour-le-broker.md \
+            docs/adr/0002-grpc-sur-named-pipe.md docs/adr/0003-collecteurs-en-wasm.md \
+            design/tokens.css design/palette-validation.md \
+            design/keystone-cockpit.html schema/workstation.schema.json \
+            schema/examples/workstation.yaml SECURITY.md deny.toml ; do
             [ -f "$f" ] || { echo "::error::document manquant : $f"; manquants=1; }
           done
           exit $manquants
@@ -165,7 +260,13 @@ jobs:
       # condamner — la documentation en contient beaucoup, et c'est sain.
       - name: Vocabulaire proscrit
         run: |
-          hits=$(grep -rniE "détecte (toute|toutes) les? intrusion|optimise votre (PC|système|machine)|accélérateur de (RAM|mémoire)|nettoyeur de registre" \
+          # « détecte( \S+){0,2} intrusions? » et non « détecte (toute|toutes) les? intrusion » :
+          # l'ancien motif exigeait la séquence impossible « détecte toute LES intrusion »
+          # et ratait donc les deux formulations réelles — dont « Keystone détecte les
+          # intrusions », que docs/09-GLOSSAIRE.md désigne pourtant comme LA phrase
+          # à proscrire. Un garde-fou qui ne peut pas attraper son propre cas canonique
+          # est une étape verte de plus. Vérifié empiriquement sur les cinq tournures.
+          hits=$(grep -rniE "détecte( \S+){0,2} intrusions?|optimise votre (PC|système|machine)|accélérateur de (RAM|mémoire)|nettoyeur de registre" \
                    docs/ README.md 2>/dev/null \
                  | grep -viE "aucun|pas de|jamais|proscri|interdit|faux ami|refus|«|mensonge|dangereux" || true)
           if [ -n "$hits" ]; then
