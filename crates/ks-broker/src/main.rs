@@ -139,12 +139,73 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
 
+    /// Tous les noms de verbes, tels que **serde** les connaît.
+    ///
+    /// On désérialise un verbe inexistant et on lit la liste des variantes attendues
+    /// dans le message d'erreur. Cette liste est **générée par le derive
+    /// `Deserialize`** à partir de l'énumération : c'est la seule source de vérité
+    /// qui suive automatiquement toute variante ajoutée, sans dépendance
+    /// supplémentaire — et sur `ks-broker`, une crate de plus exigerait une ADR.
+    ///
+    /// C'est ce qui rend la barrière réellement exhaustive. Le `match` de
+    /// `nom_du_verbe` force à *nommer* une nouvelle variante ; il ne force pas à
+    /// l'échantillonner, et un bras trompeur (`RunCommand { .. } => "widget"`)
+    /// passerait. La liste ci-dessous, elle, contiendra « run-command » quoi qu'il
+    /// arrive.
+    fn noms_connus_de_serde() -> Vec<String> {
+        let err = serde_json::from_str::<Verb>(r#"{"verb":"__inexistant__"}"#)
+            .expect_err("un verbe inexistant doit être refusé")
+            .to_string();
+        let liste = err
+            .split("expected one of ")
+            .nth(1)
+            .expect("serde énumère les variantes attendues dans son message");
+        // Les noms sont encadrés d'accents graves : on garde un élément sur deux.
+        liste
+            .split('`')
+            .skip(1)
+            .step_by(2)
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// Recense toute variante de [`Verb`], de façon **exhaustive**.
+    ///
+    /// Le `match` n'a pas de bras `_ =>`, donc **ajouter une variante à `Verb`
+    /// casse la compilation** de ce fichier — et donc la CI — avant même qu'un test
+    /// s'exécute. Le contributeur est obligé de venir ici, ce qui est exactement
+    /// l'endroit où lire les quatre questions du modèle de menace.
+    ///
+    /// **Ce que ce `match` ne garantit pas**, et il faut le dire : il force à
+    /// *nommer* la variante, pas à l'échantillonner ni à la nommer honnêtement. Un
+    /// bras `Verb::RunCommand { .. } => "widget"` compile. C'est
+    /// `noms_connus_de_serde` qui ferme ce trou, en dérivant la liste réelle de
+    /// l'énumération elle-même.
+    fn nom_du_verbe(v: &Verb) -> &'static str {
+        match v {
+            Verb::Scan { .. } => "scan",
+            Verb::TakeSnapshot { .. } => "take-snapshot",
+            Verb::RestoreSnapshot { .. } => "restore-snapshot",
+            Verb::SetServiceStartup { .. } => "set-service-startup",
+            Verb::SetRegistryValue { .. } => "set-registry-value",
+            Verb::AddDefenderExclusion { .. } => "add-defender-exclusion",
+            Verb::Isolate => "isolate",
+        }
+    }
+
     /// Ce test est une **barrière de conception**, pas une vérification de comportement.
     ///
-    /// Il sérialise chaque verbe et vérifie qu'aucun ne transporte de champ dont le
-    /// nom évoque l'exécution de code arbitraire. C'est grossier, et c'est le but :
-    /// si quelqu'un ajoute `RunCommand`, la CI casse et la discussion a lieu avant
-    /// la fusion, pas après l'incident.
+    /// Il vérifie trois choses :
+    ///
+    /// 1. que tout verbe est recensé (via `nom_du_verbe`, exhaustif à la compilation) ;
+    /// 2. qu'aucun **nom de verbe** n'évoque l'exécution de code ;
+    /// 3. qu'aucun **champ** ne porte un nom qui l'évoque.
+    ///
+    /// Ce que ce test ne sait **pas** faire, et il faut le dire : il n'attrape pas un
+    /// verbe dangereux dont les noms seraient anodins — `RunScript { path }` passerait
+    /// le filtre, `path` étant légitimement employé par deux verbes existants. Aucun
+    /// test grossier ne remplacera la revue et l'ADR ; son rôle est de rendre le
+    /// raccourci évident bruyant, pas de rendre la revue superflue.
     #[test]
     fn aucun_verbe_ne_transporte_dexecution_arbitraire() {
         let interdits = [
@@ -155,6 +216,10 @@ mod tests {
             "exec",
             "eval",
             "powershell",
+            "run",
+            "invoke",
+            "spawn",
+            "process",
         ];
 
         let echantillons = vec![
@@ -184,8 +249,54 @@ mod tests {
             Verb::Isolate,
         ];
 
-        for verbe in echantillons {
-            let json = serde_json::to_string(&verbe).expect("verbe sérialisable");
+        // 1. Le nom de CHAQUE variante, y compris non échantillonnée, passe le
+        //    filtre. C'est le contrôle qui tient réellement : la liste vient de
+        //    serde, donc de l'énumération elle-même.
+        let mut connus = noms_connus_de_serde();
+        connus.sort();
+        for nom in &connus {
+            for mot in nom.split('-') {
+                assert!(
+                    !interdits.contains(&mot),
+                    "SEC-02 violé : le verbe « {nom} » est nommé comme une primitive \
+                     d'exécution. Voir docs/04-MODELE-DE-MENACE.md § « verbes interdits »."
+                );
+            }
+        }
+
+        // 2. Complétude : tout verbe que serde connaît doit être échantillonné, et
+        //    sous le même nom. Un bras trompeur du `match` (« widget » pour
+        //    RunCommand) fait diverger les deux listes, donc échouer ici.
+        let mut recenses: Vec<String> = echantillons
+            .iter()
+            .map(|v| nom_du_verbe(v).to_owned())
+            .collect();
+        recenses.sort();
+        recenses.dedup();
+        assert_eq!(
+            recenses, connus,
+            "la liste des verbes échantillonnés diverge de celle que serde dérive de \
+             l'énumération. Un verbe a été ajouté sans être échantillonné, ou son bras \
+             de `nom_du_verbe` ne porte pas son vrai nom. Corrige, puis ouvre l'ADR que \
+             docs/08-CONVENTIONS.md exige pour tout nouveau verbe."
+        );
+
+        for verbe in &echantillons {
+            let json = serde_json::to_string(verbe).expect("verbe sérialisable");
+
+            // 2. Le nom du verbe lui-même. `rename_all = "kebab-case"` produit des
+            //    tirets, que le filtre sur les clefs écarte : sans ce contrôle,
+            //    « run-command » n'était jamais examiné.
+            let nom = nom_du_verbe(verbe);
+            for mot in nom.split('-') {
+                assert!(
+                    !interdits.contains(&mot),
+                    "SEC-02 violé : le verbe « {nom} » est nommé comme une primitive \
+                     d'exécution. Voir docs/04-MODELE-DE-MENACE.md § « verbes interdits »."
+                );
+            }
+
+            // 3. Les noms de champs transportés.
             let clefs: Vec<&str> = json
                 .split('"')
                 .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_lowercase() || c == '_'))
