@@ -1,0 +1,77 @@
+# Configuration de cargo-deny.
+#
+# docs/08-CONVENTIONS.md § « Dépendances » et docs/04-MODELE-DE-MENACE.md § 7
+# prescrivent `cargo audit` et `cargo deny check`. L'outil était demandé au
+# développeur par scripts/dev-setup.ps1 sans qu'aucune configuration ne
+# l'accompagne : il ne servait donc à rien.
+#
+# La raison d'être de ce fichier tient en une phrase du modèle de menace :
+# sur `ks-broker`, chaque dépendance ajoutée est une surface ajoutée sur un
+# composant privilégié (adversaire A4, chaîne d'approvisionnement).
+#
+#   cargo deny check
+
+[graph]
+# On vérifie les cibles qu'on livre réellement, pas l'univers.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-musl",
+    "x86_64-unknown-linux-gnu",
+]
+all-features = true
+
+[advisories]
+version = 2
+# Une crate retirée de crates.io par son auteur est un signal, pas un détail.
+yanked = "deny"
+# Toute exception se documente ici, avec sa raison et la date de revue.
+# Une liste d'exceptions sans date pourrit en trois ans — même règle que D2-06.
+ignore = []
+
+[licenses]
+version = 2
+# Le projet est sous Apache-2.0. Ces licences sont compatibles avec une
+# redistribution binaire sans obligation de réciprocité virale.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "MPL-2.0",
+]
+confidence-threshold = 0.93
+
+# Une licence acceptée pour une crate précise se déclare ici, nommément.
+# Jamais par élargissement de la liste ci-dessus.
+exceptions = []
+
+[bans]
+# Deux versions de la même crate, c'est du poids de compilation et deux
+# surfaces à auditer au lieu d'une. Avertissement, pas refus : l'écosystème
+# Rust en produit légitimement pendant les transitions majeures.
+multiple-versions = "warn"
+# Une dépendance sans contrainte de version n'est pas reproductible.
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "all"
+
+# Rien n'est interdit nommément aujourd'hui. Quand ça le deviendra, la raison
+# s'écrit ici — et, s'il s'agit de `ks-broker`, dans une ADR.
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+# Une dépendance ne vient que de crates.io. Un dépôt git en dépendance est un
+# code non publié, non audité par l'index, et modifiable après coup.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
