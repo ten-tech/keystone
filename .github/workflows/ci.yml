@@ -95,9 +95,13 @@ jobs:
           # le filtre n'appariait AUCUN test : l'étape sortait en succès avec
           # « 0 passed; 2 filtered out ». Un garde-fou vert qui ne s'exécute pas
           # est pire qu'une absence de garde-fou — on lui fait confiance.
+          # `|| true` : `shell: bash` implique `set -e`, donc un échec de cargo
+          # interrompait l'étape AVANT le `echo`. Le jour où la barrière casse —
+          # le seul jour où cette étape sert — le contributeur voyait une étape
+          # rouge sans le message d'assertion qui lui dit quoi lire.
           sortie=$(cargo test --locked -p ks-broker \
             tests::aucun_verbe_ne_transporte_dexecution_arbitraire \
-            -- --exact --nocapture 2>&1)
+            -- --exact --nocapture 2>&1) || true
           echo "$sortie"
           # Et on vérifie que la barrière a bel et bien tourné : c'est ce contrôle
           # qui empêche de retomber dans le succès à vide.
@@ -268,7 +272,12 @@ jobs:
           # est une étape verte de plus. Vérifié empiriquement sur les cinq tournures.
           hits=$(grep -rniE "détecte( \S+){0,2} intrusions?|optimise votre (PC|système|machine)|accélérateur de (RAM|mémoire)|nettoyeur de registre" \
                    docs/ README.md 2>/dev/null \
-                 | grep -viE "aucun|pas de|jamais|proscri|interdit|faux ami|refus|«|mensonge|dangereux" || true)
+                 | grep -viE "aucun|pas de|jamais|proscri|interdit|faux ami|refus|mensonge|dangereux" || true)
+          # « » a été RETIRÉ de ce filtre inverse : les guillemets français sont la
+          # typographie imposée du projet, donc n'importe quelle phrase en contenant
+          # échappait au contrôle. Le garde-fou était désarmé par le style dans lequel
+          # la documentation est écrite. Les citations légitimes restent écartées par
+          # les mots qui les entourent (« faux ami », « dangereux », « jamais »…).
           if [ -n "$hits" ]; then
             echo "$hits"
             echo "::error::formulation proscrite — voir docs/09-GLOSSAIRE.md § Faux amis"
