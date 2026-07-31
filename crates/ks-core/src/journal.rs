@@ -79,27 +79,63 @@ pub struct JournalEntry {
     pub prev_digest: String,
 }
 
+/// Valeur de `prev_digest` attendue sur la toute première entrée d'un journal.
+///
+/// Sans ancre de départ, une troncature qui emporte le début de la chaîne laisse
+/// un journal parfaitement cohérent avec lui-même. Le premier maillon doit donc
+/// être reconnaissable.
+pub const GENESIS_DIGEST: &str = "genesis";
+
+/// Numéro de séquence de la toute première entrée.
+///
+/// L'ancre textuelle ne suffit pas : `GENESIS_DIGEST` est une constante publique
+/// et non secrète, donc n'importe quelle entrée peut se prétendre premier maillon.
+/// Sans contrainte sur le numéro, une entrée `seq: 42` portant cette ancre passait
+/// la vérification — c'est-à-dire exactement la troncature du début que l'ancrage
+/// prétend exclure.
+pub const GENESIS_SEQ: u64 = 1;
+
 impl JournalEntry {
     /// Empreinte de cette entrée, à reporter dans `prev_digest` de la suivante.
     ///
+    /// # Ce qui entre dans l'empreinte
+    ///
+    /// **Tous** les champs de l'entrée, `diff` et `outcome` compris. Ils en étaient
+    /// absents à l'origine, ce qui laissait réécrire un `Outcome::Failed` en
+    /// `Applied`, ou vider un `diff`, sans casser la chaîne — c'est-à-dire défaire
+    /// précisément ce que SEC-03 et SEC-04 prétendent garantir.
+    ///
+    /// Chaque champ est préfixé de sa longueur plutôt que séparé par `|` : sinon
+    /// deux entrées différentes peuvent produire le même matériau dès qu'une valeur
+    /// contient le séparateur, et une empreinte qu'on peut faire collisionner à la
+    /// main ne vaut rien, même avec BLAKE3 derrière.
+    ///
     /// # Note d'implémentation
     ///
-    /// L'implémentation ci-dessous est un **bouchon volontaire** : elle n'est pas
-    /// cryptographique. Le remplacement par BLAKE3 ou SHA-256 est la première tâche
-    /// de la Phase 1 (voir `docs/07-FEUILLE-DE-ROUTE.md`). Elle est laissée en
-    /// évidence plutôt que masquée : un faux chaînage qui *a l'air* solide serait
-    /// plus dangereux qu'un bouchon annoncé.
+    /// La fonction de hachage ci-dessous est un **bouchon volontaire** : elle n'est
+    /// pas cryptographique. Le remplacement par BLAKE3 est une tâche de la Phase 0.5
+    /// (voir `docs/07-FEUILLE-DE-ROUTE.md`). Elle est laissée en évidence plutôt que
+    /// masquée : un faux chaînage qui *a l'air* solide serait plus dangereux qu'un
+    /// bouchon annoncé.
     #[must_use]
     pub fn digest(&self) -> String {
-        let material = format!(
-            "{}|{}|{:?}|{}|{}|{}",
-            self.seq,
-            self.at.to_rfc3339(),
-            self.actor,
-            self.verb,
-            self.target,
-            self.prev_digest
-        );
+        let mut material = String::new();
+        let mut champ = |s: &str| {
+            // Préfixe de longueur : rend le découpage non ambigu.
+            material.push_str(&format!("{}:{s}", s.len()));
+        };
+        champ(&self.seq.to_string());
+        champ(&self.at.to_rfc3339());
+        champ(&format!("{:?}", self.actor));
+        champ(&self.verb);
+        champ(&self.target);
+        champ(self.diff.as_deref().unwrap_or(""));
+        // Distingue `Some("")` de `None` : sans ce marqueur, un diff vide et un
+        // diff absent produiraient la même empreinte.
+        champ(if self.diff.is_some() { "1" } else { "0" });
+        champ(&format!("{:?}", self.outcome));
+        champ(&self.prev_digest);
+
         let mut h: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a — NON cryptographique
         for b in material.as_bytes() {
             h ^= u64::from(*b);
@@ -109,8 +145,25 @@ impl JournalEntry {
     }
 
     /// Le chaînage est-il intact sur toute la séquence ?
+    ///
+    /// Vérifie trois choses, et pas seulement le maillon à maillon :
+    ///
+    /// * la séquence n'est pas vide — un journal absent n'est pas un journal valide ;
+    /// * la première entrée s'ancre sur [`GENESIS_DIGEST`] **et** porte [`GENESIS_SEQ`] ;
+    /// * chaque entrée suit la précédente en numéro **et** en empreinte.
+    ///
+    /// Les deux conditions d'ancrage comptent, et la seconde a été ajoutée après
+    /// coup : `windows(2)` renvoie `true` sur une séquence d'un élément, et
+    /// `GENESIS_DIGEST` est une constante publique que n'importe qui peut recopier.
+    /// Une entrée isolée `seq: 42` portant l'ancre passait donc la vérification.
     #[must_use]
     pub fn verify_chain(entries: &[Self]) -> bool {
+        let Some(first) = entries.first() else {
+            return false;
+        };
+        if first.prev_digest != GENESIS_DIGEST || first.seq != GENESIS_SEQ {
+            return false;
+        }
         entries.windows(2).all(|pair| {
             let (a, b) = (&pair[0], &pair[1]);
             b.seq == a.seq + 1 && b.prev_digest == a.digest()
@@ -158,13 +211,100 @@ mod tests {
 
     #[test]
     fn le_chainage_detecte_une_entree_manquante() {
-        let e1 = entry(1, "genesis");
+        let e1 = entry(1, GENESIS_DIGEST);
         let e2 = entry(2, &e1.digest());
         assert!(JournalEntry::verify_chain(&[e1.clone(), e2.clone()]));
 
         // On saute une entrée : la chaîne doit casser.
         let e4 = entry(4, &e2.digest());
         assert!(!JournalEntry::verify_chain(&[e1, e2, e4]));
+    }
+
+    #[test]
+    fn reecrire_le_resultat_casse_lempreinte() {
+        // Le scénario que le journal existe pour rendre impossible : un attaquant
+        // qui a agi, a échoué, et voudrait que la trace dise « appliqué ».
+        let honnete = JournalEntry {
+            outcome: Outcome::RolledBack {
+                failed_test: "smoke:db-migrate".into(),
+            },
+            ..entry(1, GENESIS_DIGEST)
+        };
+        let maquille = JournalEntry {
+            outcome: Outcome::Applied,
+            ..honnete.clone()
+        };
+
+        assert_ne!(
+            honnete.digest(),
+            maquille.digest(),
+            "le résultat doit entrer dans l'empreinte, sinon on peut transformer \
+             un échec en succès sans casser la chaîne"
+        );
+    }
+
+    #[test]
+    fn vider_le_diff_casse_lempreinte() {
+        let avec = JournalEntry {
+            diff: Some("services.Fax.startupType: Automatic → Disabled".into()),
+            ..entry(1, GENESIS_DIGEST)
+        };
+        let sans = JournalEntry {
+            diff: None,
+            ..avec.clone()
+        };
+        let vide = JournalEntry {
+            diff: Some(String::new()),
+            ..avec.clone()
+        };
+
+        assert_ne!(avec.digest(), sans.digest(), "le diff doit être couvert");
+        assert_ne!(
+            sans.digest(),
+            vide.digest(),
+            "« pas de diff » et « diff vide » ne disent pas la même chose"
+        );
+    }
+
+    #[test]
+    fn deux_entrees_differentes_ne_partagent_pas_une_empreinte() {
+        // Sans préfixe de longueur, un séparateur présent dans une valeur permet de
+        // déplacer la frontière entre deux champs et de fabriquer une collision.
+        let a = JournalEntry {
+            verb: "set-service".into(),
+            target: "Fax|extra".into(),
+            ..entry(1, GENESIS_DIGEST)
+        };
+        let b = JournalEntry {
+            verb: "set-service|Fax".into(),
+            target: "extra".into(),
+            ..entry(1, GENESIS_DIGEST)
+        };
+        assert_ne!(a.digest(), b.digest());
+    }
+
+    #[test]
+    fn un_journal_tronque_a_son_debut_est_refuse() {
+        // `windows(2)` seul est vrai sur une séquence d'un élément : un journal
+        // réduit à sa dernière entrée passait la vérification sans rien prouver.
+        let orpheline = entry(42, "fnv1a-stub:0000000000000000");
+        assert!(
+            !JournalEntry::verify_chain(&[orpheline]),
+            "une entrée dont le prédécesseur a disparu n'ancre rien"
+        );
+
+        // Le cas réellement dangereux : l'ancre textuelle est publique, donc
+        // recopiable. Sans contrainte sur le numéro de séquence, cette entrée
+        // passait — et c'est précisément la troncature du début.
+        assert!(
+            !JournalEntry::verify_chain(&[entry(42, GENESIS_DIGEST)]),
+            "porter l'ancre de genèse ne suffit pas : il faut aussi en avoir le numéro"
+        );
+        assert!(
+            !JournalEntry::verify_chain(&[]),
+            "un journal vide n'est pas un journal valide"
+        );
+        assert!(JournalEntry::verify_chain(&[entry(1, GENESIS_DIGEST)]));
     }
 
     #[test]
