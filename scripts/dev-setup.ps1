@@ -32,15 +32,46 @@ $script:Manquants = @()
 # précédé de deux espaces, « [opt] » d'aucun, et la colonne des valeurs variait
 # d'un bloc à l'autre. Un alignement recopié dérive toujours.
 
-$script:Marge     = 2   # espaces avant l'état
-$script:ColEtat   = 7   # « [ok]   », « [opt]  », « [abs]  »
-$script:ColNom    = 24
-$script:ColValeur = $script:Marge + $script:ColEtat + $script:ColNom
+# La console sait-elle rendre les glyphes fins ? On ne le suppose pas : on
+# éprouve l'encodage de sortie par un aller-retour. Une console en page de codes
+# héritée remplacerait « ✓ » par « ? » — mieux vaut un jeu ASCII assumé qu'un
+# rendu abîmé.
+function Test-GlyphesFins {
+    try {
+        $e = [Console]::OutputEncoding
+        return $e.GetString($e.GetBytes('✓·─')) -eq '✓·─'
+    } catch { return $false }
+}
+$script:Fin = Test-GlyphesFins
 
+$script:Glyphe = if ($script:Fin) {
+    @{ ok = '✓'; opt = '·'; abs = '✗'; filet = '─'; sep = ' · '; puce = '·' }
+} else {
+    @{ ok = '+'; opt = '-'; abs = 'x'; filet = '-'; sep = ', ';  puce = '-' }
+}
+
+$script:Marge     = 2                    # marge de page
+$script:Retrait   = 4                    # les items sont en retrait sous leur section
+$script:ColEtat   = 3                    # glyphe + deux espaces
+$script:ColNom    = 22
+$script:Largeur   = 78
+$script:ColValeur = $script:Retrait + $script:ColEtat + $script:ColNom
+
+# Un intitulé de section suivi d'un filet qui court jusqu'au bord. C'est la
+# transposition en terminal du « filet de 2 px » du brief de design : on cadre
+# sans encadrer, on sépare sans bannière.
 function Write-Section {
-    param([Parameter(Mandatory)] [string] $Titre)
+    # Titre vide accepté : le même filet sert alors de séparation avant le verdict.
+    param([string] $Titre = '')
     Write-Host ''
-    Write-Host ((' ' * $script:Marge) + $Titre) -ForegroundColor White
+    if ($Titre) {
+        $reste = [Math]::Max(0, $script:Largeur - $script:Marge - $Titre.Length - 1)
+        Write-Host ((' ' * $script:Marge) + $Titre + ' ') -NoNewline -ForegroundColor Gray
+        Write-Host ($script:Glyphe.filet * $reste) -ForegroundColor DarkGray
+    } else {
+        $reste = [Math]::Max(0, $script:Largeur - $script:Marge)
+        Write-Host ((' ' * $script:Marge) + ($script:Glyphe.filet * $reste)) -ForegroundColor DarkGray
+    }
 }
 
 function Write-Ligne {
@@ -50,12 +81,12 @@ function Write-Ligne {
         [string] $Valeur = ''
     )
     switch ($Etat) {
-        'ok'  { $marque = '[ok]'; $couleur = 'Green'  }
-        'opt' { $marque = '[opt]'; $couleur = 'Yellow' }
-        'abs' { $marque = '[abs]'; $couleur = 'Red'    }
+        'ok'  { $couleur = 'Green'  }
+        'opt' { $couleur = 'DarkYellow' }
+        'abs' { $couleur = 'Red'    }
     }
-    $prefixe = (' ' * $script:Marge) + $marque.PadRight($script:ColEtat)
-    Write-Host ($prefixe + $Nom.PadRight($script:ColNom)) -NoNewline -ForegroundColor $couleur
+    Write-Host ((' ' * $script:Retrait) + $script:Glyphe[$Etat].PadRight($script:ColEtat)) -NoNewline -ForegroundColor $couleur
+    Write-Host $Nom.PadRight($script:ColNom) -NoNewline -ForegroundColor Gray
     Write-Host $Valeur -ForegroundColor DarkGray
 }
 
@@ -98,16 +129,10 @@ function Test-Outil {
     return $false
 }
 
-# Largeur de la règle : la colonne des valeurs plus de quoi loger la plus longue
-# d'entre elles. Une seule constante, pour que le trait du bas et celui du haut
-# ne divergent jamais.
-$script:Largeur = $script:ColValeur + 46
-
 Write-Host ''
 Write-Host ((' ' * $script:Marge) + 'KEYSTONE') -NoNewline -ForegroundColor Cyan
-Write-Host ' · vérification de l''environnement de développement' -ForegroundColor Gray
-Write-Host ((' ' * $script:Marge) + 'Ce script ne modifie rien : il constate et rapporte.') -ForegroundColor DarkGray
-Write-Host ((' ' * $script:Marge) + ('─' * $script:Largeur)) -ForegroundColor DarkGray
+Write-Host ('  vérification de l''environnement de développement') -ForegroundColor DarkGray
+Write-Host ((' ' * $script:Marge) + 'Ce script ne modifie rien : il constate, il rapporte.') -ForegroundColor DarkGray
 
 # ─── Chaîne Rust ───────────────────────────────────────────────────────────
 Write-Section 'Chaîne Rust'
@@ -116,22 +141,35 @@ Test-Outil -Nom 'cargo'   -Commande 'cargo'   -Installation 'winget install Rust
 Test-Outil -Nom 'rustup'  -Commande 'rustup'  -Installation 'winget install Rustlang.Rustup' | Out-Null
 
 if (Get-Command rustup -ErrorAction SilentlyContinue) {
-    $cibles = rustup target list --installed
-    foreach ($cible in @('x86_64-pc-windows-msvc', 'x86_64-unknown-linux-musl')) {
-        if ($cibles -contains $cible) {
-            Write-Ligne -Etat 'ok' -Nom 'cible' -Valeur $cible
-        } else {
-            Write-Ligne -Etat 'abs' -Nom 'cible' -Valeur ('rustup target add ' + $cible)
-            $script:Manquants += ('cible ' + $cible)
-        }
+    # Une ligne par famille plutôt qu'une par élément : quatre lignes pour dire
+    # « tout est là » est du remplissage. Ce qui manque, en revanche, mérite sa
+    # propre ligne et sa commande d'installation.
+    $installees = rustup target list --installed
+    $attendues  = @('x86_64-pc-windows-msvc', 'x86_64-unknown-linux-musl')
+    $presentes  = @($attendues | Where-Object { $installees -contains $_ })
+    $absentes   = @($attendues | Where-Object { $installees -notcontains $_ })
+    if ($presentes) {
+        Write-Ligne -Etat 'ok' -Nom 'cibles' -Valeur ($presentes -join $script:Glyphe.sep)
     }
-    foreach ($c in @('rustfmt', 'clippy')) {
-        if ((rustup component list --installed) -match $c) {
-            Write-Ligne -Etat 'ok' -Nom 'composant' -Valeur $c
-        } else {
-            Write-Ligne -Etat 'abs' -Nom 'composant' -Valeur ('rustup component add ' + $c)
-            $script:Manquants += ('composant ' + $c)
-        }
+    foreach ($c in $absentes) {
+        Write-Ligne -Etat 'abs' -Nom 'cible' -Valeur ('rustup target add ' + $c)
+        $script:Manquants += ('cible ' + $c)
+    }
+
+    # `$composants -notmatch $c` sur un TABLEAU renvoie les éléments qui ne
+    # correspondent pas — donc une liste non vide, donc vraie. Les deux filtres
+    # passaient ensemble, et chaque composant s'affichait présent ET absent.
+    # On teste donc la présence d'au moins un élément, pas la véracité de -match.
+    $composants = rustup component list --installed
+    $attendus   = @('rustfmt', 'clippy')
+    $ok = @($attendus | Where-Object { $n = $_; @($composants | Where-Object { $_ -like "$n*" }).Count -gt 0 })
+    $ko = @($attendus | Where-Object { $n = $_; @($composants | Where-Object { $_ -like "$n*" }).Count -eq 0 })
+    if ($ok) {
+        Write-Ligne -Etat 'ok' -Nom 'composants' -Valeur ($ok -join $script:Glyphe.sep)
+    }
+    foreach ($c in $ko) {
+        Write-Ligne -Etat 'abs' -Nom 'composant' -Valeur ('rustup component add ' + $c)
+        $script:Manquants += ('composant ' + $c)
     }
 }
 
@@ -238,28 +276,39 @@ if ($lp.LongPathsEnabled -eq 1) {
 }
 
 # ─── Verdict ───────────────────────────────────────────────────────────────
-# Un écran calme est la récompense : quand tout va bien, on le dit en une ligne
-# et on s'arrête. Le détail ne s'impose que lorsqu'il manque quelque chose.
-$marge = ' ' * $script:Marge
-Write-Host ''
-Write-Host ($marge + ('─' * $script:Largeur)) -ForegroundColor DarkGray
+# « Le calme est la fonctionnalité » : quand tout va bien, on le dit en une
+# ligne et on s'arrête. Le détail ne s'impose que lorsqu'il manque quelque chose.
+# `$decalage` et non `$marge` : PowerShell est INSENSIBLE À LA CASSE sur les noms
+# de variables, donc au niveau du script `$marge` EST `$script:Marge`. Écrire
+# `$marge = ' ' * $script:Marge` remplaçait le nombre 2 par la chaîne « ␣␣ », et
+# tout calcul de largeur ultérieur tombait à zéro — le filet final partait alors
+# de la colonne 0. Même famille de piège que la réassignation de `$args`.
+$decalage = ' ' * $script:Marge
+Write-Section ''
 
 if ($script:Manquants.Count -eq 0) {
-    Write-Host ($marge + 'Environnement complet.') -ForegroundColor Green
+    Write-Host ($decalage + $script:Glyphe.ok + '  Environnement complet.') -ForegroundColor Green
     Write-Host ''
-    Write-Host ($marge + 'Prochaine étape — la Phase 0 est en LECTURE SEULE, aucun risque :') -ForegroundColor Gray
+    Write-Host ($decalage + 'La Phase 0 est en LECTURE SEULE — rien n''est écrit sur la machine.') -ForegroundColor DarkGray
     foreach ($cmd in @('cargo test --workspace',
                        'cargo run -p ks-cli -- scan',
                        'cargo run -p ks-cli -- status')) {
-        Write-Host ($marge + '  ' + $cmd) -ForegroundColor Cyan
+        Write-Host ($decalage + '  ') -NoNewline
+        Write-Host $script:Glyphe.puce -NoNewline -ForegroundColor DarkGray
+        Write-Host (' ' + $cmd) -ForegroundColor Cyan
     }
 } else {
-    $n = $script:Manquants.Count
+    $n   = $script:Manquants.Count
     $mot = if ($n -gt 1) { 'éléments requis manquants' } else { 'élément requis manquant' }
-    Write-Host ($marge + "$n $mot :") -ForegroundColor Red
-    $script:Manquants | ForEach-Object { Write-Host ($marge + '  · ' + $_) -ForegroundColor Red }
+    Write-Host ($decalage + $script:Glyphe.abs + "  $n $mot") -ForegroundColor Red
     Write-Host ''
-    Write-Host ($marge + 'Les commandes d''installation sont indiquées ci-dessus.') -ForegroundColor DarkGray
-    Write-Host ($marge + 'Détail complet : docs/05-ENVIRONNEMENT-DE-DEV.md') -ForegroundColor DarkGray
+    foreach ($m in $script:Manquants) {
+        Write-Host ($decalage + '  ') -NoNewline
+        Write-Host $script:Glyphe.puce -NoNewline -ForegroundColor DarkGray
+        Write-Host (' ' + $m) -ForegroundColor Red
+    }
+    Write-Host ''
+    Write-Host ($decalage + 'Les commandes d''installation sont indiquées ci-dessus.') -ForegroundColor DarkGray
+    Write-Host ($decalage + 'Détail complet : docs/05-ENVIRONNEMENT-DE-DEV.md') -ForegroundColor DarkGray
 }
 Write-Host ''
