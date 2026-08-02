@@ -99,6 +99,29 @@ winget install Git.Git Microsoft.VisualStudioCode
 Ce script **ne modifie rien** : il vérifie et rapporte. C'est cohérent avec le
 principe P2 du projet — même les scripts de développement montrent avant de faire.
 
+Il tourne sur **Windows PowerShell 5.1**, celui présent sur toute machine Windows.
+C'est délibéré : un script d'amorçage qui exigerait PowerShell 7 ne pourrait pas
+s'exécuter tant que l'outillage est incomplet, c'est-à-dire précisément quand on en
+a besoin. PowerShell 7 figure donc parmi ce qu'il **contrôle**, pas parmi ce qu'il
+exige — il reste recommandé pour le confort interactif.
+
+> **Encodage.** Les scripts sont en UTF-8 **avec BOM**. Sans lui, PowerShell 5.1 les
+> lit comme de l'ANSI : les accents et les tirets cadratin deviennent du charabia, et
+> le script ne compile même plus. `.editorconfig` impose `charset = utf-8-bom` sur
+> les `.ps1` pour cette raison.
+
+### Hyper-V : ce que le script constate, et ce que ça veut dire
+
+Un hyperviseur peut tourner sur ta machine sans que le rôle Hyper-V soit installé :
+WSL2 et Docker Desktop s'appuient sur la « plateforme de machine virtuelle », qui
+suffit à leurs besoins mais **pas à créer une VM de labo**.
+
+Le script distingue les deux cas. Sans élévation, il s'appuie sur la présence du
+module de gestion (`Get-VM`), qui n'est livré qu'avec le rôle complet.
+
+Un Hyper-V absent n'est pas un problème avant la **Phase 2** : les phases 0 et 1
+n'écrivent rien et tournent sans risque sur la machine principale.
+
 ## Extensions VS Code utiles
 
 | Extension | Pourquoi |
