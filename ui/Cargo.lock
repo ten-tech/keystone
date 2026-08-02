@@ -1833,6 +1833,7 @@ dependencies = [
  "chrono",
  "ks-cli",
  "ks-collectors",
+ "ks-core",
  "serde",
  "serde_json",
  "tauri",

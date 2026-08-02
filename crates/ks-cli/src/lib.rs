@@ -15,6 +15,11 @@
 //! autre client : `use ks_cli::rapport;`. Il n'existe donc qu'un seul chemin de
 //! code, et un seul jeu de tests.
 //!
+//! Le module [`lisible`] suit la même règle pour une raison plus discrète : la
+//! CLI et la coque affichent les mêmes tailles de disque. Deux formateurs
+//! écrits séparément finissent par en afficher deux, et le jour où ça arrive,
+//! on ne sait plus lequel croire.
+//!
 //! ## Ce que cette bibliothèque n'expose pas
 //!
 //! Le magasin du journal reste privé au binaire. Il ouvre une base SQLite en
@@ -24,4 +29,5 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod lisible;
 pub mod rapport;

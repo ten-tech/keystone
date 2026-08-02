@@ -155,6 +155,28 @@ cargo run -p ks-cli -- status
 cargo run -p ks-cli -- explain inventory.cpu.cores
 ```
 
+### La coque de bureau
+
+`ui/` est un **workspace séparé** (ADR-0012) : il ne profite d'aucune des commandes
+ci-dessus et porte les siennes. Les trois mêmes, depuis `ui/` :
+
+```powershell
+cd ui
+cargo test --workspace          # 21 tests, dont les barrières du poste de pilotage
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all --check
+cargo run -p ks-ui              # ouvre la fenêtre, collecte, affiche
+```
+
+Le frontend vit dans `ui/ks-ui/web/`. Deux choses à savoir avant d'y toucher :
+
+- **aucune valeur ne s'écrit dans le balisage.** Les emplacements portent
+  `data-mesure` et restent vides ; `app.js` les remplit depuis le pont, ou écrit
+  « non relevé ». Un chiffre laissé dans `index.html` fait échouer la suite ;
+- **les couleurs et les piles de polices sont recopiées de `design/tokens.css`**,
+  et une étape de CI compare les deux. Une teinte substituée à l'œil casse la CI,
+  ce qui est le but.
+
 ### L'agent Linux
 
 ```powershell

@@ -513,28 +513,48 @@ jobs:
       # `--font-tight`, `--font-mono` : mêmes valeurs, deux noms, aucun des
       # deux fichiers ne pouvant servir de référence à l'autre. Une barrière
       # trop étroite laisse passer la variante du défaut qu'elle vise.
-      - name: Les maquettes ne dérivent pas de design/tokens.css
+      #
+      # LA COQUE EST DÉSORMAIS COUVERTE, et c'est le vrai enjeu. Tant que
+      # `ks-ui` n'affichait qu'un rapport, sa feuille de style tenait en
+      # quelques règles. Depuis qu'elle porte le poste de pilotage, elle
+      # recopie la moitié des tokens : c'est le troisième endroit du dépôt où
+      # la même couleur est écrite, donc le troisième endroit où elle peut
+      # dériver — et le seul des trois que l'utilisateur voit tous les jours.
+      #
+      # Les guillemets doubles sont acceptés au même titre que les simples :
+      # `"Inter"` et `'Inter'` désignent la même police, et refuser l'un des
+      # deux aurait fait passer les piles de la coque à travers le contrôle
+      # sans qu'aucune erreur ne le signale — une barrière qui ne regarde pas
+      # est pire qu'une barrière absente.
+      - name: Les maquettes et la coque ne dérivent pas de design/tokens.css
         run: |
           divergences=0
           verifies=0
-          for maquette in design/*.html; do
+          # Le rapport HTML porte lui aussi une copie des jetons, dans une
+          # constante Rust. C'était le TROISIÈME exemplaire, et le seul que ce
+          # contrôle ne lisait pas — il divergeait déjà (`--font-mono` y avait
+          # gagné 'Cascadia Mono'). Le motif de `grep` ne dépend pas de la
+          # syntaxe du fichier, seulement de la forme `--nom: valeur;`, donc
+          # rien n'empêchait de l'y appliquer.
+          for source in design/*.html ui/ks-ui/web/*.css ui/ks-ui/web/*.html                         crates/ks-cli/src/rapport.rs; do
+            [ -e "$source" ] || continue
             while IFS='|' read -r nom valeur; do
               [ -z "$nom" ] && continue
               ref=$(grep -oE "^\s*${nom}\s*:\s*[^;]+;" design/tokens.css \
                     | head -1 | sed -E 's/.*:\s*//; s/\s*;$//')
               [ -z "$ref" ] && continue
               verifies=$((verifies + 1))
-              # Comparaison insensible à la casse ET aux espaces : `#EC5950`
-              # vaut `#ec5950`, et `'Inter', system-ui` vaut
-              # `'Inter',system-ui`. Ni l'un ni l'autre n'est une divergence,
+              # Comparaison insensible à la casse, aux espaces ET au style de
+              # guillemets : `#EC5950` vaut `#ec5950`, `'Inter', system-ui`
+              # vaut `"Inter",system-ui`. Aucun des trois n'est une divergence,
               # et les signaler en serait une, de fausse.
-              norme_a=$(echo "$valeur" | tr 'A-Z' 'a-z' | tr -d '[:space:]')
-              norme_b=$(echo "$ref"    | tr 'A-Z' 'a-z' | tr -d '[:space:]')
+              norme_a=$(echo "$valeur" | tr 'A-Z' 'a-z' | tr -d '[:space:]' | tr -d "'\"")
+              norme_b=$(echo "$ref"    | tr 'A-Z' 'a-z' | tr -d '[:space:]' | tr -d "'\"")
               if [ "$norme_a" != "$norme_b" ]; then
-                echo "::error file=$maquette::$nom vaut $valeur ici et $ref dans design/tokens.css"
+                echo "::error file=$source::$nom vaut $valeur ici et $ref dans design/tokens.css"
                 divergences=1
               fi
-            done <<< "$(grep -oE "^\s*--[a-z0-9-]+\s*:\s*(#[0-9A-Fa-f]{3,8}|'[^;]+)\s*;" "$maquette" \
+            done <<< "$(grep -oE "^\s*--[a-z0-9-]+\s*:\s*(#[0-9A-Fa-f]{3,8}|['\"][^;]+)\s*;" "$source" \
                         | sed -E 's/^\s*//; s/\s*;$//; s/\s*:\s*/|/')"
           done
           if [ "$verifies" -eq 0 ]; then

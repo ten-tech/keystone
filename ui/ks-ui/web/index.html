@@ -3,88 +3,799 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Keystone — état de la machine</title>
+    <title>Keystone — poste de pilotage</title>
     <!--
       Aucune ressource réseau : ni CDN, ni police distante, ni script tiers
       (principe P5, « Local, point final »). Les deux fichiers ci-dessous sont
       embarqués dans l'exécutable ; l'application s'ouvre hors ligne.
+
+      LA RÈGLE DE CET ÉCRAN : aucun nombre affiché n'est écrit ici.
+
+      Tout emplacement de valeur porte `data-mesure` et reste VIDE dans ce
+      fichier. Il est rempli par app.js à partir de ce que le processus Rust a
+      réellement relevé, ou marqué « non relevé ». Le test
+      `aucun_chiffre_de_mesure_nest_ecrit_dans_le_balisage` en fait une
+      barrière : écrire une valeur entre ces balises fait échouer la suite.
+
+      Le balisage, la navigation et le style viennent de la maquette du poste
+      de pilotage, rangée dans design/, qui reste la maquette de conception.
+      Ses CHIFFRES, eux, n'ont pas suivi : ils décrivent une machine qui
+      n'existe pas.
     -->
     <link rel="stylesheet" href="app.css" />
   </head>
   <body data-state="collecting">
-    <!--
-      Le bandeau cadre la fenêtre depuis les bords ; le rapport, lui, garde sa
-      propre colonne centrée à l'intérieur du cadre. Les deux ne partagent
-      jamais le même conteneur.
-    -->
-    <header class="bar">
-      <p class="bar-state" id="state-line" role="status" aria-live="polite">
-        Collecte en cours
-      </p>
-      <button type="button" class="btn" id="recollect">Relancer la collecte</button>
-    </header>
-
-    <main class="stage">
-      <section class="panel" id="waiting" aria-labelledby="waiting-title">
-        <!--
-          L'anneau tourne, il ne mesure rien : il n'existe pas de pourcentage
-          honnête à afficher tant que les collecteurs n'annoncent pas leur
-          avancement. Le seul chiffre montré est le temps réellement écoulé.
-        -->
-        <div class="ring" aria-hidden="true"></div>
-        <h1 id="waiting-title">Lecture de l'état de la machine</h1>
-        <p class="lede">
-          Keystone interroge le registre, WMI et les bases de suivi de winget.
-          La lecture demande environ 3 secondes sur ce poste.
-        </p>
-        <p class="elapsed" id="elapsed">Temps écoulé : 0 s</p>
-        <p class="foot">
-          Lecture seule : aucune écriture système n'a lieu pendant la collecte.
-        </p>
-      </section>
-
-      <section class="panel" id="failure" aria-labelledby="failure-title">
-        <!--
-          Icône ET libellé : l'état ne passe jamais par la seule couleur, ni par
-          le seul pictogramme. Zéro émoji dans l'interface produit.
-        -->
-        <svg
-          class="glyph"
-          viewBox="0 0 24 24"
-          width="28"
-          height="28"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.6"
-          stroke-linecap="round"
-          aria-hidden="true"
+    <!-- ══ Le poste de pilotage ══════════════════════════════════════════ -->
+    <div class="app" id="app">
+      <header class="topbar">
+        <p class="brand"><span class="mk" aria-hidden="true"></span>Keystone</p>
+        <button
+          type="button"
+          class="fold"
+          id="fold"
+          aria-expanded="true"
+          aria-controls="rail"
+          aria-label="Replier le rail de navigation"
+          title="Replier le rail (Ctrl+B)"
         >
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 7.5v5.5" />
-          <path d="M12 16.4v.2" />
-        </svg>
-        <h1 id="failure-title">La lecture de l'état ne s'est pas terminée</h1>
-        <p class="lede" id="failure-message"></p>
-        <p class="foot">
-          Rien n'a été écrit sur la machine. « Relancer la collecte » reprend la
-          lecture depuis le début.
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            aria-hidden="true"
+          >
+            <rect x="3" y="4.5" width="18" height="15" rx="2" />
+            <path d="M9.5 4.5v15" />
+            <path d="M14 9.5 16.5 12 14 14.5" />
+          </svg>
+        </button>
+        <p class="machine">
+          <b data-mesure="machine.name"></b>
+          <span class="sep" aria-hidden="true">·</span>
+          <span data-mesure="inventory.os.name"></span>
         </p>
-        <p class="detail" id="failure-detail"></p>
-      </section>
+        <span class="spacer"></span>
+        <p class="readonly">Lecture seule</p>
+        <button type="button" class="btn btn-bar" id="relire">Relire l'état</button>
+        <button type="button" class="cmdk" id="open-palette">
+          Rechercher un item ou un écran
+          <span class="kbd">Ctrl+K</span>
+        </button>
+      </header>
 
+      <nav class="rail" id="rail" aria-label="Navigation principale">
+        <p class="rail-label" id="rail-etat">L'état</p>
+        <button
+          type="button"
+          class="nav"
+          data-view="overview"
+          data-cli="ks status"
+          aria-current="page"
+        >
+          <svg
+            class="ic"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="9" />
+            <circle cx="12" cy="12" r="3.2" />
+          </svg>
+          <span class="lbl">Vue d'ensemble</span>
+        </button>
+        <button
+          type="button"
+          class="nav"
+          data-view="security"
+          data-cli="ks scan --domain security"
+        >
+          <svg
+            class="ic"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            aria-hidden="true"
+          >
+            <path d="M12 3l7 3v6c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3z" />
+          </svg>
+          <span class="lbl">Sécurité</span>
+          <span class="tag" data-mesure="security.total"></span>
+        </button>
+        <button type="button" class="nav" data-view="drift" data-cli="ks diff">
+          <svg
+            class="ic"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            aria-hidden="true"
+          >
+            <path d="M4 7h16M4 12h9M4 17h13" />
+          </svg>
+          <span class="lbl">Dérive</span>
+          <span class="tag tag-muet">sans objet</span>
+        </button>
+        <button
+          type="button"
+          class="nav"
+          data-view="updates"
+          data-cli="ks plan updates"
+        >
+          <svg
+            class="ic"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            aria-hidden="true"
+          >
+            <path d="M12 4v10m0 0 4-4m-4 4-4-4M5 19h14" />
+          </svg>
+          <span class="lbl">Mises à jour</span>
+          <span class="tag tag-muet">non collecté</span>
+        </button>
+
+        <p class="rail-label">L'inventaire</p>
+        <button
+          type="button"
+          class="nav"
+          data-view="machine"
+          data-cli="ks scan --domain inventory"
+        >
+          <svg
+            class="ic"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            aria-hidden="true"
+          >
+            <rect x="3" y="5" width="18" height="12" rx="2" />
+            <path d="M8 21h8" />
+          </svg>
+          <span class="lbl">Machine</span>
+        </button>
+        <button
+          type="button"
+          class="nav"
+          data-view="software"
+          data-cli="ks scan --domain inventory"
+        >
+          <svg
+            class="ic"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            aria-hidden="true"
+          >
+            <path d="M4 7.5 12 3.5l8 4v9l-8 4-8-4z" />
+            <path d="M4 7.5 12 11.5l8-4M12 11.5V20" />
+          </svg>
+          <span class="lbl">Logiciels</span>
+          <span class="tag" data-mesure="inventory.software.total"></span>
+        </button>
+        <button
+          type="button"
+          class="nav"
+          data-view="space"
+          data-cli="ks scan --domain space"
+        >
+          <svg
+            class="ic"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            aria-hidden="true"
+          >
+            <rect x="3" y="5" width="18" height="14" rx="2" />
+            <path d="M3 10h18" />
+          </svg>
+          <span class="lbl">Espace</span>
+          <span class="tag" data-mesure="volumes.count"></span>
+        </button>
+        <button
+          type="button"
+          class="nav"
+          data-view="wsl"
+          data-cli="ks scan --domain wsl"
+        >
+          <svg
+            class="ic"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            aria-hidden="true"
+          >
+            <rect x="3" y="4" width="18" height="14" rx="2" />
+            <path d="M8 20h8" />
+          </svg>
+          <span class="lbl">WSL et VM</span>
+          <span class="tag" data-mesure="virtualization.wsl.distro_count"></span>
+        </button>
+
+        <p class="rail-label">Documents</p>
+        <button
+          type="button"
+          class="nav"
+          data-view="report"
+          data-cli="ks report"
+        >
+          <svg
+            class="ic"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            aria-hidden="true"
+          >
+            <path d="M6 3h8l4 4v14H6z" />
+            <path d="M9 12h6M9 16h6" />
+          </svg>
+          <span class="lbl">Rapport</span>
+        </button>
+      </nav>
+
+      <main class="main">
+        <div class="wrap">
+          <!-- ─── Vue d'ensemble ─────────────────────────────────────── -->
+          <section class="view on" id="view-overview" aria-labelledby="t-overview">
+            <h1 id="t-overview">Vue d'ensemble</h1>
+            <p class="sub">
+              <span data-mesure="count.items"></span> items relevés sur
+              <span data-mesure="machine.name"></span>, le
+              <span data-mesure="collected.at"></span>. Aucune écriture système
+              n'a eu lieu pendant la lecture.
+            </p>
+
+            <div class="hero">
+              <!--
+                L'anneau. La maquette y affiche une posture ; ici il n'y en a
+                pas, parce qu'aucune référence n'est chargée. L'arc est donc
+                ABSENT — pas à zéro, pas à moitié. Un arc partiel serait une
+                valeur, et le rôle `meter` une affirmation de plus.
+              -->
+              <div
+                class="card ringcard"
+                role="group"
+                aria-labelledby="ring-titre"
+                aria-describedby="ring-constat"
+              >
+                <div class="ringwrap">
+                  <svg viewBox="0 0 300 300" aria-hidden="true">
+                    <circle class="track" cx="150" cy="150" r="140" />
+                  </svg>
+                  <div class="ringmid">
+                    <p class="hero-u" id="ring-titre">Posture composite</p>
+                    <p class="hero-none">Pas encore calculable</p>
+                    <p class="hero-s" id="ring-constat" data-champ="posture.happened"></p>
+                    <p class="hero-t" data-champ="posture.detail"></p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="unfold"
+                  id="unfold-posture"
+                  aria-expanded="false"
+                  aria-controls="posture-why"
+                >
+                  Pourquoi
+                </button>
+                <div class="why" id="posture-why" hidden>
+                  <p data-champ="posture.implies"></p>
+                  <p data-champ="posture.unlockedBy"></p>
+                </div>
+              </div>
+
+              <div class="tiles">
+                <article class="tile">
+                  <div class="tile-h">
+                    <span class="tile-l">Posture de sécurité</span>
+                    <span class="badge">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.2"
+                        aria-hidden="true"
+                      >
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M12 11v5m0-8h.01" />
+                      </svg>
+                      <span>Relevé</span>
+                    </span>
+                  </div>
+                  <p class="tile-v">
+                    <span data-mesure="security.total"></span>
+                    <span>items relevés</span>
+                  </p>
+                  <p class="counts">
+                    <span><b data-mesure="security.readable"></b> lus</span>
+                    <span class="c-att"
+                      ><b data-mesure="security.unreadable"></b> illisibles</span
+                    >
+                  </p>
+                  <p class="tile-c">
+                    Un item illisible n'est ni conforme ni en écart : la lecture
+                    a été refusée, et l'outil ne suppose pas ce qu'il n'a pas vu.
+                  </p>
+                </article>
+
+                <article class="tile tile-none" id="tile-drift">
+                  <div class="tile-h">
+                    <span class="tile-l">Dérive de configuration</span>
+                    <span class="badge badge-muet">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        aria-hidden="true"
+                      >
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M8 12h8" />
+                      </svg>
+                      <span>Sans comparaison</span>
+                    </span>
+                  </div>
+                  <p class="tile-none-v" data-champ="drift.happened"></p>
+                  <p class="tile-c" data-champ="drift.implies"></p>
+                </article>
+
+                <article class="tile tile-none">
+                  <div class="tile-h">
+                    <span class="tile-l">Mises à jour</span>
+                    <span class="badge badge-muet">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        aria-hidden="true"
+                      >
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M8 12h8" />
+                      </svg>
+                      <span>Non collecté</span>
+                    </span>
+                  </div>
+                  <p class="tile-none-v" data-champ="updates.happened"></p>
+                  <p class="tile-c" data-champ="updates.implies"></p>
+                </article>
+
+                <article class="tile">
+                  <div class="tile-h">
+                    <span class="tile-l">Occupation des volumes</span>
+                    <span class="badge">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.2"
+                        aria-hidden="true"
+                      >
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M12 11v5m0-8h.01" />
+                      </svg>
+                      <span>Relevé</span>
+                    </span>
+                  </div>
+                  <div id="tile-volumes"></div>
+                  <p class="tile-c">
+                    Le relevé porte le taux d'occupation, pas ce qui l'occupe.
+                  </p>
+                </article>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h">
+                <h2>Ce que Keystone a lu</h2>
+                <span class="spacer"></span>
+                <span class="kbd">ks scan</span>
+              </div>
+              <div class="card-b">
+                <div class="cadre-table" role="group" aria-label="Répartition des items par domaine" tabindex="0">
+                  <table>
+                    <caption>
+                      Répartition des items relevés par domaine. Un domaine sans
+                      item ne figure pas : rien n'y a été collecté.
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Domaine</th>
+                        <th scope="col" class="num">Items</th>
+                      </tr>
+                    </thead>
+                    <tbody id="domaines"></tbody>
+                  </table>
+                </div>
+                <p class="note">
+                  Cet écran ne montre pas d'historique. Le journal local ne
+                  conserve un relevé que si on le lui demande, avec
+                  <code>ks scan --record</code> : sans cela, il n'y a rien à
+                  comparer au relevé d'hier.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <!-- ─── Dérive ─────────────────────────────────────────────── -->
+          <section class="view" id="view-drift" aria-labelledby="t-drift">
+            <h1 id="t-drift">Dérive de configuration</h1>
+            <p class="sub">
+              La confrontation entre l'état désiré et l'état constaté, item par
+              item.
+            </p>
+
+            <div class="card indispo" id="drift-indispo">
+              <div class="card-h">
+                <h2>Pas de comparaison possible</h2>
+                <span class="spacer"></span>
+                <span class="kbd">ks diff</span>
+              </div>
+              <div class="card-b">
+                <p class="indispo-1" data-champ="drift.happened"></p>
+                <p class="indispo-2" data-champ="drift.implies"></p>
+                <p class="indispo-3" data-champ="drift.unlockedBy"></p>
+                <p class="detail" data-champ="drift.detail"></p>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h"><h2>Les quatre verdicts</h2></div>
+              <div class="card-b">
+                <div class="cadre-table" role="group" aria-label="Décompte par verdict" tabindex="0">
+                  <table>
+                    <caption>
+                      « Sans objet » n'est pas un zéro : un zéro dirait qu'une
+                      confrontation a eu lieu et n'a rien trouvé.
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Verdict</th>
+                        <th scope="col">Ce qu'il dit</th>
+                        <th scope="col" class="num">Items</th>
+                      </tr>
+                    </thead>
+                    <tbody id="verdicts"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ─── Mises à jour ───────────────────────────────────────── -->
+          <section class="view" id="view-updates" aria-labelledby="t-updates">
+            <h1 id="t-updates">Mises à jour</h1>
+            <p class="sub">
+              Ce que la machine attend, en vagues ordonnées et réversibles.
+            </p>
+
+            <div class="card indispo">
+              <div class="card-h">
+                <h2>Domaine non collecté</h2>
+                <span class="spacer"></span>
+                <span class="kbd">ks plan updates</span>
+              </div>
+              <div class="card-b">
+                <p class="indispo-1" data-champ="updates.happened"></p>
+                <p class="indispo-2" data-champ="updates.implies"></p>
+                <p class="indispo-3" data-champ="updates.unlockedBy"></p>
+                <p class="detail" data-champ="updates.detail"></p>
+              </div>
+            </div>
+
+            <p class="note">
+              La version installée de chaque application sans gestionnaire
+              identifié est, elle, relevée : elle figure à l'écran
+              <b>Logiciels</b>. Ce qui manque ici, c'est la version
+              <em>disponible</em>, qu'aucun collecteur ne va chercher.
+            </p>
+          </section>
+
+          <!-- ─── Sécurité ───────────────────────────────────────────── -->
+          <section class="view" id="view-security" aria-labelledby="t-security">
+            <h1 id="t-security">Posture de sécurité</h1>
+            <p class="sub">
+              <span data-mesure="security.total"></span> items relevés, dont
+              <span data-mesure="security.unreadable"></span> dont la lecture a
+              été refusée.
+            </p>
+
+            <div class="card indispo" id="illisibles" hidden>
+              <div class="card-h">
+                <h2>Items non lus</h2>
+                <span class="spacer"></span>
+                <span class="kbd">ks explain</span>
+              </div>
+              <div class="card-b">
+                <p class="indispo-1">
+                  La clé correspondante exige des privilèges que la coque n'a
+                  pas, et ne demandera pas.
+                </p>
+                <p class="indispo-2">
+                  Ces items sont marqués « illisible » et non « absent » :
+                  l'outil ne sait pas ce qu'ils valent, et il ne le suppose pas.
+                  Confondre un refus de lecture avec une liste vide afficherait
+                  une exclusion de moins sur une machine où l'on vient d'en
+                  poser une.
+                </p>
+                <div id="illisibles-liste"></div>
+              </div>
+            </div>
+
+            <div id="familles"></div>
+
+            <p class="note">
+              Cet écran relève la configuration de sécurité de la machine. Il ne
+              surveille pas les changements : comparer un relevé au précédent
+              demande une référence, et il n'y en a pas encore.
+            </p>
+          </section>
+
+          <!-- ─── Machine ────────────────────────────────────────────── -->
+          <section class="view" id="view-machine" aria-labelledby="t-machine">
+            <h1 id="t-machine">Machine</h1>
+            <p class="sub">Ce que le collecteur matériel a relevé sur ce poste.</p>
+
+            <div class="card">
+              <div class="card-h">
+                <h2>Identité et ressources</h2>
+                <span class="spacer"></span>
+                <span class="kbd">ks scan --domain inventory</span>
+              </div>
+              <div class="card-b">
+                <div class="cadre-table" role="group" aria-label="Relevés de la machine" tabindex="0">
+                  <table>
+                    <caption>
+                      Une ligne « non relevé » signale un item attendu que la
+                      collecte n'a pas produit. Sauter la ligne l'aurait rendu
+                      invisible.
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Relevé</th>
+                        <th scope="col">Valeur constatée</th>
+                        <th scope="col">Chemin de l'item</th>
+                      </tr>
+                    </thead>
+                    <tbody id="machine-lignes"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ─── Logiciels ──────────────────────────────────────────── -->
+          <section class="view" id="view-software" aria-labelledby="t-software">
+            <h1 id="t-software">Inventaire logiciel</h1>
+            <p class="sub">
+              Ce qui est installé, et ce que l'on sait de qui le met à jour.
+            </p>
+
+            <div class="card">
+              <div class="card-h">
+                <h2>Attribution</h2>
+                <span class="spacer"></span>
+                <span class="kbd">ks explain inventory.software.attribution</span>
+              </div>
+              <div class="card-b">
+                <div class="cadre-table" role="group" aria-label="Agrégats de l'inventaire logiciel" tabindex="0">
+                  <table>
+                    <caption>
+                      Chaque ligne est un item relevé, avec sa finalité.
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Item</th>
+                        <th scope="col">Valeur constatée</th>
+                        <th scope="col">À quoi ça sert</th>
+                      </tr>
+                    </thead>
+                    <tbody id="logiciels-agregats"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h">
+                <h2>Applications sans gestionnaire identifié</h2>
+                <span class="spacer"></span>
+                <span class="tag" data-mesure="software.unattributed.count"></span>
+              </div>
+              <div class="card-b">
+                <div class="cadre-table" role="group" aria-label="Applications sans gestionnaire identifié" tabindex="0">
+                  <table>
+                    <caption>
+                      « Sans gestionnaire identifié » ne se lit pas « jamais mise
+                      à jour » : certaines de ces applications se mettent à jour
+                      seules. Distinguer les deux reste à faire.
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Application</th>
+                        <th scope="col">Version installée</th>
+                      </tr>
+                    </thead>
+                    <tbody id="logiciels-liste"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ─── Espace ─────────────────────────────────────────────── -->
+          <section class="view" id="view-space" aria-labelledby="t-space">
+            <h1 id="t-space">Espace</h1>
+            <p class="sub">
+              Le taux d'occupation de chaque volume, tel qu'il a été relevé.
+            </p>
+
+            <div class="card">
+              <div class="card-h">
+                <h2>Volumes</h2>
+                <span class="spacer"></span>
+                <span class="kbd">ks scan --domain space</span>
+              </div>
+              <div class="card-b">
+                <div id="volumes-jauges"></div>
+                <div class="cadre-table" role="group" aria-label="Occupation par volume" tabindex="0">
+                  <table>
+                    <caption>
+                      Équivalent textuel des jauges ci-dessus : aucune valeur
+                      n'est réservée au survol.
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Volume</th>
+                        <th scope="col" class="num">Occupation</th>
+                        <th scope="col">Chemin de l'item</th>
+                      </tr>
+                    </thead>
+                    <tbody id="volumes-lignes"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div class="card indispo">
+              <div class="card-h"><h2>Qui consomme le disque</h2></div>
+              <div class="card-b">
+                <p class="indispo-1" data-champ="spaceAttribution.happened"></p>
+                <p class="indispo-2" data-champ="spaceAttribution.implies"></p>
+                <p class="indispo-3" data-champ="spaceAttribution.unlockedBy"></p>
+                <p class="detail" data-champ="spaceAttribution.detail"></p>
+              </div>
+            </div>
+          </section>
+
+          <!-- ─── WSL et VM ──────────────────────────────────────────── -->
+          <section class="view" id="view-wsl" aria-labelledby="t-wsl">
+            <h1 id="t-wsl">WSL et machines virtuelles</h1>
+            <p class="sub">
+              <span data-mesure="virtualization.wsl.distro_count"></span>
+              distributions relevées par le registre.
+            </p>
+
+            <div id="distros"></div>
+
+            <div class="card indispo">
+              <div class="card-h"><h2>Machines virtuelles</h2></div>
+              <div class="card-b">
+                <p class="indispo-1" data-champ="virtualMachines.happened"></p>
+                <p class="indispo-2" data-champ="virtualMachines.implies"></p>
+                <p class="indispo-3" data-champ="virtualMachines.unlockedBy"></p>
+                <p class="detail" data-champ="virtualMachines.detail"></p>
+              </div>
+            </div>
+          </section>
+
+          <!-- ─── Rapport ────────────────────────────────────────────── -->
+          <section class="view" id="view-report" aria-labelledby="t-report">
+            <h1 id="t-report">Rapport</h1>
+            <p class="sub">
+              Le document autonome qu'écrit <code>ks report</code>, produit par
+              le même code et à partir du même relevé.
+            </p>
+            <!--
+              Le rapport s'affiche dans un cadre `sandbox`, sans aucune
+              permission accordée : origine opaque, aucun script exécutable,
+              aucun accès au pont IPC de la coque. C'est la vraie barrière.
+              L'échappement fait par `ks_cli::rapport` reste la première ligne,
+              ce cadre est la seconde.
+            -->
+            <iframe
+              id="report"
+              class="report"
+              title="Rapport d'état de la machine, en lecture seule"
+              sandbox=""
+            ></iframe>
+            <p class="note">
+              Avant de le transmettre : il porte le nom de cette machine et la
+              liste des logiciels installés avec leur version exacte.
+            </p>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <!-- ══ Attente et échec ══════════════════════════════════════════════ -->
+    <section class="overlay" id="waiting" aria-labelledby="waiting-title">
       <!--
-        Le rapport s'affiche dans un cadre `sandbox`, sans aucune permission
-        accordée : origine opaque, aucun script exécutable, aucun accès au pont
-        IPC de la coque. C'est la vraie barrière. L'échappement fait par
-        `ks_cli::rapport` reste la première ligne, ce cadre est la seconde.
+        L'anneau tourne, il ne mesure rien : il n'existe pas de pourcentage
+        honnête à afficher tant que les collecteurs n'annoncent pas leur
+        avancement. Le seul chiffre montré est le temps réellement écoulé.
       -->
-      <iframe
-        id="report"
-        class="report"
-        title="Rapport d'état de la machine, en lecture seule"
-        sandbox=""
-      ></iframe>
-    </main>
+      <div class="ring" aria-hidden="true"></div>
+      <h1 id="waiting-title">Lecture de l'état de la machine</h1>
+      <p class="lede">
+        Keystone interroge le registre, WMI et les bases de suivi de winget. La
+        lecture demande environ trois secondes sur ce poste.
+      </p>
+      <p class="elapsed" id="elapsed" role="status" aria-live="polite"></p>
+      <p class="foot">
+        Lecture seule : aucune écriture système n'a lieu pendant la collecte.
+      </p>
+    </section>
+
+    <section class="overlay" id="failure" aria-labelledby="failure-title">
+      <!--
+        Icône ET libellé : l'état ne passe jamais par la seule couleur, ni par
+        le seul pictogramme. Zéro émoji dans l'interface produit.
+      -->
+      <svg
+        class="glyph"
+        viewBox="0 0 24 24"
+        width="28"
+        height="28"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.6"
+        stroke-linecap="round"
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7.5v5.5" />
+        <path d="M12 16.4v.2" />
+      </svg>
+      <h1 id="failure-title">La lecture de l'état ne s'est pas terminée</h1>
+      <p class="lede" id="failure-message"></p>
+      <p class="foot">
+        Rien n'a été écrit sur la machine. « Relancer la collecte » reprend la
+        lecture depuis le début.
+      </p>
+      <p class="detail" id="failure-detail"></p>
+      <button type="button" class="btn" id="recollect">
+        Relancer la collecte
+      </button>
+    </section>
+
+    <!-- ══ Palette de commandes ══════════════════════════════════════════ -->
+    <div class="scrim" id="scrim">
+      <div class="palette" role="dialog" aria-modal="true" aria-label="Palette de commandes">
+        <input
+          id="pinput"
+          type="text"
+          placeholder="Un écran, un item, une valeur…"
+          autocomplete="off"
+          aria-label="Rechercher un écran ou un item"
+        />
+        <div id="presults" role="listbox" aria-label="Résultats"></div>
+        <p class="pfoot">
+          Parité avec la CLI : chaque écran affiche la commande <code>ks</code>
+          équivalente. On apprend son propre outil en s'en servant.
+          <span class="kbd">Échap</span> pour fermer.
+        </p>
+      </div>
+    </div>
 
     <script src="app.js"></script>
   </body>

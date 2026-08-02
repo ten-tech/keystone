@@ -1,27 +1,68 @@
-/* Coque de `ks-ui`.
- *
- * Les valeurs ne sont pas choisies ici : elles sont RECOPIÉES de
- * `design/tokens.css`, dont les contrastes sont vérifiés par calcul dans
- * `design/palette-validation.md`. Substituer une teinte à l'œil dans ce fichier
- * casserait cette vérification sans que personne le voie.
- *
- * Les seules paires employées ici sont celles que le document valide :
- * ink-1 sur surface-0 (14,8:1), ink-2 sur surface-0 (7,9:1), ink-3 sur
- * surface-1 (5,05:1), vital sur surface-1 (9,4:1).
- *
- * Aucune police distante : la pile de repli est celle des tokens, et elle se
- * termine sur les polices du système. */
+/* ═══════════════════════════════════════════════════════════════════════════
+   KEYSTONE — la coque de bureau, direction « Poste de pilotage »
+   Thèse : le calme est la fonctionnalité.
+
+   Les valeurs ne sont pas choisies ici : elles sont RECOPIÉES de
+   design/tokens.css, dont les contrastes sont vérifiés par calcul dans
+   design/palette-validation.md. Substituer une teinte à l'œil dans ce fichier
+   casserait cette vérification sans que personne le voie — c'est pourquoi une
+   étape de CI compare les deux, ce fichier compris.
+
+   Deux choses de la maquette ne sont volontairement pas reprises :
+
+   · LE GRAIN. Il s'obtient par un SVG en `data:` dont l'espace de noms XML
+     contient une URL. Le garde-fou qui interdit toute ressource réseau dans la
+     coque (P5) refuse le préfixe d'une URL sans exception, et une exception
+     dans un garde-fou est une exception qui reste. Le grain est décoratif ; le
+     garde-fou ne l'est pas.
+
+   · LA COULEUR D'ÉTAT. La maquette pilote toute l'interface par [data-state],
+     qui vaut « sain », « attention » ou « grave ». Aucune de ces trois valeurs
+     n'est calculable aujourd'hui : il faudrait une référence, et il n'y en a
+     pas. Une interface qui se teinte en « sain » affirme quelque chose.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 :root {
+  color-scheme: dark;
+
+  /* Surfaces — trois plans, plus un pour le contrôle actif. */
   --surface-0: #0b0f14;
   --surface-1: #131a22;
   --surface-2: #1b242f;
+  --surface-3: #222e3b;
   --hairline: rgba(255, 255, 255, 0.07);
   --hairline-strong: rgba(255, 255, 255, 0.12);
+  --grid: #1f2a36;
+
+  /* Encre */
   --ink-1: #e6edf3;
   --ink-2: #9fb0c0;
   --ink-3: #798c9d;
+
+  /* États — icône ET libellé obligatoires, jamais la couleur seule. */
   --vital: #4fd1c5;
   --attention: #e8a33d;
+
+  /* Séries de données — ordre fixe. La jauge d'occupation est la seule à en
+     employer une ; « autre » garde son gris neutre. */
+  --s1: #2baaa0;
+  --s-other: #607184;
+
+  /* Typographie — piles identiques à celles des tokens, polices du système en
+     repli. Aucune police n'est téléchargée. */
+  --font-tight: 'Inter Tight', 'Inter', system-ui, sans-serif;
+  --font-sans: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Rythme */
+  --t-micro: 120ms;
+  --t-state: 200ms;
+  --t-enter: 400ms;
+  --e-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --e-soft: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Géométrie — base 4 px. */
+  --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
   --sp-4: 16px;
@@ -29,8 +70,18 @@
   --sp-6: 32px;
   --sp-7: 48px;
   --r-ctl: 6px;
-  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", monospace;
+  --r-card: 10px;
+  --r-sheet: 14px;
+  --r-pill: 999px;
+  --rail-w: 216px;
+  --topbar-h: 52px;
+  --content-max: 1440px;
+
+  /* Élévation par la lumière, pas par le trait : une arête claire en haut, une
+     ombre longue et très diffuse en dessous. */
+  --arete: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --elev-1: var(--arete), 0 1px 2px rgba(0, 0, 0, 0.34),
+    0 10px 28px -14px rgba(0, 0, 0, 0.62);
 }
 
 * {
@@ -44,129 +95,725 @@ body {
 
 body {
   margin: 0;
-  display: flex;
-  flex-direction: column;
+  overflow: hidden;
   background: var(--surface-0);
   color: var(--ink-1);
-  font: 14px/1.55 var(--font-sans);
+  font: 400 14px/1.55 var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  /* La coque n'est pas une page web : rien à sélectionner, rien à faire
-     glisser. Le rapport, lui, reste entièrement sélectionnable dans son cadre. */
+  /* La coque n'est pas une page web : rien à faire glisser. Le rapport et les
+     détails techniques restent sélectionnables, eux — voir plus bas. */
   user-select: none;
 }
 
-/* ── Bandeau ────────────────────────────────────────────────────────────── */
-
-.bar {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-4);
-  padding: var(--sp-3) var(--sp-5);
-  background: var(--surface-1);
-  border-bottom: 1px solid var(--hairline-strong);
+/* La lumière vient du haut : une source lumineuse cohérente pour tout l'écran. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    120% 60% at 50% -12%,
+    rgba(120, 180, 220, 0.055),
+    transparent 62%
+  );
 }
 
-.bar-state {
-  margin: 0;
-  color: var(--ink-2);
-  font-size: 13px;
-  /* Le nom de machine ne pousse jamais le bouton hors de la fenêtre. */
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.btn {
-  flex: 0 0 auto;
-  min-height: 40px;
-  padding: 0 var(--sp-4);
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--r-ctl);
-  background: var(--surface-2);
-  color: var(--ink-1);
-  font: 600 13px/1 var(--font-sans);
-  cursor: pointer;
-  transition: background 150ms ease-out, border-color 150ms ease-out;
-}
-
-.btn:hover:not([disabled]) {
-  background: #222e3b; /* --surface-3 des tokens */
-  border-color: var(--vital);
-}
-
-.btn:active:not([disabled]) {
-  background: var(--surface-1);
-}
-
-.btn:focus-visible {
+:focus-visible {
   outline: 2px solid var(--vital);
   outline-offset: 2px;
+  border-radius: var(--sp-1);
 }
 
-.btn[disabled] {
-  opacity: 0.5;
-  cursor: not-allowed;
+::selection {
+  background: rgba(79, 209, 197, 0.25);
 }
 
-/* ── Scène ──────────────────────────────────────────────────────────────── */
+code {
+  font: 12.5px/1.6 var(--font-mono);
+  color: var(--ink-2);
+}
 
-.stage {
-  flex: 1 1 auto;
+/* ── Trame d'application ─────────────────────────────────────────────────── */
+
+.app {
   position: relative;
-  min-height: 0;
+  z-index: 1;
+  display: none;
+  grid-template-columns: var(--rail-w) 1fr;
+  grid-template-rows: var(--topbar-h) 1fr;
+  height: 100vh;
+  transition: grid-template-columns var(--t-state) var(--e-out);
 }
 
-.panel {
-  display: none;
-  height: 100%;
-  flex-direction: column;
+body[data-state='ready'] .app {
+  display: grid;
+}
+
+/* Rail replié : 60 px, de quoi loger une icône de 16 px dans une cible de
+   44 px. Les libellés quittent l'écran mais JAMAIS l'arbre d'accessibilité —
+   chaque bouton garde son texte accessible. */
+html[data-rail='replie'] {
+  --rail-w: 60px;
+}
+html[data-rail='replie'] .rail {
+  padding: var(--sp-4) var(--sp-2);
   align-items: center;
+}
+html[data-rail='replie'] .nav {
+  position: relative;
   justify-content: center;
-  gap: var(--sp-3);
-  padding: var(--sp-7) var(--sp-5);
+  width: 44px;
+  padding: 10px;
+  gap: 0;
+}
+html[data-rail='replie'] .nav .lbl,
+html[data-rail='replie'] .nav .tag-muet {
+  display: none;
+}
+html[data-rail='replie'] .rail-label {
+  width: 100%;
+  height: 1px;
+  margin: 11px 0 9px;
+  padding: 0;
+  overflow: hidden;
+  text-indent: -999px;
+  background: var(--hairline);
+}
+/* Le décompte survit au pliage, en pastille sur l'icône : le rail doit pouvoir
+   dire combien d'items porte un écran sans être déplié. */
+html[data-rail='replie'] .nav .tag {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  font-size: 9.5px;
+  line-height: 14px;
   text-align: center;
 }
 
-.panel h1 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+/* ── Barre supérieure ────────────────────────────────────────────────────── */
+
+.topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-5);
+  border-bottom: 1px solid var(--hairline);
+  background: rgba(11, 15, 20, 0.72);
+  backdrop-filter: blur(14px);
 }
 
-.lede {
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   margin: 0;
-  max-width: 60ch;
+  font: 600 12.5px var(--font-tight);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* La pastille de marque ne porte aucun état : si l'accent est dans le logo, il
+   n'a plus de valeur d'alerte nulle part. */
+.brand .mk {
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--ink-3);
+  border-radius: 50%;
+}
+
+.machine {
+  margin: 0;
+  padding-left: var(--sp-5);
+  border-left: 1px solid var(--hairline);
   color: var(--ink-2);
+  font: 12.5px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.elapsed {
-  margin: 0;
+.machine b {
   color: var(--ink-1);
-  font: 13px/1.4 var(--font-mono);
-  /* Réservée d'avance : le compteur ne doit pas faire sauter la mise en page
-     quand il passe de « 9 s » à « 10 s ». */
-  min-width: 12ch;
+  font-weight: 500;
 }
 
-.foot {
-  margin: var(--sp-4) 0 0;
-  max-width: 60ch;
+.machine .sep {
+  padding: 0 var(--sp-1);
   color: var(--ink-3);
-  font-size: 13px;
 }
 
-.detail {
-  margin: var(--sp-2) 0 0;
-  max-width: 72ch;
-  padding: var(--sp-2) var(--sp-3);
+.readonly {
+  margin: 0;
+  padding: 5px var(--sp-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.kbd {
+  padding: 3px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 5px;
+  background: var(--surface-1);
+  color: var(--ink-2);
+  font: 11px var(--font-mono);
+  white-space: nowrap;
+}
+
+.cmdk {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 10px;
+  border: 1px solid var(--hairline);
   border-radius: var(--r-ctl);
   background: var(--surface-1);
   color: var(--ink-3);
+  font: 13px var(--font-sans);
+  cursor: pointer;
+  transition: border-color var(--t-micro) var(--e-out),
+    color var(--t-micro) var(--e-out);
+}
+
+.cmdk:hover {
+  border-color: var(--hairline-strong);
+  color: var(--ink-2);
+}
+
+.fold {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: var(--r-ctl);
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: color var(--t-micro) var(--e-out),
+    background var(--t-micro) var(--e-out);
+}
+
+.fold:hover {
+  color: var(--ink-1);
+  background: var(--surface-2);
+}
+
+.fold svg {
+  width: 17px;
+  height: 17px;
+  transition: transform var(--t-state) var(--e-out);
+}
+
+html[data-rail='replie'] .fold svg {
+  transform: rotate(180deg);
+}
+
+/* ── Rail ────────────────────────────────────────────────────────────────── */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-4) 10px;
+  overflow-y: auto;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent 40%);
+  /* La frontière se lit par le relief, pas par une ligne dessinée. */
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.035);
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+
+.rail-label {
+  margin: 0;
+  padding: var(--sp-3) 10px var(--sp-1);
+  color: var(--ink-3);
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: var(--sp-2) 10px;
+  border: none;
+  border-radius: var(--r-ctl);
+  background: none;
+  color: var(--ink-2);
+  font: 13.5px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--t-micro) var(--e-out),
+    color var(--t-micro) var(--e-out);
+}
+
+.nav:hover {
+  background: var(--surface-1);
+  color: var(--ink-1);
+}
+
+.nav[aria-current='page'] {
+  background: var(--surface-2);
+  color: var(--ink-1);
+}
+
+.nav .ic {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  opacity: 0.85;
+}
+
+.nav .lbl {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.nav .tag {
+  margin-left: auto;
+  color: var(--ink-3);
+  font: 11px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.nav .tag-muet {
+  font-family: var(--font-sans);
+  font-size: 11px;
+}
+
+/* ── Zone de contenu ─────────────────────────────────────────────────────── */
+
+.main {
+  padding: var(--sp-5) 28px var(--sp-7);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+
+.wrap {
+  max-width: var(--content-max);
+  margin: 0 auto;
+}
+
+.view {
+  display: none;
+  animation: entree var(--t-enter) var(--e-soft) both;
+}
+
+.view.on {
+  display: block;
+}
+
+@keyframes entree {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+h1 {
+  margin: 0 0 3px;
+  font: 500 22px/1.3 var(--font-tight);
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  margin: 0;
+  font: 500 16px/1.4 var(--font-tight);
+}
+
+.sub {
+  margin: 0 0 var(--sp-5);
+  max-width: 78ch;
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+
+.note {
+  margin: var(--sp-4) 0 0;
+  max-width: 78ch;
+  padding-left: var(--sp-4);
+  border-left: 1px solid var(--hairline);
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.card {
+  margin-bottom: var(--sp-5);
+  border-radius: var(--r-card);
+  background: var(--surface-1);
+  box-shadow: var(--elev-1);
+}
+
+.card-h {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.card-b {
+  padding: 18px;
+}
+
+/* ── L'anneau, et ce qu'il ne dit pas ────────────────────────────────────── */
+
+.hero {
+  display: grid;
+  grid-template-columns: 5fr 7fr;
+  gap: var(--sp-5);
+  margin-bottom: var(--sp-5);
+}
+
+@media (max-width: 1180px) {
+  .hero {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ringcard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 30px var(--sp-5) 26px;
+}
+
+.ringwrap {
+  position: relative;
+  width: 280px;
+  height: 280px;
+}
+
+.ringwrap svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* La piste seule. AUCUN arc : un arc partiel serait une valeur, et il n'y a pas
+   de valeur. La maquette en dessine un à 94 % ; c'est très exactement ce que
+   cette coque refuse d'afficher. */
+.track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.06);
+  stroke-width: 10;
+}
+
+.ringmid {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 42px;
+  text-align: center;
+}
+
+.hero-u {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 12px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.hero-none {
+  margin: var(--sp-1) 0 0;
+  color: var(--ink-1);
+  font: 500 21px/1.25 var(--font-tight);
+  letter-spacing: -0.01em;
+}
+
+.hero-s {
+  margin: 11px 0 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.hero-s::before {
+  content: '';
+  display: block;
+  width: 34px;
+  height: 1px;
+  margin: 0 auto 9px;
+  background: var(--hairline-strong);
+}
+
+.hero-t {
+  margin: 6px 0 0;
+  color: var(--ink-3);
+  font: 11.5px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  user-select: text;
+}
+
+.unfold {
+  margin-top: var(--sp-5);
+  padding: 6px var(--sp-4);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--ink-2);
+  font: 12.5px var(--font-sans);
+  cursor: pointer;
+  transition: border-color var(--t-micro) var(--e-out),
+    color var(--t-micro) var(--e-out);
+}
+
+.unfold:hover {
+  border-color: var(--hairline-strong);
+  color: var(--ink-1);
+}
+
+.why {
+  max-width: 46ch;
+  margin-top: var(--sp-3);
+  padding: 11px 13px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-ctl);
+  background: var(--surface-0);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.why p {
+  margin: 0 0 var(--sp-2);
+}
+
+.why p:last-child {
+  margin-bottom: 0;
+  color: var(--ink-1);
+}
+
+/* ── Tuiles vitales ──────────────────────────────────────────────────────── */
+
+.tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-content: start;
+}
+
+@media (max-width: 720px) {
+  .tiles {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tile {
+  padding: var(--sp-4) 17px;
+  border-radius: var(--r-card);
+  background: var(--surface-1);
+  box-shadow: var(--elev-1);
+  transition: background var(--t-micro) var(--e-out);
+}
+
+.tile:hover {
+  background: var(--surface-2);
+}
+
+.tile-h {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: 11px;
+}
+
+.tile-l {
+  color: var(--ink-3);
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 2px var(--sp-2) 2px 6px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.badge svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+.badge-muet {
+  color: var(--ink-3);
+}
+
+.tile-v {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  font: 500 34px/1.05 var(--font-tight);
+  letter-spacing: -0.02em;
+}
+
+.tile-v span:last-child {
+  color: var(--ink-2);
+  font: 400 13px var(--font-sans);
+  letter-spacing: 0;
+}
+
+.tile-none-v {
+  margin: 0;
+  color: var(--ink-1);
+  font: 500 16px/1.4 var(--font-tight);
+}
+
+.counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  margin: 13px 0 10px;
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+
+.counts b {
+  margin-right: 3px;
+  color: var(--ink-2);
+  font: 500 13px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.counts .c-att,
+.counts .c-att b {
+  color: var(--attention);
+}
+
+.tile-c {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* ── Jauges ──────────────────────────────────────────────────────────────── */
+
+.jauge {
+  margin-bottom: var(--sp-3);
+}
+
+.jauge-h {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.jauge-h b {
+  color: var(--ink-1);
+  font-weight: 500;
+}
+
+.jauge-h .v {
+  margin-left: auto;
+  color: var(--ink-1);
+  font: 13px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.meter {
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+
+.meter i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--s1);
+}
+
+/* ── Ce qui n'est pas calculable ─────────────────────────────────────────── */
+
+.indispo {
+  border-left: 2px solid var(--attention);
+}
+
+.indispo-1 {
+  margin: 0 0 var(--sp-3);
+  max-width: 78ch;
+  color: var(--ink-1);
+  font: 500 16px/1.45 var(--font-tight);
+}
+
+.indispo-2 {
+  margin: 0 0 var(--sp-3);
+  max-width: 78ch;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+
+.indispo-3 {
+  margin: 0 0 var(--sp-4);
+  max-width: 78ch;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+
+.indispo-3::before {
+  content: '';
+  display: block;
+  width: 34px;
+  height: 1px;
+  margin-bottom: var(--sp-3);
+  background: var(--hairline-strong);
+}
+
+/* Le détail technique se copie : c'est ce qu'on colle dans un rapport. */
+.detail {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-ctl);
+  background: var(--surface-0);
+  color: var(--ink-3);
   font: 12px/1.5 var(--font-mono);
-  /* Le détail technique se copie : c'est ce qu'on colle dans un rapport. */
   user-select: text;
   word-break: break-word;
 }
@@ -175,18 +822,210 @@ body {
   display: none;
 }
 
+/* ── Tableaux ────────────────────────────────────────────────────────────── */
+
+/* Le défilement appartient au CONTENEUR, jamais au <table> : `display: block`
+   sur un tableau retire sa sémantique de l'arbre d'accessibilité, et le lecteur
+   d'écran cesse de proposer la navigation par ligne et par colonne. */
+.cadre-table {
+  overflow-x: auto;
+  border-radius: var(--r-ctl);
+  background: var(--surface-0);
+}
+
+.cadre-table:focus-visible {
+  outline: 2px solid var(--vital);
+  outline-offset: 2px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+caption {
+  padding: var(--sp-3) var(--sp-4);
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+/* `thead th`, et non `th` : les en-têtes de LIGNE portent des chemins d'items,
+   qui doivent rester en minuscules et en chasse fixe. La règle non qualifiée
+   les capitalisait, ce qui donnait un chemin canonique méconnaissable. */
+thead th {
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--hairline-strong);
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+}
+
+td,
+tbody th {
+  padding: 9px var(--sp-4);
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  text-align: left;
+  vertical-align: top;
+}
+
+tbody th {
+  color: var(--ink-1);
+}
+
+tbody tr:last-child td,
+tbody tr:last-child th {
+  border-bottom: 0;
+}
+
+td.num,
+th.num {
+  font: 13px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--ink-1);
+}
+
+.chemin {
+  font: 12.5px/1.6 var(--font-mono);
+  color: var(--ink-3);
+  user-select: text;
+  white-space: nowrap;
+}
+
+td.valeur {
+  color: var(--ink-1);
+  font-weight: 500;
+}
+
+/* La couleur redouble le libellé, elle ne le remplace jamais : « illisible » et
+   « non relevé » restent écrits en toutes lettres dans la cellule. */
+.v-illisible {
+  color: var(--attention);
+}
+
+.v-absent {
+  color: var(--ink-3);
+}
+
+.but {
+  max-width: 46ch;
+  color: var(--ink-3);
+}
+
+/* ── Le rapport ──────────────────────────────────────────────────────────── */
+
+.report {
+  width: 100%;
+  height: 68vh;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-card);
+  background: var(--surface-0);
+}
+
+/* ── Attente et échec ────────────────────────────────────────────────────── */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  padding: var(--sp-7) var(--sp-5);
+  background: var(--surface-0);
+  text-align: center;
+}
+
+body[data-state='collecting'] #waiting,
+body[data-state='failed'] #failure {
+  display: flex;
+}
+
+.overlay h1 {
+  font: 600 20px/1.3 var(--font-sans);
+}
+
+.lede {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.elapsed {
+  margin: 0;
+  min-width: 14ch;
+  color: var(--ink-1);
+  font: 13px/1.4 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.foot {
+  max-width: 62ch;
+  margin: var(--sp-4) 0 0;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
 #failure .glyph {
   color: var(--attention);
 }
 
-/* L'anneau tourne à vitesse constante : il ne prétend mesurer aucune
+.btn {
+  flex: 0 0 auto;
+  min-height: 40px;
+  margin-top: var(--sp-4);
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
+  color: var(--ink-1);
+  font: 600 13px/1 var(--font-sans);
+  cursor: pointer;
+  transition: background var(--t-micro) var(--e-out),
+    border-color var(--t-micro) var(--e-out);
+}
+
+/* Dans la barre, le bouton reste discret : c'est une commodité, pas l'action
+   principale de l'écran. */
+.btn-bar {
+  min-height: 32px;
+  margin-top: 0;
+  background: var(--surface-1);
+  font-weight: 400;
+}
+
+.btn:hover:not([disabled]) {
+  background: var(--surface-3);
+  border-color: var(--vital);
+}
+
+.btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* L'anneau d'attente tourne à vitesse constante : il ne prétend mesurer aucune
    progression, donc `linear` est ici la bonne courbe, et la seule. */
 .ring {
   width: 28px;
   height: 28px;
-  border-radius: 50%;
   border: 2px solid var(--hairline-strong);
   border-top-color: var(--vital);
+  border-radius: 50%;
   animation: tour 1200ms linear infinite;
 }
 
@@ -196,49 +1035,175 @@ body {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .ring {
-    animation: none;
-    /* Sans rotation, l'anneau doit rester lisible comme un repère fixe plutôt
-       que passer pour un élément figé par une panne. */
-    border-color: var(--vital);
-    opacity: 0.6;
-  }
-  .btn {
-    transition: none;
-  }
-}
+/* ── Palette de commandes ────────────────────────────────────────────────── */
 
-/* ── Le rapport ─────────────────────────────────────────────────────────── */
-
-.report {
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
   display: none;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: var(--surface-0);
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14vh;
+  background: rgba(4, 7, 10, 0.62);
 }
 
-/* ── États ──────────────────────────────────────────────────────────────── */
-
-body[data-state="collecting"] #waiting,
-body[data-state="failed"] #failure {
+.scrim.on {
   display: flex;
 }
 
-body[data-state="ready"] .report {
-  display: block;
+.palette {
+  width: min(660px, 92vw);
+  overflow: hidden;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-sheet);
+  background: rgba(19, 26, 34, 0.92);
+  backdrop-filter: blur(22px) saturate(140%);
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.6);
 }
 
-/* Contraste imposé par le système : on rend la main aux couleurs de l'OS
-   plutôt que d'imposer les nôtres. */
-@media (forced-colors: active) {
-  .btn {
-    border: 1px solid ButtonText;
+.palette input {
+  width: 100%;
+  padding: var(--sp-4) 18px;
+  border: none;
+  border-bottom: 1px solid var(--hairline);
+  background: none;
+  color: var(--ink-1);
+  font: 15px var(--font-sans);
+  outline: none;
+  user-select: text;
+}
+
+.palette input::placeholder {
+  color: var(--ink-3);
+}
+
+#presults {
+  max-height: 46vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+
+.psec {
+  margin: 0;
+  padding: var(--sp-3) 18px 5px;
+  color: var(--ink-3);
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.pitem {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 9px 18px;
+  border: none;
+  background: none;
+  color: var(--ink-1);
+  font: 13.5px var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pitem:hover,
+.pitem.sel {
+  background: var(--surface-2);
+}
+
+.pitem .cli {
+  margin-left: auto;
+  padding-left: var(--sp-3);
+  color: var(--ink-3);
+  font: 11.5px var(--font-mono);
+  white-space: nowrap;
+}
+
+.pitem .chemin {
+  font: 12.5px var(--font-mono);
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pvide {
+  margin: 0;
+  padding: var(--sp-4) 18px;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.pfoot {
+  margin: 0;
+  padding: 10px 18px;
+  border-top: 1px solid var(--hairline);
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* ── Mouvement réduit ────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
+  /* Sans rotation, l'anneau d'attente doit rester lisible comme un repère fixe
+     plutôt que passer pour un élément figé par une panne. */
+  .ring {
+    border-color: var(--vital);
+    opacity: 0.6;
+  }
+}
+
+/* ── Contraste forcé ─────────────────────────────────────────────────────────
+   Le système impose sa palette et écrase color, background-color et
+   border-color, y compris posés en style= par le script. Ce qui NE survit pas,
+   ce sont les sens portés par la couleur seule : les jauges deviennent toutes
+   identiques. D'où les deux gestes ci-dessous — rendre les frontières visibles,
+   et garder de la jauge la seule information qui survit, sa longueur.          */
+
+@media (forced-colors: active) {
+  :root {
+    --hairline: CanvasText;
+    --hairline-strong: CanvasText;
+    --grid: CanvasText;
+  }
+
+  .card,
+  .tile,
+  .badge,
+  .btn,
+  .kbd,
+  .readonly,
+  .cadre-table {
+    border: 1px solid CanvasText;
+  }
+
+  .meter,
+  .meter > * {
+    forced-color-adjust: none;
+  }
+
+  .meter > * {
+    background: Highlight;
+  }
+
   #failure .glyph,
   .ring {
     color: CanvasText;
     border-top-color: CanvasText;
+  }
+
+  :focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 2px;
   }
 }

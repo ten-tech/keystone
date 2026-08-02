@@ -1,6 +1,8 @@
 # ADR-0012 — Sortir l'interface du navigateur, et ce qu'elle a le droit d'afficher
 
-- **Statut** : Accepté
+- **Statut** : Accepté, **décision n° 1 remplacée** par
+  [ADR-0013](0013-la-coque-affiche-le-poste-de-pilotage.md) le 2026-08-03.
+  Les décisions n° 2 à 4 restent en vigueur.
 - **Date** : 2026-08-02
 - **Exigences concernées** : P4, P5, P6, SEC-01, NF-01, D16-01
 
@@ -37,9 +39,14 @@ corriger.
 
 ## Décision
 
-**`ks-ui`, coque Tauri 2, affiche le HTML produit par `rapport::construire` à
+> **Remplacée.** Cette décision n° 1 a été trop étroite : elle confondait la
+> maquette et le poste de pilotage. Voir
+> [ADR-0013](0013-la-coque-affiche-le-poste-de-pilotage.md). Ce qu'elle voulait
+> protéger — aucun chiffre inventé à l'écran — est conservé et renforcé.
+
+~~**`ks-ui`, coque Tauri 2, affiche le HTML produit par `rapport::construire` à
 partir d'un `Inventory::collect_all()` réellement exécuté. Elle n'affiche jamais
-la maquette.**
+la maquette.**~~
 
 Quatre conséquences de forme découlent de ce choix, et chacune a une raison.
 

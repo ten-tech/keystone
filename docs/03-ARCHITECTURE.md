@@ -107,12 +107,61 @@ mécanismes répondent à cela, et aucun ne dépend de l'intégrité de la machi
 | `ks-cli` | la CLI `ks`, surface de référence | Windows (et Linux pour le dev) | aucun | ✅ `scan`/`status`/`explain`/`journal`/`report`, 24 tests unitaires + **7 d'intégration** (binaire lancé en sous-processus) |
 | `ks-broker` | service privilégié | Windows visé ; compile aussi ailleurs, sans effet | élevé | 🔨 verbes énumérés + **huit** barrières SEC-02 et SEC-03, 13 tests unitaires — aucun verbe implémenté |
 | `ks-agent-linux` | agent satellite | Linux musl | aucun | 🔨 scan local, 4 tests unitaires |
-| `ks-ui` | coque de bureau (ADR-0012) | Windows + WebView2 | aucun | ✅ affiche le rapport **réel**, jamais la maquette · workspace **séparé**, 8 tests |
+| `ks-ui` | coque de bureau (ADR-0012) | Windows + WebView2 | aucun | ✅ affiche le **poste de pilotage** branché sur l'état réel, jamais les chiffres de la maquette · workspace **séparé**, 21 tests |
 
-**128 tests au total** dans le workspace principal — `ks-ui` vit dans un workspace séparé et porte les siens (8), tous portables et tous exécutés — `cargo test --workspace`,
+**128 tests au total** dans le workspace principal — `ks-ui` vit dans un workspace séparé et porte les siens (21), tous portables et tous exécutés — `cargo test --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings` et `cargo fmt --all --check`
 passent. Ce n'était pas le cas au premier commit : rien n'avait alors jamais été
 compilé, et les comptes annoncés étaient des déclarations.
+
+## Ce que la coque affiche, et ce qu'elle refuse d'afficher
+
+`ks-ui` porte le **poste de pilotage** décrit par
+[`02-BRIEF-DESIGN.md`](02-BRIEF-DESIGN.md) : rail repliable (`Ctrl+B`), palette de
+commandes (`Ctrl+K`) avec la commande `ks` équivalente affichée à côté de chaque
+écran, chiffres tabulaires, mouvement réduit et contraste forcé traités. Le
+balisage et le style viennent de la maquette rangée dans `design/` ; ses chiffres,
+non.
+
+Une seule règle gouverne cet écran : **aucun nombre affiché n'est inventé.** Chaque
+valeur vient d'un item réellement relevé, ou l'écran dit qu'elle n'est pas
+collectée, avec la raison et ce qui la rendrait disponible.
+
+| Écran | Ce qu'il affiche | D'où ça vient |
+|---|---|---|
+| Vue d'ensemble | décompte d'items, anneau de posture, quatre tuiles, répartition par domaine | `Inventory::collect_all()` |
+| Sécurité | les items du domaine, par famille, les illisibles comptés **et nommés** | `security.*` |
+| Dérive | pourquoi aucune comparaison n'a lieu, et les quatre verdicts | `Item::verdict()` |
+| Mises à jour | pourquoi le domaine n'est pas collecté | — |
+| Machine | nom, système, noyau, cœurs, mémoire, temps de fonctionnement | `inventory.host.*`, `inventory.os.*`, `inventory.cpu.*`, `inventory.memory.*`, `inventory.uptime_seconds` |
+| Logiciels | agrégats d'attribution, applications sans gestionnaire identifié | `inventory.software.*` |
+| Espace | taux d'occupation par volume, jauge **et** tableau | `space.volume[…].used_percent` |
+| WSL et VM | une carte par distribution | `virtualization.wsl[…]` |
+| Rapport | le HTML de `ks report`, dans un cadre `sandbox` sans permission | `ks_cli::rapport::construire` |
+
+Trois éléments du poste de pilotage **ne sont pas calculables aujourd'hui**, et
+l'écran le dit plutôt que de les remplir :
+
+- **l'anneau de posture.** Une posture composite se calcule contre une référence,
+  et aucun état désiré n'est chargé. L'anneau n'affiche donc **pas d'arc** — un arc
+  partiel serait une valeur — et le rôle `meter` en est absent, faute de mesure à
+  annoncer (P6, D2-02) ;
+- **la dérive.** Sans état désiré il n'y a pas zéro écart, il n'y a pas de
+  comparaison. C'est ce que `Verdict::Incomparable` existe pour empêcher, transposé
+  à l'écran ;
+- **les mises à jour.** Le domaine D3 n'est pas collecté.
+
+Ces trois-là passent par un type sans champ numérique, `NotComputable`, qui porte
+les trois temps de la voix du produit — ce qui s'est passé, ce que ça implique, ce
+qu'on peut faire — plus un `detail` technique qui se copie. La dérive va plus loin :
+elle est une **énumération**, et la variante publiée tant qu'aucun item n'est
+contraint ne contient littéralement pas de champ « écarts ». La page ne peut pas
+afficher « 0 écart », parce que le zéro n'existe nulle part dans ce qu'elle reçoit.
+
+Trois barrières le tiennent, toutes éprouvées par falsification : un emplacement de
+valeur du balisage qui porterait un chiffre casse la suite, une mesure écrite à la
+main dans une phrase aussi, et une cinquième valeur de `Verdict` casse la
+**compilation** de la coque avant qu'un test s'exécute.
 
 ## Les invariants portés par le modèle
 

@@ -22,6 +22,7 @@ tauri-build = { version = "2", features = [] }
 # `ks-cli` pour le générateur de rapport, `ks-collectors` pour l'inventaire.
 ks-cli.workspace = true
 ks-collectors.workspace = true
+ks-core.workspace = true
 
 chrono.workspace = true
 serde.workspace = true

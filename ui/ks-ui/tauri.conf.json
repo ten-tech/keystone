@@ -11,9 +11,9 @@
     "windows": [
       {
         "label": "principale",
-        "title": "Keystone — état de la machine",
-        "width": 1180,
-        "height": 860,
+        "title": "Keystone — poste de pilotage",
+        "width": 1280,
+        "height": 880,
         "minWidth": 720,
         "minHeight": 520,
         "resizable": true,

@@ -33,6 +33,11 @@ repository = "https://github.com/ten-tech/keystone"
 # un joker que `cargo deny check bans` refuse.
 ks-cli = { path = "../crates/ks-cli", version = "0.1.0" }
 ks-collectors = { path = "../crates/ks-collectors", version = "0.1.0" }
+# Le vocabulaire du produit — `Item`, `Domain`, `Verdict`. La coque le lit pour
+# décider ce qu'elle affiche ; elle n'en redéfinit aucune notion. Déjà dans
+# l'arbre par `ks-cli` et `ks-collectors` : nommer ce crate n'ajoute aucune
+# surface, il rend seulement visible ce qui était déjà là.
+ks-core = { path = "../crates/ks-core", version = "0.1.0" }
 
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }

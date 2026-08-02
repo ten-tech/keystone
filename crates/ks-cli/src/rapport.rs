@@ -257,7 +257,7 @@ const STYLE: &str = r#":root {
   --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px; --sp-7: 48px;
   --r-card: 10px;
   --font-sans: 'Inter','Segoe UI',system-ui,sans-serif;
-  --font-mono: 'JetBrains Mono',ui-monospace,'Cascadia Mono',monospace;
+  --font-mono: 'JetBrains Mono',ui-monospace,monospace;
 }
 * { box-sizing: border-box; }
 body {
