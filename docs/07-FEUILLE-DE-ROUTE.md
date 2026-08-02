@@ -32,21 +32,52 @@ confirme qu'aucun octet n'a été modifié.
 
 ### 0.2 — Collecteurs Windows
 
+- [x] **Secure Boot**, VBS/HVCI, Credential Guard, protection LSA — lus par le registre
+- [x] **Defender** : exclusions, règles ASR, date des signatures, versions du moteur et des signatures
+- [x] Démarrage de six services de sécurité — WinDefend, MpsSvc, EventLog, Sense, wscsvc, BITS. Une liste choisie, pas un inventaire général
+- [ ] **Defender en temps réel** — l'état effectif, distinct de la configuration
+- [ ] **Protection DMA** — hors registre, exige l'API Kernel DMA Protection
 - [ ] **TPM** : présence, version, état, propriétaire
-- [ ] **Secure Boot**, VBS/HVCI, Credential Guard, LSA protection, protection DMA
 - [ ] **BitLocker par volume** : état, méthode, protecteurs, *présence de la clé de récupération*
-- [ ] **Defender** : temps réel, exclusions, règles ASR, date des signatures
-- [ ] Services, tâches planifiées, règles de pare-feu
+- [x] **Pare-feu** : les trois profils, et les règles autorisant une connexion entrante *active* — 197 sur 649 relevées, le total ne se dépliant en rien
+- [x] **Firmware et microcode** : fabricant, version, date de publication, révision du microcode en hexadécimal brut
+- [x] **Horloge, la configuration** : source de temps et fuseau. La *cohérence* (D1-09) est une mesure, pas une lecture, et reste à faire
+- [ ] Tâches planifiées — `TaskCache\Tree` refuse la lecture sans élévation, donc pas avant le broker
 - [ ] **Usure NVMe / SMART**, santé et cycles de la batterie
 - [ ] Firmware UEFI, microcode
 - [ ] **Cohérence de l'horloge** (D1-09) — prérequis de toute la valeur forensique
 
 ### 0.3 — Réconciliation d'inventaire logiciel *(le morceau à forte valeur)*
 
-- [ ] Lecture des sources : clés `Uninstall`, MSIX, Store, winget, Scoop, Chocolatey, VS Installer, JetBrains Toolbox
-- [ ] Résolution vers un identifiant canonique
-- [ ] **Production de la liste des applications gérées par aucun gestionnaire**
+- [x] Lecture des trois vues `Uninstall` du registre — HKLM 64 bits, `WOW6432Node`, HKCU
+- [x] Résolution vers une clef de rapprochement canonique
+- [x] Détection de Scoop, Chocolatey, JetBrains Toolbox, VS Installer, winget
+- [x] Attribution pour Scoop, Chocolatey, JetBrains Toolbox, VS Installer
+- [x] **Attribution winget** — ses bases de suivi se lisent, une par source
+- [x] MSIX et Store, via le dépôt `AppModel` du registre
+- [ ] **Canal de service d'un paquet MSIX** — Store ou dépôt manuel, indiscernables au registre
+- [ ] Distinguer les applications à mise à jour autonome des vraies orphelines
 - [ ] Détection des applications installées et jamais lancées (données d'usage SRUM)
+
+> **État réel, mesuré sur un poste :** 150 applications, dont 10 attribuées,
+> **54 non attribuées** et 86 empaquetées. Attribution « complète ».
+>
+> Deux corrections successives ont amené ce chiffre. La première : winget est
+> désormais interrogeable. Ses bases de suivi rangent le code produit, qui est
+> exactement le nom de la clé de désinstallation — un rapprochement sûr là où le
+> nom échoue, comme `readyfor` qui s'affiche « Smart Connect » au registre et
+> « Ready For Assistant » chez winget.
+>
+> La seconde, plus large : l'inventaire ne voyait **que** le registre. PowerShell 7
+> l'a révélé, installé par winget et pourtant introuvable dans les trois vues
+> `Uninstall`, parce qu'un paquet MSIX n'en pose aucune. Il manquait 87
+> applications sur 150.
+>
+> Ces 86 paquets restants sont comptés **à part**, et non parmi les orphelines. Un
+> paquet MSIX a toujours un canal de service ; le registre ne dit pas lequel. Les
+> verser dans les non attribuées ferait passer l'indicateur de 54 à 140 sans qu'un
+> seul logiciel de plus soit à l'abandon — un faux positif qui coûterait sa
+> crédibilité à l'outil entier.
 
 > C'est le livrable le plus sous-estimé du produit. Sur un poste réel, la liste des
 > orphelins représente typiquement 30 % des applications installées — et c'est
@@ -54,16 +85,34 @@ confirme qu'aucun octet n'a été modifié.
 
 ### 0.4 — WSL et VM en lecture
 
-- [ ] Inventaire des distros : version, noyau, systemd, **taille réelle du `ext4.vhdx`**
+- [x] Inventaire des distros par le registre : version, **taille réelle du `ext4.vhdx`**, intégration et montage des lecteurs
+- [ ] Noyau et `systemd` de chaque distro — exige d'y exécuter quelque chose, donc pas un collecteur
 - [ ] Inventaire Hyper-V : état, **âge des points de contrôle**, chaînes de disques différentiels
 - [ ] Déploiement et exécution de `ks-agent` dans une distro, remontée vers l'hôte
 
+> **Mesuré :** deux distributions, dont un `ext4.vhdx` de **52,2 Gio**. Ce fichier
+> grossit et ne se réduit jamais seul : supprimer des données dans la distribution
+> ne rend pas un octet à Windows. Invisible depuis l'explorateur, puisqu'il vit
+> dans un dossier de paquet — c'est typiquement le premier poste d'occupation d'un
+> poste de développement, et personne ne le sait.
+
 ### 0.5 — Journal et rapport
 
-- [ ] **Remplacer le bouchon FNV-1a de `JournalEntry::digest()` par BLAKE3** — première tâche de sécurité réelle du projet
-- [ ] Persistance SQLite (WAL)
-- [ ] `ks journal` en lecture
-- [ ] Rapport HTML autonome, reprenant les tokens de `design/tokens.css`
+- [x] **BLAKE3 remplace le bouchon FNV-1a** (ADR-0004) — la portée exacte, et ses limites, y sont écrites
+- [x] Persistance SQLite (WAL), avec `ks scan --record`
+- [x] `ks journal` en lecture, avec vérification du chaînage
+- [x] Rapport HTML autonome, reprenant les tokens de `design/tokens.css`
+- [ ] Expédition du journal vers une ancre externe (`--seal`) — SEC-04, Phase 3
+
+> **Rien n'est consigné par défaut.** `ks scan` ne journalise pas ; il faut
+> `ks scan --record`. C'est le principe P2 appliqué à la lettre : puisqu'il
+> n'existe pas de `--dry-run` dans ce produit, il ne doit pas non plus exister
+> d'écriture par omission. Un scan qui journaliserait sans qu'on l'ait demandé
+> contredirait sa propre bannière, et le contredirait en silence.
+>
+> **La barrière a été éprouvée en la franchissant.** Une entrée réécrite en base,
+> puis une entrée effacée : les deux rompent le chaînage, et deux tests le
+> rejouent. Une vérification qu'on n'a jamais mise en défaut ne prouve rien.
 
 ---
 

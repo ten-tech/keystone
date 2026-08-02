@@ -41,7 +41,7 @@ pub mod snapshot;
 pub use drift::{Drift, DriftStatus, DriftSummary, Severity};
 pub use item::{Domain, Item, ItemValue, Provenance};
 pub use journal::Heartbeat;
-pub use journal::{Actor, JournalEntry, Outcome};
+pub use journal::{Actor, JournalEntry, Outcome, GENESIS_DIGEST, GENESIS_SEQ};
 pub use plan::{Action, Capabilities, Plan, Wave};
 pub use snapshot::{BackupSet, Snapshot, SnapshotKind};
 

@@ -22,9 +22,14 @@
 
 #![forbid(unsafe_code)]
 
+mod magasin;
+mod rapport;
+
+use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use chrono::Utc;
 use clap::{Parser, Subcommand};
 use ks_collectors::Inventory;
 use ks_core::{Domain, DriftSummary};
@@ -55,6 +60,14 @@ enum Command {
         /// Limiter à un domaine.
         #[arg(long)]
         domain: Option<String>,
+        /// Consigner ce scan dans le journal local de Keystone.
+        ///
+        /// Absent par défaut, et volontairement : un scan qui journaliserait
+        /// sans qu'on l'ait demandé contredirait sa propre bannière, et le
+        /// contredirait en silence. C'est le principe P2 — on n'écrit jamais
+        /// par omission.
+        #[arg(long)]
+        record: bool,
     },
 
     /// Écart entre le fichier d'état désiré et l'état réel. Lecture seule.
@@ -138,6 +151,16 @@ enum Command {
         /// Chemin de l'item, ex. `security.defender.realtime`.
         path: String,
     },
+
+    /// Écrit un rapport HTML autonome de l'état observé.
+    ///
+    /// Le fichier ne contacte aucun serveur pour s'afficher : ni police
+    /// distante, ni script, ni image externe (principe P5).
+    Report {
+        /// Où écrire le fichier.
+        #[arg(long, short = 'o', default_value = "keystone-rapport.html")]
+        out: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -171,9 +194,11 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
 
     let issue = match &cli.command {
-        Command::Scan { domain } => cmd_scan(cli.json, domain.as_deref()),
+        Command::Scan { domain, record } => cmd_scan(cli.json, domain.as_deref(), *record),
+        Command::Journal { since, seal } => cmd_journal(cli.json, since.as_deref(), *seal),
         Command::Status => cmd_status(cli.json),
         Command::Explain { path } => cmd_explain(path),
+        Command::Report { out } => cmd_report(out),
 
         // Toutes les commandes qui écriront un jour sont déclarées mais inertes en
         // Phase 0. C'est volontaire : le contrat de la CLI est figé, l'implémentation
@@ -186,7 +211,6 @@ fn main() -> ExitCode {
         | Command::Space { .. }
         | Command::Quarantine { .. }
         | Command::Backup { .. }
-        | Command::Journal { .. }
         | Command::Isolate => return not_yet(),
     };
 
@@ -259,7 +283,7 @@ fn parse_domain(s: &str) -> Option<Domain> {
     DOMAINES.iter().find(|(nom, _)| *nom == s).map(|(_, d)| *d)
 }
 
-fn cmd_scan(json: bool, domain: Option<&str>) -> Result<()> {
+fn cmd_scan(json: bool, domain: Option<&str>, record: bool) -> Result<()> {
     // Un domaine non reconnu doit se dire. Auparavant, `and_then` faisait retomber
     // une faute de frappe sur « aucun filtre » : `ks scan --domain securty`
     // affichait TOUT en silence, ce qui est le pire des deux mondes — l'utilisateur
@@ -292,10 +316,171 @@ fn cmd_scan(json: bool, domain: Option<&str>) -> Result<()> {
 
     println!("Scan — lecture seule, aucune écriture système.\n");
     for item in &items {
-        println!("  {:<44} {}", item.path, item.observed);
+        println!("  {:<44} {}", item.path, valeur_lisible(item));
     }
     println!("\n{} item(s) observé(s).", items.len());
+
+    if record {
+        let entree = consigner_scan(items.len())?;
+        println!(
+            "Consigné au journal, entrée {} — {}",
+            entree.seq,
+            entree.digest()
+        );
+    }
     Ok(())
+}
+
+/// Chemin du journal local.
+fn chemin_journal() -> Result<PathBuf> {
+    magasin::dossier_donnees()
+        .map(|d| d.join("journal.sqlite"))
+        .context(
+            "impossible de situer le dossier de données : ni LOCALAPPDATA, ni XDG_DATA_HOME, ni HOME",
+        )
+}
+
+/// Ajoute une entrée décrivant le scan qui vient d'avoir lieu.
+fn consigner_scan(nombre: usize) -> Result<ks_core::JournalEntry> {
+    let magasin = magasin::Magasin::ouvrir(&chemin_journal()?)?;
+    magasin.ajouter(ks_core::JournalEntry {
+        seq: 0,
+        at: Utc::now(),
+        // `Keystone`, parce que c'est bien Keystone qui a produit cette ENTRÉE.
+        // Les items relevés, eux, restent `Provenance::Observed` : l'outil n'est
+        // l'auteur d'aucune des valeurs qu'il a lues.
+        actor: ks_core::Actor::System,
+        verb: "scan".to_owned(),
+        target: format!("{nombre} item(s)"),
+        diff: None,
+        outcome: ks_core::Outcome::Observed,
+        prev_digest: String::new(),
+    })
+}
+
+/// Relit le journal et vérifie son chaînage.
+fn cmd_journal(json: bool, since: Option<&str>, seal: bool) -> Result<()> {
+    if seal {
+        // Sceller exige d'expédier l'empreinte vers une ancre externe, hors de
+        // portée d'un attaquant local. C'est SEC-04, Phase 3. Prétendre sceller
+        // en écrivant l'empreinte à côté du journal ne protégerait de rien.
+        anyhow::bail!(
+            "Le scellement expédie l'empreinte vers une ancre externe, ce qui \
+             n'existe pas encore (SEC-04, Phase 3).\n\
+             \n\
+             `ks journal` seul relit et vérifie le chaînage local."
+        );
+    }
+
+    let chemin = chemin_journal()?;
+    if !chemin.exists() {
+        println!("Aucun journal : rien n'a encore été consigné.\n");
+        println!("  `ks scan --record` enregistre un scan.");
+        return Ok(());
+    }
+
+    let entrees = magasin::Magasin::ouvrir_en_lecture(&chemin)?.lire(since)?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&entrees)?);
+        return Ok(());
+    }
+
+    // La vérification porte sur ce qui est LU. Avec `--since`, la séquence
+    // commence au milieu de la chaîne : son ancrage est donc légitimement
+    // absent, et annoncer « chaînage rompu » serait un faux positif.
+    let complet = since.is_none();
+
+    println!("Journal — {} entrée(s).\n", entrees.len());
+    for e in &entrees {
+        println!(
+            "  {:>4}  {}  {:<10} {}",
+            e.seq,
+            e.at.to_rfc3339(),
+            e.verb,
+            e.target
+        );
+    }
+
+    if complet {
+        let intact = ks_core::JournalEntry::verify_chain(&entrees);
+        println!(
+            "\n  Chaînage : {}",
+            if intact {
+                "intact, ancré sur la genèse"
+            } else {
+                "ROMPU — une entrée a été retirée ou réécrite"
+            }
+        );
+        println!(
+            "  Portée   : détecte la corruption et l'altération non privilégiée, \n\
+             \x20            pas un attaquant SYSTEM (ADR-0004)."
+        );
+    } else {
+        println!("\n  Chaînage : non vérifié — un extrait n'a pas d'ancrage.");
+    }
+    Ok(())
+}
+
+/// Écrit le rapport HTML autonome.
+///
+/// La seule commande de la Phase 0 qui produise un fichier. Elle écrit **où
+/// l'utilisateur le demande**, jamais dans un dossier système : la règle « aucune
+/// écriture » vise la configuration de la machine, pas un rapport que l'on
+/// réclame explicitement. La distinction est écrite ici pour qu'elle ne se
+/// perde pas.
+fn cmd_report(destination: &std::path::Path) -> Result<()> {
+    let inv = Inventory::collect_all();
+    let machine = inv
+        .items
+        .iter()
+        .find(|i| i.path == "inventory.host.name")
+        .map_or_else(|| "poste".to_owned(), |i| i.observed.to_string());
+
+    let html = rapport::construire(&inv.items, &machine, &Utc::now().to_rfc3339());
+    std::fs::write(destination, html)
+        .with_context(|| format!("écriture de « {} »", destination.display()))?;
+
+    println!("Rapport écrit : {}", destination.display());
+    println!("  {} items, sur {machine}.", inv.items.len());
+    println!("  Aucune ressource réseau : le fichier s'ouvre hors ligne.");
+    Ok(())
+}
+
+/// Rend une valeur lisible par un humain, sans toucher au modèle.
+///
+/// L'item porte des octets, parce qu'un octet est ce que la machine a mesuré, et
+/// que la Phase 1 comparera des octets. Mais `56043241472` à l'écran ne dit rien
+/// à personne, et le principe P6 refuse ce qu'on ne peut pas comprendre. La
+/// conversion appartient donc à l'affichage, jamais au relevé.
+fn valeur_lisible(item: &ks_core::Item) -> String {
+    if let (true, ks_core::ItemValue::Int(n)) = (item.path.ends_with("_bytes"), &item.observed) {
+        if let Ok(octets) = u64::try_from(*n) {
+            return octets_lisibles(octets);
+        }
+    }
+    item.observed.to_string()
+}
+
+/// Formate une taille en unités binaires, avec la ponctuation française.
+///
+/// Une décimale suffit : la deuxième donnerait une précision que ni le calcul ni
+/// le besoin ne justifient. L'espace avant l'unité est **insécable**, sans quoi le
+/// terminal coupe « 52,2 » et « Gio » sur deux lignes.
+fn octets_lisibles(octets: u64) -> String {
+    const UNITES: [&str; 5] = ["o", "Kio", "Mio", "Gio", "Tio"];
+    let mut valeur = octets as f64;
+    let mut rang = 0;
+    while valeur >= 1024.0 && rang < UNITES.len() - 1 {
+        valeur /= 1024.0;
+        rang += 1;
+    }
+    let arrondi = if rang == 0 {
+        format!("{octets}")
+    } else {
+        format!("{valeur:.1}").replace('.', ",")
+    };
+    format!("{arrondi}\u{a0}{}", UNITES[rang])
 }
 
 fn cmd_status(json: bool) -> Result<()> {
@@ -346,6 +531,31 @@ fn cmd_explain(path: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn une_taille_saffiche_en_unites_lisibles() {
+        // La valeur relevée sur la machine de référence. « 56043241472 » ne dit
+        // rien à personne ; « 52,2 Gio » situe immédiatement le disque WSL comme
+        // le premier poste d'occupation du poste.
+        assert_eq!(octets_lisibles(56_043_241_472), "52,2\u{a0}Gio");
+        assert_eq!(octets_lisibles(100_663_296), "96,0\u{a0}Mio");
+        // En deçà du kibioctet, l'arrondi n'apporte rien : on garde l'entier.
+        assert_eq!(octets_lisibles(0), "0\u{a0}o");
+        assert_eq!(octets_lisibles(512), "512\u{a0}o");
+        assert_eq!(octets_lisibles(1024), "1,0\u{a0}Kio");
+    }
+
+    #[test]
+    fn la_virgule_est_francaise_et_lespace_insecable() {
+        let rendu = octets_lisibles(1_610_612_736);
+        assert!(rendu.contains(','), "séparateur décimal français");
+        assert!(!rendu.contains('.'), "jamais le point décimal anglais");
+        assert!(
+            rendu.contains('\u{a0}'),
+            "espace insécable : sinon le terminal coupe le nombre de son unité"
+        );
+        assert!(!rendu.contains(' '), "aucune espace ordinaire");
+    }
 
     #[test]
     fn un_domaine_inconnu_est_refuse_plutot_quignore() {

@@ -29,6 +29,14 @@ certs/dev-*
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+# `.db` autant que `.sqlite` : les bases de suivi de winget s'appellent
+# `installed.db`, et une copie de travail échouée en a déposé deux à la racine.
+# Elles listent les logiciels installés du poste — dans un dépôt public, c'est
+# précisément la fuite que la section « secrets » cherche à empêcher.
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
 journal/*.jsonl
 snapshots/
 quarantine/

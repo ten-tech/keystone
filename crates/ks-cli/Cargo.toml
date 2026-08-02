@@ -17,6 +17,11 @@ ks-collectors.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
+
+# Persistance du journal (Phase 0.5). Ici la base nous appartient : elle
+# s'ouvre en ecriture et en mode WAL, a l'inverse du lecteur des bases de
+# winget, qui n'a le droit de deposer aucun fichier annexe.
+rusqlite.workspace = true
 serde_json.workspace = true
 
 [lints.rust]

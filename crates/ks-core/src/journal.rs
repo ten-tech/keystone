@@ -54,6 +54,15 @@ pub enum Outcome {
         /// Trace technique, à replier derrière « Détails » dans l'interface.
         detail: String,
     },
+    /// **Rien n'a été tenté** : l'entrée consigne une observation.
+    ///
+    /// Ajoutée en Phase 0.5, quand `ks scan --record` a eu besoin de se
+    /// journaliser. Toutes les autres variantes décrivent le sort d'une
+    /// *action* ; un scan n'en est pas une. Écrire `Applied` aurait laissé
+    /// croire à une écriture, `Simulated` à une action envisagée puis retenue.
+    /// Aucune des deux n'est vraie, et un journal qui se trompe sur la nature de
+    /// ce qu'il consigne perd sa raison d'être.
+    Observed,
 }
 
 impl Actor {
@@ -88,6 +97,7 @@ impl Outcome {
             Self::Refused { .. } => "refused",
             Self::RolledBack { .. } => "rolled-back",
             Self::Failed { .. } => "failed",
+            Self::Observed => "observed",
         }
     }
 
@@ -98,7 +108,7 @@ impl Outcome {
     #[must_use]
     pub fn detail_stable(&self) -> &str {
         match self {
-            Self::Simulated | Self::Applied => "",
+            Self::Simulated | Self::Applied | Self::Observed => "",
             Self::Refused { reason } => reason,
             Self::RolledBack { failed_test } => failed_test,
             Self::Failed { detail } => detail,
@@ -160,13 +170,21 @@ impl JournalEntry {
     /// contient le séparateur, et une empreinte qu'on peut faire collisionner à la
     /// main ne vaut rien, même avec BLAKE3 derrière.
     ///
-    /// # Note d'implémentation
+    /// # Ce que cette empreinte garantit, et ce qu'elle ne garantit pas
     ///
-    /// La fonction de hachage ci-dessous est un **bouchon volontaire** : elle n'est
-    /// pas cryptographique. Le remplacement par BLAKE3 est une tâche de la Phase 0.5
-    /// (voir `docs/07-FEUILLE-DE-ROUTE.md`). Elle est laissée en évidence plutôt que
-    /// masquée : un faux chaînage qui *a l'air* solide serait plus dangereux qu'un
-    /// bouchon annoncé.
+    /// BLAKE3, depuis la Phase 0.5. Le bouchon FNV-1a qui la précédait se
+    /// collisionnait à la demande : la chaîne ne détectait rien du tout.
+    ///
+    /// Elle détecte désormais la corruption accidentelle, la troncature, et la
+    /// réécriture par un attaquant **non privilégié**.
+    ///
+    /// Elle ne détecte **pas** un attaquant SYSTEM. L'ancrage est public,
+    /// l'algorithme est public : qui obtient ce niveau réécrit ce qu'il veut,
+    /// recalcule toutes les empreintes, et [`Self::verify_chain`] répond
+    /// « intacte ». La parade est une clé scellée dans le TPM, donc le broker,
+    /// donc la Phase 2. Voir `docs/adr/0004-chainage-du-journal.md`, dont la
+    /// section « ce que ça ne garantit pas » doit être lue avant de citer ce
+    /// mécanisme comme une protection.
     #[must_use]
     pub fn digest(&self) -> String {
         let mut material = String::new();
@@ -195,12 +213,10 @@ impl JournalEntry {
         champ(self.outcome.detail_stable());
         champ(&self.prev_digest);
 
-        let mut h: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a — NON cryptographique
-        for b in material.as_bytes() {
-            h ^= u64::from(*b);
-            h = h.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-        format!("fnv1a-stub:{h:016x}")
+        // Le préfixe nomme l'algorithme. Il n'est pas décoratif : le jour où une
+        // empreinte clée arrivera, les deux régimes doivent être distinguables
+        // dans un journal existant, sinon la migration se fait à l'aveugle.
+        format!("blake3:{}", blake3::hash(material.as_bytes()).to_hex())
     }
 
     /// Le chaînage est-il intact sur toute la séquence ?
@@ -343,10 +359,48 @@ mod tests {
     }
 
     #[test]
+    fn lempreinte_nomme_son_algorithme_et_reagit_au_moindre_octet() {
+        // Le préfixe n'est pas cosmétique : le jour où une empreinte clée
+        // arrivera (Phase 2, ADR-0004), les deux régimes devront se distinguer
+        // dans un journal existant, sinon la migration se fait à l'aveugle.
+        let a = entry(1, GENESIS_DIGEST);
+        let empreinte = a.digest();
+        assert!(
+            empreinte.starts_with("blake3:"),
+            "l'algorithme doit se nommer : {empreinte}"
+        );
+        assert_eq!(
+            empreinte.len(),
+            "blake3:".len() + 64,
+            "BLAKE3 rend 32 octets, donc 64 caractères hexadécimaux"
+        );
+
+        // Effet d'avalanche : un seul caractère de différence sur un seul champ
+        // doit changer l'empreinte de fond en comble. Le bouchon FNV-1a passait
+        // ce test-ci, et échouait sur le seul qui comptait — il se collisionnait
+        // à la demande. C'est pourquoi cette assertion ne prouve pas la
+        // résistance : elle vérifie qu'on n'a pas cassé le chaînage, la
+        // résistance venant de l'algorithme, pas de nos tests.
+        let mut b = entry(1, GENESIS_DIGEST);
+        b.target.push('X');
+        assert_ne!(empreinte, b.digest());
+
+        let communs = empreinte
+            .chars()
+            .zip(b.digest().chars())
+            .filter(|(x, y)| x == y)
+            .count();
+        assert!(
+            communs < empreinte.len() / 2,
+            "deux empreintes voisines ne doivent pas se ressembler"
+        );
+    }
+
+    #[test]
     fn un_journal_tronque_a_son_debut_est_refuse() {
         // `windows(2)` seul est vrai sur une séquence d'un élément : un journal
         // réduit à sa dernière entrée passait la vérification sans rien prouver.
-        let orpheline = entry(42, "fnv1a-stub:0000000000000000");
+        let orpheline = entry(42, "blake3:0000000000000000");
         assert!(
             !JournalEntry::verify_chain(&[orpheline]),
             "une entrée dont le prédécesseur a disparu n'ancre rien"

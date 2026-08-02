@@ -28,6 +28,12 @@ repository = "https://github.com/ten-tech/keystone"
 ks-core = { path = "crates/ks-core", version = "0.1.0" }
 ks-collectors = { path = "crates/ks-collectors", version = "0.1.0" }
 
+# BLAKE3 remplace le bouchon FNV-1a du chaînage du journal (ADR-0004).
+# `default-features = false` retire rayon et la parallélisation : on hache
+# quelques centaines d'octets par entrée, un pool de threads n'y sert à rien
+# et ajoute une surface. Version stable vérifiée à la source le 2026-08-02.
+blake3 = { version = "1.8", default-features = false }
+
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
@@ -35,6 +41,18 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sysinfo = "0.32"
 thiserror = "2"
+
+# Volontairement PAS la 0.40, dernière stable. Son `libsqlite3-sys` 0.38 appelle
+# `cfg_select!` dans son script de build ; la macro n'est stabilisée qu'en Rust
+# 1.95, cinq versions au-dessus de notre MSRV. Ni l'un ni l'autre ne déclare de
+# `rust-version`, donc le résolveur ne refuse rien : l'échec n'arrive qu'à la
+# compilation. Vérifié en compilant, pas en lisant. À revoir le jour où la MSRV
+# du projet dépassera 1.95.
+#
+# `default-features = false` retire le cache de requêtes préparées : trois
+# requêtes jetables par scan n'en tirent aucun bénéfice, et il coûte trois
+# crates de plus.
+rusqlite = { version = "0.39", default-features = false, features = ["bundled"] }
 
 # Le profil de release est volontairement strict : le broker est un composant
 # privilégié, on ne veut ni symboles bavards ni panique silencieuse.

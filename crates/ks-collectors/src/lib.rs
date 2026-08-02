@@ -19,15 +19,77 @@
 //!
 //! ## Ce qui est implémenté aujourd'hui
 //!
+//! Cette section se périme en silence : elle n'appartient à aucune liste de
+//! contrôle de revue, contrairement à la feuille de route. Elle a déjà été
+//! doublée deux fois par des modules ajoutés sans la corriger. **Tout ajout de
+//! module public se relit ici.**
+//!
 //! [`HardwareCollector`] — portable, via `sysinfo`. C'est le socle qui tourne
 //! partout, et qui sert de référence pour l'écriture des suivants.
 //!
-//! Les collecteurs Windows (TPM, Secure Boot, VBS/HVCI, BitLocker par volume,
-//! Defender, réconciliation d'inventaire logiciel) sont la suite immédiate — voir
-//! `docs/07-FEUILLE-DE-ROUTE.md`, Phase 0.2.
+//! [`SoftwareCollector`] — réconciliation d'inventaire logiciel (D1-01),
+//! attribution encore partielle : winget est détecté sans être interrogeable.
+//! Voir `docs/07-FEUILLE-DE-ROUTE.md`, Phase 0.3.
+//!
+//! [`PostureCollector`] — Secure Boot, VBS/HVCI, Credential Guard, protection
+//! LSA, exclusions et règles ASR de Defender, date des signatures, démarrage de
+//! six services de sécurité. Tout par le registre, donc sans un seul bloc
+//! `unsafe`. Restent à écrire : TPM, BitLocker par volume, protection DMA,
+//! Defender en temps réel, tâches planifiées, pare-feu, NVMe/SMART, batterie,
+//! firmware et microcode, cohérence de l'horloge — voir Phase 0.2.
+
+pub mod posture;
+pub mod software;
+pub mod virtualisation;
+pub mod winget;
 
 use chrono::Utc;
 use ks_core::{Domain, Item, ItemValue, Provenance};
+pub use posture::PostureCollector;
+pub use software::{Application, Gestionnaire, Inventaire, SoftwareCollector};
+pub use virtualisation::{Distribution, VirtualisationCollector};
+
+impl Collector for VirtualisationCollector {
+    fn id(&self) -> &'static str {
+        "virtualisation"
+    }
+
+    fn domain(&self) -> Domain {
+        Domain::Virtualization
+    }
+
+    fn collect(&self) -> Vec<Item> {
+        Self::items()
+    }
+}
+
+impl Collector for PostureCollector {
+    fn id(&self) -> &'static str {
+        "posture"
+    }
+
+    fn domain(&self) -> Domain {
+        Domain::Security
+    }
+
+    fn collect(&self) -> Vec<Item> {
+        Self::items()
+    }
+}
+
+impl Collector for SoftwareCollector {
+    fn id(&self) -> &'static str {
+        "software"
+    }
+
+    fn domain(&self) -> Domain {
+        Domain::Inventory
+    }
+
+    fn collect(&self) -> Vec<Item> {
+        Self::items()
+    }
+}
 
 /// Ce que tout collecteur sait faire.
 pub trait Collector {
@@ -53,7 +115,12 @@ impl Inventory {
     /// Exécute tous les collecteurs disponibles sur cette plateforme.
     #[must_use]
     pub fn collect_all() -> Self {
-        let collectors: Vec<Box<dyn Collector>> = vec![Box::new(HardwareCollector)];
+        let collectors: Vec<Box<dyn Collector>> = vec![
+            Box::new(HardwareCollector),
+            Box::new(SoftwareCollector),
+            Box::new(PostureCollector),
+            Box::new(VirtualisationCollector),
+        ];
 
         let mut items = Vec::new();
         for c in &collectors {

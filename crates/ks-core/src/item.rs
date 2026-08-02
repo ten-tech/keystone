@@ -96,6 +96,42 @@ pub enum ItemValue {
     Text(String),
     /// Liste de chaînes (exclusions, règles, membres d'un groupe…).
     List(Vec<String>),
+    /// **La lecture a échoué.** Ni une valeur, ni une absence.
+    ///
+    /// La distinction n'est pas une subtilité de modélisation, c'est le cœur du
+    /// sujet. Les exclusions de Defender se lisent dans une clé protégée par ACL :
+    /// une CLI non élevée se voit refuser l'accès, et confondre ce refus avec une
+    /// liste vide afficherait « 0 exclusion » sur une machine où un attaquant vient
+    /// d'en poser une. L'outil dirait « il n'y a rien » là où il ne sait que
+    /// « je n'ai pas pu regarder ».
+    ///
+    /// Variante de forme **objet** à dessein : la sérialisation est `untagged`,
+    /// donc une variante unitaire se confondrait avec [`Self::Absent`] et une
+    /// variante à chaîne avec [`Self::Text`]. Un objet ne ressemble à aucune autre.
+    Illisible {
+        /// Pourquoi la lecture a échoué, en clair pour l'utilisateur.
+        raison: String,
+    },
+}
+
+impl ItemValue {
+    /// Raccourci de lisibilité pour le cas le plus fréquent.
+    #[must_use]
+    pub fn illisible(raison: &str) -> Self {
+        Self::Illisible {
+            raison: raison.to_owned(),
+        }
+    }
+
+    /// La valeur est-elle un constat, ou un aveu d'échec ?
+    ///
+    /// Un item illisible ne doit jamais alimenter un décompte ni un pourcentage :
+    /// c'est la même règle que pour l'attribution logicielle, où un gestionnaire
+    /// non interrogeable supprime le pourcentage plutôt que de le fausser.
+    #[must_use]
+    pub const fn est_constat(&self) -> bool {
+        !matches!(self, Self::Illisible { .. })
+    }
 }
 
 impl std::fmt::Display for ItemValue {
@@ -107,6 +143,7 @@ impl std::fmt::Display for ItemValue {
             Self::Int(n) => write!(f, "{n}"),
             Self::Text(s) => f.write_str(s),
             Self::List(v) => write!(f, "{} élément(s)", v.len()),
+            Self::Illisible { raison } => write!(f, "illisible — {raison}"),
         }
     }
 }
