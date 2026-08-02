@@ -59,10 +59,13 @@ existera.
 La chaîne détecte désormais, avec une certitude cryptographique :
 
 - la **corruption accidentelle** d'un enregistrement, disque ou logiciel ;
-- la **troncature** du journal, y compris la suppression de sa première entrée,
-  puisque `verify_chain` refuse la séquence vide et exige l'ancrage ;
-- la **réécriture par un attaquant non privilégié**, qui ne peut pas recalculer
-  les empreintes suivantes sans droit d'écriture sur tout le journal ;
+- la **troncature par le début** du journal, puisque `verify_chain` refuse la
+  séquence vide et exige l'ancrage sur la genèse ;
+- le **retrait d'une entrée au milieu**, qui rompt la continuité des numéros et
+  des empreintes ;
+- la **réécriture d'une charge utile**, la dernière entrée comprise, depuis que
+  `Magasin::premiere_empreinte_incoherente` relit la colonne `digest` et la
+  confronte à l'empreinte recalculée ;
 - le **déplacement d'une frontière entre deux champs**, puisque chaque champ
   reste préfixé de sa longueur.
 
@@ -75,6 +78,23 @@ ne le sera plus jamais après la 0.5, ce qui est une raison de faire ce
 remplacement maintenant plutôt que plus tard.
 
 ### Ce que ça ne garantit pas — à lire avant de citer cette ADR
+
+**La suppression des dernières entrées est indétectable localement.** Une
+séquence amputée par la fin reste parfaitement cohérente : elle s'ancre sur la
+genèse, ses numéros se suivent, ses empreintes s'enchaînent. Rien ne la
+distingue d'un journal qui se serait arrêté là. Aucun contrôle vivant dans le
+même fichier ne peut y remédier, et le journal vit dans `%LOCALAPPDATA%`, donc à
+portée de l'adversaire **A1** du modèle de menace, qui n'a besoin d'aucune
+élévation pour y écrire.
+
+C'est la raison d'être de l'exigence **SEC-04** : seul un exemplaire tenu hors
+du poste permet de constater qu'il manque la fin. Cette ADR a d'abord affirmé
+détecter « la troncature » sans qualificatif, et `ks journal` affichait
+« détecte l'altération non privilégiée » — deux formulations fausses au moment
+précis où elles comptaient. Un test verrouille désormais la limite
+(`la_troncature_par_la_fin_reste_indetectable_et_cest_documente`) : s'il vient à
+échouer, c'est qu'une garantie a été gagnée, et cette section doit être réécrite
+dans le même commit.
 
 **Un attaquant qui obtient SYSTEM refabrique la totalité de la chaîne.** Il
 réécrit les entrées qu'il veut, recalcule chaque empreinte depuis l'ancrage

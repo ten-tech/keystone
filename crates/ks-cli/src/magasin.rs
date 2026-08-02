@@ -139,7 +139,33 @@ impl Magasin {
     /// ici**, jamais fournis par l'appelant : les laisser choisir permettrait
     /// d'insérer une entrée au milieu, ce que tout le chaînage existe pour
     /// empêcher.
-    pub fn ajouter(&self, mut entree: JournalEntry) -> Result<JournalEntry> {
+    ///
+    /// Les deux gestes — lire le dernier maillon, puis insérer à sa suite — ne
+    /// forment un maillon correct que s'ils sont indivisibles. `BEGIN IMMEDIATE`
+    /// prend le verrou d'écriture dès l'ouverture plutôt qu'à la première
+    /// écriture : deux `ks scan --record` concurrents s'attendent au lieu de
+    /// lire le même prédécesseur puis de se heurter sur la clé primaire.
+    pub fn ajouter(&self, entree: JournalEntry) -> Result<JournalEntry> {
+        self.connexion
+            .execute_batch("BEGIN IMMEDIATE")
+            .context("ouverture de la transaction du journal")?;
+        match self.ajouter_chaine(entree) {
+            Ok(ecrite) => {
+                self.connexion
+                    .execute_batch("COMMIT")
+                    .context("validation de l'entrée de journal")?;
+                Ok(ecrite)
+            }
+            Err(erreur) => {
+                // L'annulation ne doit pas masquer la cause première.
+                let _ = self.connexion.execute_batch("ROLLBACK");
+                Err(erreur)
+            }
+        }
+    }
+
+    /// Le chaînage proprement dit, sous le verrou tenu par [`Self::ajouter`].
+    fn ajouter_chaine(&self, mut entree: JournalEntry) -> Result<JournalEntry> {
         let (dernier_seq, empreinte_precedente) = self.dernier_maillon()?;
         entree.seq = dernier_seq + 1;
         entree.prev_digest = empreinte_precedente;
@@ -187,6 +213,39 @@ impl Magasin {
         }
         Ok(entrees)
     }
+
+    /// Numéro de la première entrée dont l'empreinte stockée ne correspond plus
+    /// à sa charge utile, s'il en existe une.
+    ///
+    /// La colonne `digest` était écrite à chaque insertion et **jamais relue** :
+    /// un champ qui avait toute l'apparence d'une garantie, et qui ne servait à
+    /// rien. Le chaînage seul ne suffit pas, parce qu'il relie chaque entrée à
+    /// la **précédente** : la dernière n'est reliée à rien, donc sa réécriture
+    /// passait la vérification sans laisser de trace.
+    ///
+    /// Ce contrôle ferme la réécriture naïve d'une charge utile, la dernière
+    /// comprise. Il ne ferme pas — et rien de local ne peut fermer — la
+    /// réécriture d'une entrée **avec** son empreinte, ni la suppression des
+    /// dernières entrées : quiconque écrit dans le fichier peut produire une
+    /// séquence plus courte et parfaitement cohérente. C'est exactement la
+    /// raison d'être de l'exigence SEC-04, qui exporte le journal hors du poste.
+    pub fn premiere_empreinte_incoherente(&self) -> Result<Option<u64>> {
+        let mut requete = self
+            .connexion
+            .prepare("SELECT digest, payload FROM journal ORDER BY seq")?;
+        let lignes =
+            requete.query_map([], |l| Ok((l.get::<_, String>(0)?, l.get::<_, String>(1)?)))?;
+
+        for ligne in lignes {
+            let (stockee, charge) = ligne.context("lecture d'une empreinte")?;
+            let entree: JournalEntry =
+                serde_json::from_str(&charge).context("entrée de journal illisible")?;
+            if entree.digest() != stockee {
+                return Ok(Some(entree.seq));
+            }
+        }
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
@@ -223,6 +282,90 @@ mod tests {
         assert_eq!(e.seq, GENESIS_SEQ);
         assert_eq!(e.prev_digest, GENESIS_DIGEST);
         assert!(JournalEntry::verify_chain(&m.lire(None).expect("lecture")));
+        let _ = std::fs::remove_file(chemin);
+    }
+
+    #[test]
+    fn la_reecriture_de_la_derniere_entree_est_detectee() {
+        // Le défaut, mesuré avant correction : `verify_chain` relie chaque
+        // entrée à la précédente, donc la dernière n'est reliée à rien. On
+        // réécrivait sa charge utile et Keystone répondait « intact ». Le
+        // journal vit dans %LOCALAPPDATA%, inscriptible par l'utilisateur
+        // lui-même : c'est exactement l'adversaire A1 du modèle de menace.
+        let (m, chemin) = magasin_neuf("reecriture-fin");
+        for _ in 0..3 {
+            m.ajouter(entree("converge")).expect("ajout");
+        }
+        let derniere = m.lire(None).expect("lecture").pop().expect("trois entrées");
+
+        // On réécrit la charge utile de la dernière entrée SANS toucher à son
+        // empreinte stockée — c'est l'altération la moins coûteuse à produire.
+        let mut falsifiee = derniere.clone();
+        falsifiee.verb = "scan".to_owned();
+        m.connexion
+            .execute(
+                "UPDATE journal SET payload = ?1 WHERE seq = ?2",
+                rusqlite::params![
+                    serde_json::to_string(&falsifiee).expect("sérialisation"),
+                    i64::try_from(derniere.seq).expect("seq tient dans un i64"),
+                ],
+            )
+            .expect("réécriture");
+
+        assert!(
+            JournalEntry::verify_chain(&m.lire(None).expect("lecture")),
+            "le chaînage seul ne voit RIEN : c'est le constat qui justifie \
+             le contrôle d'empreinte, pas un défaut du test"
+        );
+        assert_eq!(
+            m.premiere_empreinte_incoherente().expect("vérification"),
+            Some(derniere.seq),
+            "l'empreinte stockée doit démentir la charge utile réécrite"
+        );
+        let _ = std::fs::remove_file(chemin);
+    }
+
+    #[test]
+    fn un_journal_intact_ne_signale_aucune_empreinte_incoherente() {
+        let (m, chemin) = magasin_neuf("empreintes-saines");
+        for _ in 0..4 {
+            m.ajouter(entree("scan")).expect("ajout");
+        }
+        assert_eq!(
+            m.premiere_empreinte_incoherente().expect("vérification"),
+            None
+        );
+        let _ = std::fs::remove_file(chemin);
+    }
+
+    #[test]
+    fn la_troncature_par_la_fin_reste_indetectable_et_cest_documente() {
+        // Ce test ne verrouille pas une garantie : il verrouille une **limite**.
+        // Supprimer les dernières entrées produit une séquence plus courte et
+        // parfaitement cohérente ; aucun contrôle local ne peut la distinguer
+        // d'un journal qui se serait arrêté là. Si un jour ce test échoue,
+        // c'est qu'une garantie a été gagnée — et le message affiché par
+        // `ks journal`, ainsi que l'ADR-0004, doivent être corrigés en
+        // conséquence, dans le même commit.
+        let (m, chemin) = magasin_neuf("troncature-fin");
+        for _ in 0..5 {
+            m.ajouter(entree("scan")).expect("ajout");
+        }
+        m.connexion
+            .execute("DELETE FROM journal WHERE seq >= ?1", [3])
+            .expect("troncature");
+
+        let restantes = m.lire(None).expect("lecture");
+        assert_eq!(restantes.len(), 2);
+        assert!(
+            JournalEntry::verify_chain(&restantes),
+            "limite assumée : une séquence tronquée par la fin reste cohérente"
+        );
+        assert_eq!(
+            m.premiere_empreinte_incoherente().expect("vérification"),
+            None,
+            "les empreintes restantes sont authentiques — c'est bien le cas"
+        );
         let _ = std::fs::remove_file(chemin);
     }
 

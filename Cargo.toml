@@ -1,5 +1,25 @@
 [workspace]
-resolver = "2"
+# Résolveur 3 — celui qui refuse une version au-dessus de la MSRV.
+#
+# Le piège s'est refermé trois fois sur ce projet : `libsqlite3-sys` 0.38,
+# `wmi` 0.18, `sysinfo` 0.39. À chaque fois le résolveur acceptait la mise à
+# jour et l'échec n'arrivait qu'à la compilation, plusieurs minutes plus tard.
+# Depuis Rust 1.84 le résolveur sait lire le `rust-version` des candidats ; il
+# annonce désormais « Locking N packages to latest Rust 1.85 compatible
+# versions » et écarte les autres.
+#
+# Le réglage par `.cargo/config.toml` (`resolver.incompatible-rust-version`)
+# a été essayé d'abord, et **mesuré sans effet** : cargo le déclare « unused
+# config key » tant que le manifeste reste en résolveur 2. Il fallait le
+# résolveur 3. La compatibilité a été vérifiée en compilant sous cargo 1.85.0,
+# pas déduite.
+#
+# Ce que ça ne couvre pas, et qu'il faut garder en tête : douze dépendances de
+# l'arbre ne déclarent aucun `rust-version` — `blake3`, `rusqlite`,
+# `libsqlite3-sys`, `wmi` en font partie. Le résolveur ne peut rien comparer,
+# donc rien écarter. Le job « MSRV » de la CI reste le seul filet pour
+# celles-là.
+resolver = "3"
 members = [
     "crates/ks-core",
     "crates/ks-cli",

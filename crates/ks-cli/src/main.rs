@@ -161,6 +161,12 @@ enum Command {
         /// Où écrire le fichier.
         #[arg(long, short = 'o', default_value = "keystone-rapport.html")]
         out: PathBuf,
+        /// Remplacer le fichier s'il existe déjà.
+        ///
+        /// Absent par défaut : écraser un fichier est irréversible, et Keystone
+        /// ne fait rien d'irréversible par omission (principe P3).
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -199,7 +205,7 @@ fn main() -> ExitCode {
         Command::Journal { since, seal } => cmd_journal(cli.json, since.as_deref(), *seal),
         Command::Status => cmd_status(cli.json),
         Command::Explain { path } => cmd_explain(path),
-        Command::Report { out } => cmd_report(out),
+        Command::Report { out, force } => cmd_report(out, *force),
 
         // Toutes les commandes qui écriront un jour sont déclarées mais inertes en
         // Phase 0. C'est volontaire : le contrat de la CLI est figé, l'implémentation
@@ -382,7 +388,8 @@ fn cmd_journal(json: bool, since: Option<&str>, seal: bool) -> Result<()> {
         return Ok(());
     }
 
-    let entrees = magasin::Magasin::ouvrir_en_lecture(&chemin)?.lire(since)?;
+    let magasin = magasin::Magasin::ouvrir_en_lecture(&chemin)?;
+    let entrees = magasin.lire(since)?;
 
     if json {
         println!("{}", serde_json::to_string_pretty(&entrees)?);
@@ -407,17 +414,29 @@ fn cmd_journal(json: bool, since: Option<&str>, seal: bool) -> Result<()> {
 
     if complet {
         let intact = ks_core::JournalEntry::verify_chain(&entrees);
+        let empreintes = magasin.premiere_empreinte_incoherente()?;
         println!(
             "\n  Chaînage : {}",
-            if intact {
-                "intact, ancré sur la genèse"
-            } else {
-                "ROMPU — une entrée a été retirée ou réécrite"
+            match (intact, empreintes) {
+                (false, _) => "ROMPU — une entrée a été retirée au début, ou réécrite".to_owned(),
+                (true, Some(seq)) =>
+                    format!("ROMPU — l'entrée {seq} ne correspond plus à son empreinte"),
+                (true, None) => "intact, ancré sur la genèse".to_owned(),
             }
         );
+        // Ce que la portée disait avant : « détecte la corruption et
+        // l'altération non privilégiée ». C'était faux dans les deux sens où ça
+        // comptait. Le chaînage relie chaque entrée à la précédente, donc la
+        // dernière n'est reliée à rien ; et rien ne relisait l'empreinte
+        // stockée. Supprimer les dernières entrées, ou réécrire la dernière,
+        // laissait Keystone répondre « intact » — précisément à l'adversaire A1
+        // du modèle de menace, qui écrit dans %LOCALAPPDATA% sans élévation.
         println!(
-            "  Portée   : détecte la corruption et l'altération non privilégiée, \n\
-             \x20            pas un attaquant SYSTEM (ADR-0004)."
+            "  Portée   : détecte la corruption, le retrait d'une entrée au début ou au\n\
+             \x20            milieu, et la réécriture d'une charge utile.\n\
+             \x20            Ne détecte PAS le retrait des dernières entrées : une séquence\n\
+             \x20            plus courte reste cohérente. Aucun contrôle local ne le peut ;\n\
+             \x20            c'est la raison d'être de l'export hors du poste (SEC-04)."
         );
     } else {
         println!("\n  Chaînage : non vérifié — un extrait n'a pas d'ancrage.");
@@ -432,7 +451,7 @@ fn cmd_journal(json: bool, since: Option<&str>, seal: bool) -> Result<()> {
 /// écriture » vise la configuration de la machine, pas un rapport que l'on
 /// réclame explicitement. La distinction est écrite ici pour qu'elle ne se
 /// perde pas.
-fn cmd_report(destination: &std::path::Path) -> Result<()> {
+fn cmd_report(destination: &std::path::Path, force: bool) -> Result<()> {
     let inv = Inventory::collect_all();
     let machine = inv
         .items
@@ -441,6 +460,19 @@ fn cmd_report(destination: &std::path::Path) -> Result<()> {
         .map_or_else(|| "poste".to_owned(), |i| i.observed.to_string());
 
     let html = rapport::construire(&inv.items, &machine, &Utc::now().to_rfc3339());
+
+    // `fs::write` tronque le fichier existant. `ks report -o notes.html`
+    // détruisait donc `notes.html`, sans le dire et sans retour arrière —
+    // principe P3. `create_new` refuse à la place, et la commande dit comment
+    // passer outre. C'est la seule commande de la Phase 0 qui écrive un
+    // fichier ; elle n'a pas le droit d'en détruire un.
+    if destination.exists() && !force {
+        anyhow::bail!(
+            "« {} » existe déjà, et Keystone n'écrase pas un fichier sans qu'on le demande.\n\
+             Ajoutez --force pour le remplacer, ou choisissez un autre chemin avec -o.",
+            destination.display()
+        );
+    }
     std::fs::write(destination, html)
         .with_context(|| format!("écriture de « {} »", destination.display()))?;
 

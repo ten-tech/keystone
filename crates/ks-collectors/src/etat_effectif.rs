@@ -141,6 +141,25 @@ mod windows_impl {
         valeur.map_or(Lecture::Absente, Lecture::Trouvee)
     }
 
+    /// Délai au-delà duquel on cesse d'attendre WMI.
+    ///
+    /// La bibliothèque `wmi` énumère ses résultats avec `WBEM_INFINITE`
+    /// (`result_enumerator.rs`, vérifié dans la version verrouillée) : un dépôt
+    /// WMI en réparation ou un `winmgmt` figé suspend l'appel sans borne, et un
+    /// fil Rust bloqué ne se tue pas. Sans ce délai, `ks status` attendait
+    /// indéfiniment, en silence — ce que NF-01 interdit.
+    ///
+    /// **Cinq secondes, et la marge est délibérée.** La lecture des deux classes
+    /// a été mesurée à 145, 166 et 193 ms sur la machine de référence, dépôt
+    /// WMI chaud — soit un rapport de 25 à 1. La marge ne sert pas au cas
+    /// nominal : elle couvre un `winmgmt` qui démarre à froid, et surtout elle
+    /// reconnaît que le coût d'un délai trop court n'est pas symétrique. Trop
+    /// court, on affiche « illisible » sur un item de sécurité parfaitement
+    /// lisible ; trop long, on attend. Le premier est un faux constat, le
+    /// second une gêne. Ce délai n'existe que pour borner une attente
+    /// **infinie**, pas pour optimiser le cas courant.
+    const DELAI_WMI: std::time::Duration = std::time::Duration::from_secs(5);
+
     /// Interroge WMI sur un fil dédié, puis laisse ce fil mourir.
     ///
     /// L'isolement n'est pas cosmétique. `COMLibrary::new()` initialise COM en
@@ -150,12 +169,30 @@ mod windows_impl {
     /// survit donc à la requête. En la confinant à un fil qu'on abandonne
     /// ensuite, le processus hôte ressort exactement comme il est entré.
     ///
-    /// Si le fil panique, `join` renvoie une erreur et l'on retombe sur des
-    /// lectures absentes : un collecteur ne fait jamais tomber son appelant.
+    /// Le fil n'est **pas** attendu par `join` : au-delà de [`DELAI_WMI`] on
+    /// l'abandonne et l'on renvoie un refus de lecture. Un fil abandonné ne
+    /// retient pas le processus, et le refus dit la vérité — on n'a pas lu.
+    ///
+    /// ## Ce que ce repli ne couvre pas
+    ///
+    /// Une **panique** à l'intérieur de `interroger` ne se rattrape pas ici :
+    /// le profil de release porte `panic = "abort"` (`Cargo.toml`), donc il n'y
+    /// a pas de déroulement de pile et le processus meurt. La rédaction
+    /// précédente affirmait l'inverse — qu'un `join` en erreur suffisait — ce
+    /// qui était vrai en `dev` et faux dans le binaire livré. La sûreté repose
+    /// donc sur le fait que `interroger` ne panique pas : aucun `unwrap`,
+    /// aucune indexation, aucune arithmétique non bornée. Cette propriété est
+    /// une **contrainte de relecture**, pas une garantie du compilateur.
     pub(super) fn lire() -> (EtatPlateforme, EtatDefender) {
-        std::thread::spawn(interroger)
-            .join()
-            .unwrap_or_else(|_| (EtatPlateforme::default(), EtatDefender::default()))
+        let (envoi, reception) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            // L'envoi échoue si le récepteur a déjà rendu la main sur délai.
+            // C'est le cas normal, pas une erreur : le fil n'a plus de lecteur.
+            let _ = envoi.send(interroger());
+        });
+        reception
+            .recv_timeout(DELAI_WMI)
+            .unwrap_or_else(|_| (refus_plateforme(), refus_defender()))
     }
 
     fn interroger() -> (EtatPlateforme, EtatDefender) {
@@ -181,23 +218,23 @@ mod windows_impl {
                     proprietes_disponibles: depuis(d.available_security_properties),
                 });
 
-        // Une seconde connexion : les deux classes vivent dans des espaces de
-        // noms distincts, et une connexion WMI en vise un seul.
-        let com_defender = match COMLibrary::new() {
-            Ok(c) => c,
-            Err(_) => return (plateforme, refus_defender()),
-        };
-
-        let defender =
-            WMIConnection::with_namespace_path(r"root\Microsoft\Windows\Defender", com_defender)
-                .ok()
-                .and_then(|c| c.query::<MpComputerStatus>().ok())
-                .and_then(|mut v| v.pop())
-                .map_or_else(refus_defender, |m| EtatDefender {
-                    temps_reel: depuis(m.real_time_protection_enabled),
-                    anti_alteration: depuis(m.is_tamper_protected),
-                    surveillance_comportementale: depuis(m.behavior_monitor_enabled),
-                });
+        // Une seconde *connexion*, pas une seconde initialisation : les deux
+        // classes vivent dans des espaces de noms distincts et une connexion WMI
+        // en vise un seul, mais COM n'a besoin d'être initialisé qu'une fois par
+        // fil. `COMLibrary` est `Copy`, on réemploie donc le jeton. Le second
+        // `COMLibrary::new()` qui figurait ici refaisait `CoInitializeSecurity`,
+        // lequel renvoyait `RPC_E_TOO_LATE` — avalé par la bibliothèque, donc
+        // sans effet visible, mais le commentaire qui le justifiait confondait
+        // « une connexion par espace de noms » et « une initialisation par fil ».
+        let defender = WMIConnection::with_namespace_path(r"root\Microsoft\Windows\Defender", com)
+            .ok()
+            .and_then(|c| c.query::<MpComputerStatus>().ok())
+            .and_then(|mut v| v.pop())
+            .map_or_else(refus_defender, |m| EtatDefender {
+                temps_reel: depuis(m.real_time_protection_enabled),
+                anti_alteration: depuis(m.is_tamper_protected),
+                surveillance_comportementale: depuis(m.behavior_monitor_enabled),
+            });
 
         (plateforme, defender)
     }
