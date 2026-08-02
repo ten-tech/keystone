@@ -123,10 +123,16 @@ Test-Outil -Nom 'cargo-deny'  -Commande 'cargo-deny'  -Installation 'cargo insta
 # ─── Le shell lui-même ─────────────────────────────────────────────────────
 Write-Host ''
 Write-Host '  Shell' -ForegroundColor White
-Write-Host ("  [ok]   Windows PowerShell     {0} — suffit pour tous les scripts du dépôt" -f $PSVersionTable.PSVersion) -ForegroundColor Green
-Test-Outil -Nom 'PowerShell 7' -Commande 'pwsh' `
-    -Installation 'winget install Microsoft.PowerShell' -Optionnel | Out-Null
-Write-Host '         Recommandé pour le confort interactif, jamais requis par les scripts.' -ForegroundColor DarkGray
+# `PSEdition` vaut « Desktop » pour Windows PowerShell 5.1 et « Core » pour
+# PowerShell 7 : les nommer pareil serait faux, ce sont deux produits distincts.
+$nomShell = if ($PSVersionTable.PSEdition -eq 'Core') { 'PowerShell' } else { 'Windows PowerShell' }
+Write-Host ("  [ok]   {0,-22}{1} — suffit pour tous les scripts du dépôt" -f $nomShell, $PSVersionTable.PSVersion) -ForegroundColor Green
+
+if ($PSVersionTable.PSEdition -ne 'Core') {
+    Test-Outil -Nom 'PowerShell 7' -Commande 'pwsh' `
+        -Installation 'winget install Microsoft.PowerShell' -Optionnel | Out-Null
+    Write-Host '         Recommandé pour le confort interactif, jamais requis par les scripts.' -ForegroundColor DarkGray
+}
 
 # ─── Contexte de la machine ────────────────────────────────────────────────
 Write-Host ''
