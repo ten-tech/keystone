@@ -43,10 +43,31 @@ confirme qu'aucun octet n'a été modifié.
 
 ### 0.3 — Réconciliation d'inventaire logiciel *(le morceau à forte valeur)*
 
-- [ ] Lecture des sources : clés `Uninstall`, MSIX, Store, winget, Scoop, Chocolatey, VS Installer, JetBrains Toolbox
-- [ ] Résolution vers un identifiant canonique
-- [ ] **Production de la liste des applications gérées par aucun gestionnaire**
+- [x] Lecture des trois vues `Uninstall` du registre — HKLM 64 bits, `WOW6432Node`, HKCU
+- [x] Résolution vers une clef de rapprochement canonique
+- [x] Détection de Scoop, Chocolatey, JetBrains Toolbox, VS Installer, winget
+- [x] Attribution pour Scoop, Chocolatey, JetBrains Toolbox, VS Installer
+- [ ] **Attribution winget** — bloquant pour le livrable
+- [ ] MSIX et Store, via le dépôt `AppModel` du registre
 - [ ] Détection des applications installées et jamais lancées (données d'usage SRUM)
+
+> **État réel, mesuré sur un poste :** 63 applications trouvées, **attribution
+> partielle**. winget est détecté mais pas interrogeable — son inventaire vit dans
+> une base SQLite (`StoreEdgeFD`) au format non contractuel — donc les applications
+> qu'il gère remontent aujourd'hui comme non attribuées.
+>
+> Le modèle le dit plutôt que de le taire : `inventory.software.attribution` vaut
+> « partielle », et `unqueryable_managers` nomme le coupable. Le décompte des non
+> attribuées est un **majorant**, pas une mesure — et le pourcentage n'est pas
+> publié du tout tant que c'est le cas. Un « 100 % d'orphelines » qui signifie
+> « on n'a pas su regarder » serait exactement l'indicateur non explicable que le
+> principe P6 interdit.
+>
+> **Conséquence pour le critère de sortie de la Phase 0 :** il exige « la liste des
+> applications gérées par aucun gestionnaire ». Tant que l'attribution est
+> partielle, cette liste n'existe pas — seule celle des non attribuées existe.
+> L'attribution winget est donc sur le chemin critique, et rusqlite (prévu en 0.5)
+> pourrait être avancé pour lire sa base.
 
 > C'est le livrable le plus sous-estimé du produit. Sur un poste réel, la liste des
 > orphelins représente typiquement 30 % des applications installées — et c'est

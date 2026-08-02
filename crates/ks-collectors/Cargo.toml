@@ -13,13 +13,19 @@ chrono.workspace = true
 serde.workspace = true
 sysinfo.workspace = true
 
-# Les collecteurs spécifiques à Windows (TPM, BitLocker, Defender, WMI, registre)
-# arrivent en Phase 0.2. Le crate `windows` était déjà déclaré ici « pour que la
-# cible soit explicite » — mais jamais importé, ce qui compilait neuf crates
-# transitives pour rien et figeait une version d'API qu'on n'a pas encore essayée.
+# `windows-registry` et non `windows` : la réconciliation d'inventaire logiciel
+# ne lit que le registre, et ce crate en offre une API SÛRE. Le choix n'est pas
+# cosmétique — il garde toute la Phase 0.3 hors du régime `unsafe`, donc hors du
+# débat sur le grain des exceptions, qui reste à trancher pour la 0.2.
 #
-# Il sera ajouté au moment du premier appel Win32 réel, avec la version stable
-# vérifiée à la source ce jour-là. Rien à déclarer avant d'en avoir besoin.
+# Version vérifiée à la source le 2026-08-02 : 0.6.1, MSRV 1.82 (sous notre 1.85),
+# « MIT OR Apache-2.0 » déjà autorisée par deny.toml. Même famille que le crate
+# `windows` qu'exigera la 0.2 : une seule chaîne d'approvisionnement à auditer.
+[target.'cfg(windows)'.dependencies]
+windows-registry = "0.6"
 
 [lints.rust]
-unsafe_code = "warn"   # inévitable côté Win32, mais chaque bloc doit être justifié.
+# Aucun bloc `unsafe` à ce jour : `windows-registry` est une API sûre. Le `warn`
+# reste posé pour la 0.2, où les appels TPM et WMI l'imposeront — et chaque bloc
+# devra alors porter son commentaire `// SAFETY:`.
+unsafe_code = "warn"

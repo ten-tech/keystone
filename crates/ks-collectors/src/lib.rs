@@ -26,8 +26,25 @@
 //! Defender, réconciliation d'inventaire logiciel) sont la suite immédiate — voir
 //! `docs/07-FEUILLE-DE-ROUTE.md`, Phase 0.2.
 
+pub mod software;
+
 use chrono::Utc;
 use ks_core::{Domain, Item, ItemValue, Provenance};
+pub use software::{Application, Gestionnaire, Inventaire, SoftwareCollector};
+
+impl Collector for SoftwareCollector {
+    fn id(&self) -> &'static str {
+        "software"
+    }
+
+    fn domain(&self) -> Domain {
+        Domain::Inventory
+    }
+
+    fn collect(&self) -> Vec<Item> {
+        Self::items()
+    }
+}
 
 /// Ce que tout collecteur sait faire.
 pub trait Collector {
@@ -53,7 +70,8 @@ impl Inventory {
     /// Exécute tous les collecteurs disponibles sur cette plateforme.
     #[must_use]
     pub fn collect_all() -> Self {
-        let collectors: Vec<Box<dyn Collector>> = vec![Box::new(HardwareCollector)];
+        let collectors: Vec<Box<dyn Collector>> =
+            vec![Box::new(HardwareCollector), Box::new(SoftwareCollector)];
 
         let mut items = Vec::new();
         for c in &collectors {
