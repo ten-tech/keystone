@@ -13,17 +13,25 @@
 //!
 //! ## Tout par le registre, donc aucun bloc `unsafe`
 //!
-//! Secure Boot, HVCI, Credential Guard, protection LSA, l'état de Defender et le
-//! démarrage des services de sécurité sont **tous** lisibles dans le registre. Ni
-//! WMI, ni l'API TBS, ni PowerShell : la Phase 0.2 démarre donc sans avoir à
-//! trancher le grain des exceptions `unsafe`, qui reste une décision à part.
+//! La **configuration** de Secure Boot, d'HVCI, de VBS, de Credential Guard, de la
+//! protection LSA, ainsi que les versions et exclusions de Defender et le type de
+//! démarrage des services, se lit dans le registre. Ni WMI, ni l'API TBS, ni
+//! PowerShell : la Phase 0.2 démarre donc sans avoir à trancher le grain des
+//! exceptions `unsafe`, qui reste une décision à part.
+//!
+//! **Configuration n'est pas exécution**, et le registre ne dit que la première.
+//! Aucune valeur de registre n'atteste que VBS tourne, que le noyau sécurisé a
+//! démarré ou que la protection en temps réel est active : ces états vivent dans
+//! `Win32_DeviceGuard` et `MSFT_MpComputerStatus`. Les chemins d'items le disent —
+//! `hvci_policy`, `vbs_policy` — plutôt que de laisser croire au contraire.
 //!
 //! Ce qui exige réellement une API native — état détaillé du TPM, protecteurs
-//! BitLocker par volume, usure SMART — attend cette décision et n'est pas ici.
+//! BitLocker par volume, usure SMART, état effectif des protections — attend cette
+//! décision et n'est pas ici.
 //!
 //! ## La règle qui gouverne tout ce fichier
 //!
-//! **Une clé absente n'est pas « désactivé ».**
+//! **Une clé absente n'est pas « désactivé ». Une clé refusée non plus.**
 //!
 //! Constaté sur une machine réelle : `EnableVirtualizationBasedSecurity` est
 //! absente alors que HVCI vaut 1 — la protection tourne, elle n'est simplement pas
@@ -31,7 +39,11 @@
 //! désactivé » sur une machine protégée, c'est-à-dire un faux négatif de sécurité :
 //! précisément ce qu'un outil de posture n'a pas le droit de produire.
 //!
-//! Une valeur illisible donne donc [`ItemValue::Absent`], jamais une supposition.
+//! Le pendant exact vaut pour le refus d'accès. Les exclusions de Defender vivent
+//! sous une clé protégée par ACL, et la CLI ne s'exécute pas élevée (SEC-01) :
+//! traduire ce refus en liste vide afficherait « 0 exclusion » sur une machine où
+//! l'on n'a rien pu regarder. D'où [`Lecture`], qui porte **trois** états, et
+//! [`ItemValue::Illisible`], qui n'est ni une valeur ni une absence.
 
 use chrono::{DateTime, Utc};
 use ks_core::{Domain, Item, ItemValue, Provenance};
@@ -50,6 +62,115 @@ pub fn demarrage_service(valeur: u32) -> &'static str {
         3 => "manuel",
         4 => "désactivé",
         _ => "inconnu",
+    }
+}
+
+/// Ce qu'une tentative de lecture du registre peut donner. **Trois états.**
+///
+/// Le troisième est celui qui manquait, et son absence coûtait cher. Les
+/// exclusions de Defender vivent sous une clé protégée par ACL : mesuré sur cette
+/// machine, en session non élevée — c'est-à-dire dans les conditions où la CLI
+/// s'exécute réellement (SEC-01) — son ouverture renvoie « accès refusé ». Le
+/// premier jet avalait ce refus dans le même `Vec::new()` qu'une clé vide, et
+/// publiait sereinement « 0 élément(s) » sur une machine où l'on n'avait rien pu
+/// regarder.
+///
+/// C'est le défaut `wscvc` à l'identique, sur l'item que le §6 du modèle de menace
+/// place au deuxième rang de valeur. Et il était invisible en intégration
+/// continue, où le porteur d'exécution est administrateur : la lecture y réussit,
+/// l'écart n'y est pas reproductible.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Lecture<T> {
+    /// La valeur existe et a été lue.
+    Trouvee(T),
+    /// La clé ou la valeur n'existe pas sur cette machine.
+    Absente,
+    /// La lecture a été refusée. Ce n'est pas une absence : c'est un aveu.
+    Refusee,
+}
+
+/// Ce qu'on dit à l'utilisateur quand une clé lui est refusée.
+const REFUS: &str = "accès refusé sans élévation";
+
+/// Traduit un drapeau du registre.
+///
+/// L'absence ne devient **jamais** `false` : c'est la règle en tête de module, et
+/// la seule chose à relire avant de toucher à cette fonction.
+#[must_use]
+pub fn drapeau(lecture: &Lecture<u32>) -> ItemValue {
+    match lecture {
+        Lecture::Trouvee(v) => ItemValue::Bool(*v != 0),
+        Lecture::Absente => ItemValue::Absent,
+        Lecture::Refusee => ItemValue::illisible(REFUS),
+    }
+}
+
+/// Traduit une protection dont le verrou UEFI est optionnel.
+///
+/// Même table pour `RunAsPPL` (protection LSA) et `LsaCfgFlags` (Credential
+/// Guard), toutes deux documentées par Microsoft :
+///
+/// > To configure the feature **with** a UEFI variable, use […] `00000001`.
+/// > To configure the feature **without** a UEFI variable, use […] `00000002`.
+///
+/// Le premier jet inversait les deux, et c'était le pire sens : sur cette machine
+/// `RunAsPPL` vaut 2, donc Keystone annonçait « verrouillée par UEFI » alors que
+/// la protection cède à un `reg add` suivi d'un redémarrage. Un faux positif sur
+/// la contre-mesure qui garde les identifiants.
+///
+/// Le code inconnu se **nomme**, comme dans [`demarrage_service`] : le faire
+/// tomber dans « désactivée » ferait passer un octet parasite pour un constat.
+#[must_use]
+pub fn protection_verrouillable(lecture: &Lecture<u32>) -> ItemValue {
+    let texte = match lecture {
+        Lecture::Absente => return ItemValue::Absent,
+        Lecture::Refusee => return ItemValue::illisible(REFUS),
+        Lecture::Trouvee(0) => "désactivée".to_owned(),
+        Lecture::Trouvee(1) => "activée, verrouillée par UEFI".to_owned(),
+        Lecture::Trouvee(2) => "activée, sans verrou UEFI".to_owned(),
+        Lecture::Trouvee(n) => format!("code inconnu ({n})"),
+    };
+    ItemValue::Text(texte)
+}
+
+/// Traduit un texte lu dans le registre.
+#[must_use]
+pub fn texte(lecture: Lecture<String>) -> ItemValue {
+    match lecture {
+        Lecture::Trouvee(s) => ItemValue::Text(s),
+        Lecture::Absente => ItemValue::Absent,
+        Lecture::Refusee => ItemValue::illisible(REFUS),
+    }
+}
+
+/// Traduit une liste lue dans le registre.
+///
+/// Une liste vide reste une liste vide — c'est un constat légitime. Seul le refus
+/// devient illisible.
+#[must_use]
+pub fn liste(lecture: Lecture<Vec<String>>) -> ItemValue {
+    match lecture {
+        Lecture::Trouvee(v) => ItemValue::List(v),
+        Lecture::Absente => ItemValue::Absent,
+        Lecture::Refusee => ItemValue::illisible(REFUS),
+    }
+}
+
+/// Traduit le mode d'une règle de réduction de surface d'attaque.
+///
+/// Les modes sont documentés : 0 éteinte, 1 bloque, 2 audit, 5 non configurée,
+/// 6 avertit. La nuance décide de tout — une règle en **audit** ne bloque rien.
+/// Compter « 12 règles configurées » sans les modes laisserait croire à douze
+/// protections là où il peut n'y en avoir aucune.
+#[must_use]
+pub fn mode_asr(valeur: &str) -> &'static str {
+    match valeur.trim() {
+        "0" => "éteinte",
+        "1" => "bloque",
+        "2" => "audit",
+        "5" => "non configurée",
+        "6" => "avertit",
+        _ => "mode inconnu",
     }
 }
 
@@ -175,50 +296,95 @@ fn horodatage_vers_filetime(d: DateTime<Utc>) -> u64 {
 
 #[cfg(windows)]
 mod windows_impl {
-    use super::{demarrage_service, filetime_vers_horodatage, item_posture, SERVICES_SURVEILLES};
+    use super::{
+        demarrage_service, drapeau, filetime_vers_horodatage, item_posture, liste, mode_asr,
+        protection_verrouillable, texte, Lecture, SERVICES_SURVEILLES,
+    };
     use ks_core::{Item, ItemValue};
-    use windows_registry::LOCAL_MACHINE;
+    use windows_registry::{Type, LOCAL_MACHINE};
 
-    /// Lit un entier du registre. `None` si la clé ou la valeur n'existe pas —
-    /// et c'est bien `None` qu'on veut, pas `Some(0)`.
-    fn u32_registre(chemin: &str, nom: &str) -> Option<u32> {
-        LOCAL_MACHINE.open(chemin).ok()?.get_u32(nom).ok()
+    /// `HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED)`, soit `0x8007_0005`.
+    ///
+    /// C'est le seul code qu'on distingue. Tous les autres échecs — clé absente
+    /// en tête — se rangent en [`Lecture::Absente`], parce qu'ils décrivent
+    /// effectivement une machine où la chose n'existe pas.
+    const ACCES_REFUSE: i32 = -2_147_024_891;
+
+    /// Range un résultat du registre dans l'un des trois états.
+    fn classer<T>(resultat: windows_registry::Result<T>) -> Lecture<T> {
+        match resultat {
+            Ok(v) => Lecture::Trouvee(v),
+            Err(e) if e.code().0 == ACCES_REFUSE => Lecture::Refusee,
+            Err(_) => Lecture::Absente,
+        }
     }
 
-    fn texte_registre(chemin: &str, nom: &str) -> Option<String> {
-        LOCAL_MACHINE.open(chemin).ok()?.get_string(nom).ok()
+    /// Lit un entier. Le refus d'accès ne se confond pas avec l'absence.
+    fn u32_registre(chemin: &str, nom: &str) -> Lecture<u32> {
+        match LOCAL_MACHINE.open(chemin) {
+            Ok(clef) => classer(clef.get_u32(nom)),
+            Err(e) if e.code().0 == ACCES_REFUSE => Lecture::Refusee,
+            Err(_) => Lecture::Absente,
+        }
     }
 
-    /// Les NOMS des valeurs d'une clef, pas ses sous-clefs.
+    fn texte_registre(chemin: &str, nom: &str) -> Lecture<String> {
+        match LOCAL_MACHINE.open(chemin) {
+            Ok(clef) => classer(clef.get_string(nom)),
+            Err(e) if e.code().0 == ACCES_REFUSE => Lecture::Refusee,
+            Err(_) => Lecture::Absente,
+        }
+    }
+
+    /// Les valeurs d'une clef — leur nom et leur contenu textuel.
     ///
     /// Les exclusions Defender et les règles ASR sont stockées ainsi : une valeur
-    /// par élément, le nom portant l'information. L'itérateur emprunte la clef —
-    /// il faut donc la garder vivante jusqu'à la collecte, ce qu'une chaîne de
-    /// `and_then` ne fait pas.
-    fn noms_des_valeurs(chemin: &str) -> Vec<String> {
-        let Ok(clef) = LOCAL_MACHINE.open(chemin) else {
-            return Vec::new();
+    /// par élément, le nom portant l'information et, pour ASR, le contenu portant
+    /// le mode. L'itérateur emprunte la clef, il faut donc la garder vivante
+    /// jusqu'à la collecte — ce qu'une chaîne de `and_then` ne ferait pas.
+    fn valeurs_de(chemin: &str) -> Lecture<Vec<(String, String)>> {
+        let clef = match LOCAL_MACHINE.open(chemin) {
+            Ok(c) => c,
+            Err(e) if e.code().0 == ACCES_REFUSE => return Lecture::Refusee,
+            Err(_) => return Lecture::Absente,
         };
         let Ok(valeurs) = clef.values() else {
-            return Vec::new();
+            return Lecture::Absente;
         };
-        valeurs.map(|(nom, _)| nom).collect()
+        // Le contenu peut être une chaîne ou un entier selon la clé ; on
+        // n'interprète pas ici, on rend du texte et on laisse la traduction aux
+        // fonctions pures, testables sans registre.
+        Lecture::Trouvee(
+            valeurs
+                .map(|(nom, valeur)| {
+                    // Les règles ASR sont documentées en `REG_SZ`, mais le registre
+                    // accepte aussi bien un `REG_DWORD` : on couvre les deux plutôt
+                    // que de parier sur une machine qu'on n'a pas sous la main.
+                    let contenu = match valeur.ty() {
+                        Type::U32 => u32::try_from(valeur).map(|n| n.to_string()),
+                        _ => String::try_from(valeur),
+                    }
+                    .unwrap_or_default();
+                    (nom, contenu)
+                })
+                .collect(),
+        )
     }
 
-    /// Traduit une valeur booléenne du registre en item.
-    ///
-    /// L'absence donne `Absent`, jamais `Bool(false)` : voir la règle en tête de
-    /// module. C'est la seule fonction de ce fichier qu'il faut lire en entier
-    /// avant d'y toucher.
-    fn drapeau(valeur: Option<u32>) -> ItemValue {
-        valeur.map_or(ItemValue::Absent, |v| ItemValue::Bool(v != 0))
+    /// Les seuls noms des valeurs, quand le contenu ne porte rien.
+    fn noms_des_valeurs(chemin: &str) -> Lecture<Vec<String>> {
+        match valeurs_de(chemin) {
+            Lecture::Trouvee(v) => Lecture::Trouvee(v.into_iter().map(|(n, _)| n).collect()),
+            Lecture::Absente => Lecture::Absente,
+            Lecture::Refusee => Lecture::Refusee,
+        }
     }
 
     pub(super) fn items() -> Vec<Item> {
         // ─── Secure Boot ────────────────────────────────────────────────────
         let mut items = vec![item_posture(
             "security.platform.secure_boot",
-            drapeau(u32_registre(
+            drapeau(&u32_registre(
                 r"SYSTEM\CurrentControlSet\Control\SecureBoot\State",
                 "UEFISecureBootEnabled",
             )),
@@ -230,66 +396,83 @@ mod windows_impl {
         )];
 
         // ─── Intégrité du code imposée par l'hyperviseur ────────────────────
+        //
+        // `Scenarios\…\Enabled` est la clé que Microsoft documente pour ACTIVER
+        // HVCI, jamais pour en vérifier l'exécution : la page « Validate enabled
+        // VBS and memory integrity features » ne cite aucune valeur de registre et
+        // renvoie à `Win32_DeviceGuard`. Le chemin de l'item porte donc `_policy`,
+        // comme VBS juste en dessous. Les deux sont au même niveau : deux
+        // configurations. Une machine où HVCI est configuré mais où le noyau
+        // sécurisé n'a pas démarré — pilote incompatible, refus côté hyperviseur —
+        // afficherait « activé » sans être protégée.
+        const DEVICE_GUARD: &str = r"SYSTEM\CurrentControlSet\Control\DeviceGuard";
+
         items.push(item_posture(
-            "security.platform.hvci",
-            drapeau(u32_registre(
-                r"SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity",
+            "security.platform.hvci_policy",
+            drapeau(&u32_registre(
+                &format!(r"{DEVICE_GUARD}\Scenarios\HypervisorEnforcedCodeIntegrity"),
                 "Enabled",
             )),
-            "HVCI fait vérifier l'intégrité du code du noyau par l'hyperviseur, hors \
-             de portée du noyau lui-même.",
-            "Sans lui, un pilote non signé ou détourné s'exécute en anneau 0.",
+            "Intégrité du code imposée par l'hyperviseur, telle que CONFIGURÉE. \
+             L'état réellement en vigueur se lit ailleurs et n'est pas encore collecté.",
+            "Sans elle, un pilote non signé ou détourné s'exécute en anneau 0.",
             None,
         ));
 
-        // `EnableVirtualizationBasedSecurity` décrit ce que la STRATÉGIE impose, pas
-        // ce qui tourne : elle est souvent absente sur une machine où VBS est
-        // pourtant actif. On la publie telle quelle, et on ne la confond pas avec
-        // l'état réel — que seul HVCI ci-dessus atteste.
+        // Le verrou UEFI d'HVCI, qui porte la même nuance que celui de LSA : une
+        // configuration verrouillée survit à une réécriture du registre.
+        items.push(item_posture(
+            "security.platform.hvci_uefi_lock",
+            drapeau(&u32_registre(
+                &format!(r"{DEVICE_GUARD}\Scenarios\HypervisorEnforcedCodeIntegrity"),
+                "Locked",
+            )),
+            "Verrou UEFI de la configuration HVCI.",
+            "Sans verrou, un attaquant administrateur désactive la protection par le \
+             registre et un redémarrage.",
+            None,
+        ));
+
         items.push(item_posture(
             "security.platform.vbs_policy",
-            drapeau(u32_registre(
-                r"SYSTEM\CurrentControlSet\Control\DeviceGuard",
+            drapeau(&u32_registre(
+                DEVICE_GUARD,
                 "EnableVirtualizationBasedSecurity",
             )),
             "Sécurité basée sur la virtualisation, telle qu'imposée par stratégie. \
-             Absente ne veut pas dire inactive : c'est HVCI qui atteste l'exécution.",
+             Absente ne veut pas dire inactive : aucune valeur de registre n'atteste \
+             l'exécution.",
             "Une stratégie absente laisse l'état à la main de qui peut le changer.",
+            None,
+        ));
+
+        // ─── Protection LSA et Credential Guard ─────────────────────────────
+        //
+        // Les deux se lisent dans la même clé `Lsa`, avec la même table de codes,
+        // toutes deux documentées. `Scenarios\CredentialGuard\Enabled`, lu par le
+        // premier jet, n'apparaît dans aucune procédure Microsoft : l'item était
+        // juste par accident.
+        const LSA: &str = r"SYSTEM\CurrentControlSet\Control\Lsa";
+
+        items.push(item_posture(
+            "security.platform.lsa_protection",
+            protection_verrouillable(&u32_registre(LSA, "RunAsPPL")),
+            "La protection LSA empêche un processus non protégé de lire la mémoire du \
+             service qui détient les secrets d'authentification.",
+            "Sans elle, l'extraction d'identifiants ne demande qu'un outil courant. \
+             Sans verrou UEFI, elle cède à une écriture du registre et un redémarrage.",
             None,
         ));
 
         items.push(item_posture(
             "security.platform.credential_guard",
-            drapeau(u32_registre(
-                r"SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\CredentialGuard",
-                "Enabled",
-            )),
+            protection_verrouillable(&u32_registre(LSA, "LsaCfgFlags")),
             "Credential Guard isole les secrets d'authentification dans un espace que \
-             le noyau ne peut pas lire.",
+             le noyau ne peut pas lire. **Absent ne veut pas dire éteint** : depuis \
+             Windows 11 22H2, il s'active par défaut sur les machines éligibles sans \
+             qu'aucune valeur ne soit écrite.",
             "Sans lui, un attaquant SYSTEM récolte les empreintes et les tickets en \
              mémoire, et se déplace latéralement.",
-            None,
-        ));
-
-        // ─── Protection LSA ─────────────────────────────────────────────────
-        // 0 ou absent : non protégé. 1 : protégé. 2 : protégé avec verrou UEFI.
-        // Le verrou change tout — il survit à une modification du registre.
-        let lsa = u32_registre(r"SYSTEM\CurrentControlSet\Control\Lsa", "RunAsPPL");
-        items.push(item_posture(
-            "security.platform.lsa_protection",
-            lsa.map_or(ItemValue::Absent, |v| {
-                ItemValue::Text(
-                    match v {
-                        1 => "activée",
-                        2 => "activée, verrouillée par UEFI",
-                        _ => "désactivée",
-                    }
-                    .to_owned(),
-                )
-            }),
-            "La protection LSA empêche un processus non protégé de lire la mémoire du \
-             service qui détient les secrets d'authentification.",
-            "Sans elle, l'extraction d'identifiants ne demande qu'un outil courant.",
             None,
         ));
 
@@ -298,8 +481,10 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.defender.engine_version",
-            texte_registre(&format!(r"{DEFENDER}\Signature Updates"), "EngineVersion")
-                .map_or(ItemValue::Absent, ItemValue::Text),
+            texte(texte_registre(
+                &format!(r"{DEFENDER}\Signature Updates"),
+                "EngineVersion",
+            )),
             "Version du moteur d'analyse de Defender.",
             "Un moteur ancien ne sait pas lire les signatures récentes.",
             None,
@@ -307,11 +492,10 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.defender.signature_version",
-            texte_registre(
+            texte(texte_registre(
                 &format!(r"{DEFENDER}\Signature Updates"),
                 "AVSignatureVersion",
-            )
-            .map_or(ItemValue::Absent, ItemValue::Text),
+            )),
             "Version des signatures antivirus.",
             "Des signatures figées font croire à une protection qui ne reconnaît plus \
              rien de récent.",
@@ -348,36 +532,54 @@ mod windows_impl {
             ("extensions", "Extensions"),
             ("processes", "Processes"),
         ] {
-            let exclusions = noms_des_valeurs(&format!(r"{DEFENDER}\Exclusions\{chemin}"));
-
+            // La clé est protégée par ACL : sans élévation, l'ouverture est
+            // refusée. C'est le cas nominal du produit, pas un cas limite —
+            // et « 0 élément » y serait un mensonge.
             items.push(item_posture(
                 &format!("security.defender.exclusions.{categorie}"),
-                ItemValue::List(exclusions),
-                "Exclusions Defender déclarées à l'échelle de la machine.",
+                liste(noms_des_valeurs(&format!(
+                    r"{DEFENDER}\Exclusions\{chemin}"
+                ))),
+                "Exclusions Defender déclarées à l'échelle de la machine. La clé exige \
+                 des privilèges élevés : sans eux, l'item dit « illisible », jamais zéro.",
                 "Chaque exclusion est un angle mort volontaire. Le projet exige \
                  qu'elle porte une raison et une expiration (D11-02).",
                 Some("docs/01-CAHIER-DES-CHARGES.md § D11-02"),
             ));
         }
 
-        // Les règles ASR vivent sous les stratégies. Leur absence n'est pas une
-        // désactivation : c'est une non-configuration, et la nuance compte.
-        let asr = noms_des_valeurs(
-            r"SOFTWARE\Policies\Microsoft\Windows Defender\Windows Defender Exploit Guard\ASR\Rules",
-        );
+        // Les règles ASR vivent sur DEUX branches, et le premier jet n'en lisait
+        // qu'une — la branche de stratégie, absente de cette machine, tandis que
+        // la branche locale (celle qu'alimentent `Add-MpPreference` et Intune)
+        // existait bel et bien. Une règle posée localement était donc invisible.
+        //
+        // Le mode se publie avec la règle : une règle en audit ne bloque rien, et
+        // la compter comme une protection serait un faux positif.
+        for (source, racine) in [
+            ("policy", r"SOFTWARE\Policies\Microsoft\Windows Defender"),
+            ("local", r"SOFTWARE\Microsoft\Windows Defender"),
+        ] {
+            let chemin = format!(r"{racine}\Windows Defender Exploit Guard\ASR\Rules");
+            let regles = match valeurs_de(&chemin) {
+                Lecture::Trouvee(v) => Lecture::Trouvee(
+                    v.into_iter()
+                        .map(|(guid, mode)| format!("{guid} = {}", mode_asr(&mode)))
+                        .collect(),
+                ),
+                Lecture::Absente => Lecture::Absente,
+                Lecture::Refusee => Lecture::Refusee,
+            };
 
-        items.push(item_posture(
-            "security.defender.asr_rules",
-            if asr.is_empty() {
-                ItemValue::Absent
-            } else {
-                ItemValue::List(asr)
-            },
-            "Règles de réduction de la surface d'attaque configurées par stratégie.",
-            "Aucune règle configurée n'est pas une faute en soi, mais c'est une \
-             couche de défense qu'on n'a pas prise.",
-            None,
-        ));
+            items.push(item_posture(
+                &format!("security.defender.asr_rules.{source}"),
+                liste(regles),
+                "Règles de réduction de la surface d'attaque, avec leur mode. Une \
+                 règle en audit journalise sans bloquer.",
+                "Aucune règle configurée n'est pas une faute en soi, mais c'est une \
+                 couche de défense qu'on n'a pas prise.",
+                None,
+            ));
+        }
 
         // ─── Services de sécurité ───────────────────────────────────────────
         for (service, role) in SERVICES_SURVEILLES {
@@ -387,12 +589,16 @@ mod windows_impl {
             );
             items.push(item_posture(
                 &format!("security.services.{}.startup", service.to_lowercase()),
-                depart.map_or(ItemValue::Absent, |v| {
-                    ItemValue::Text(demarrage_service(v).to_owned())
-                }),
+                match depart {
+                    Lecture::Trouvee(v) => ItemValue::Text(demarrage_service(v).to_owned()),
+                    Lecture::Absente => ItemValue::Absent,
+                    Lecture::Refusee => ItemValue::illisible("accès refusé sans élévation"),
+                },
                 role,
-                "Un service de sécurité désactivé est le premier maillon de la \
-                 plupart des chaînes d'attaque (§6 du modèle de menace).",
+                "Un service de sécurité mis à « désactivé » est le premier maillon de \
+                 la plupart des chaînes d'attaque (§6). Attention à la portée : cet \
+                 item lit le TYPE DE DÉMARRAGE, pas l'exécution. Un service en \
+                 « automatique » mais arrêté à la main reste vert ici.",
                 Some("docs/04-MODELE-DE-MENACE.md § 6"),
             ));
         }
@@ -481,24 +687,93 @@ mod tests {
     }
 
     #[test]
-    fn une_cle_absente_ne_devient_jamais_un_faux_negatif() {
-        // LA règle de ce module. Sur une machine réelle,
-        // `EnableVirtualizationBasedSecurity` est absente alors que HVCI vaut 1 :
-        // traduire cette absence en « désactivé » afficherait une machine protégée
-        // comme vulnérable. Aucun item de posture ne doit valoir Bool(false) sans
-        // qu'une valeur ait réellement été lue — ce test le vérifie par le fait
-        // qu'aucun chemin de code ne produit Bool à partir d'un None.
-        for item in PostureCollector::items() {
-            if item.observed == ItemValue::Absent {
-                continue;
-            }
-            assert_ne!(
-                item.observed,
-                ItemValue::Text(String::new()),
-                "« {} » : une valeur vide n'est pas une valeur",
-                item.path
+    fn une_absence_ne_devient_jamais_un_faux_negatif() {
+        // LA règle de ce module, éprouvée là où elle vit : dans les traducteurs.
+        //
+        // La version précédente de ce test parcourait les items produits en
+        // affirmant en commentaire qu'elle vérifiait la règle. Elle ne vérifiait
+        // rien : elle comparait à une chaîne vide, sautait les absences, et sur une
+        // machine où tout est renseigné elle n'assertait pas une seule fois. Une
+        // barrière qu'on n'a pas essayé de franchir ne prouve rien — et celle-ci
+        // était déjà franchie en production sans broncher.
+        assert_eq!(drapeau(&Lecture::Absente), ItemValue::Absent);
+        assert_eq!(
+            protection_verrouillable(&Lecture::Absente),
+            ItemValue::Absent
+        );
+        assert_eq!(texte(Lecture::Absente), ItemValue::Absent);
+        assert_eq!(liste(Lecture::Absente), ItemValue::Absent);
+
+        // Et surtout : aucune absence ne produit un booléen, quel qu'il soit.
+        assert_ne!(drapeau(&Lecture::Absente), ItemValue::Bool(false));
+    }
+
+    #[test]
+    fn un_refus_de_lecture_ne_devient_jamais_un_constat() {
+        // Le défaut trouvé sur cette machine : la clé des exclusions Defender est
+        // protégée par ACL, la CLI n'est pas élevée (SEC-01), et « 0 élément(s) »
+        // s'affichait sur une machine où rien n'avait pu être lu. Une liste vide
+        // est un constat ; un refus est un aveu. Les confondre inverse le sens.
+        assert_ne!(liste(Lecture::Refusee), ItemValue::List(Vec::new()));
+        assert_ne!(liste(Lecture::Refusee), ItemValue::Absent);
+        assert_ne!(drapeau(&Lecture::Refusee), ItemValue::Bool(false));
+        assert_ne!(drapeau(&Lecture::Refusee), ItemValue::Absent);
+
+        for valeur in [
+            liste(Lecture::Refusee),
+            drapeau(&Lecture::Refusee),
+            texte(Lecture::Refusee),
+            protection_verrouillable(&Lecture::Refusee),
+        ] {
+            assert!(
+                !valeur.est_constat(),
+                "un refus ne doit jamais alimenter un décompte"
             );
         }
+
+        // Une liste réellement vide, elle, reste un constat.
+        assert!(liste(Lecture::Trouvee(Vec::new())).est_constat());
+    }
+
+    #[test]
+    fn le_verrou_uefi_nest_pas_annonce_a_lenvers() {
+        // Microsoft documente : 1 AVEC variable UEFI, 2 SANS. Le premier jet
+        // inversait les deux, et sur cette machine (RunAsPPL = 2) Keystone
+        // annonçait une protection verrouillée qui cède en réalité à un `reg add`
+        // suivi d'un redémarrage. Faux positif sur la garde des identifiants.
+        let avec = protection_verrouillable(&Lecture::Trouvee(1));
+        let sans = protection_verrouillable(&Lecture::Trouvee(2));
+
+        assert_eq!(
+            avec,
+            ItemValue::Text("activée, verrouillée par UEFI".into())
+        );
+        assert_eq!(sans, ItemValue::Text("activée, sans verrou UEFI".into()));
+        assert_eq!(
+            protection_verrouillable(&Lecture::Trouvee(0)),
+            ItemValue::Text("désactivée".into())
+        );
+
+        // Un code inconnu se nomme, il ne tombe pas dans « désactivée » : sinon un
+        // octet parasite passerait pour un constat.
+        let inconnu = protection_verrouillable(&Lecture::Trouvee(7));
+        assert_ne!(inconnu, ItemValue::Text("désactivée".into()));
+        assert!(inconnu.to_string().contains('7'));
+    }
+
+    #[test]
+    fn une_regle_asr_en_audit_ne_passe_pas_pour_une_protection() {
+        // Compter « 12 règles » sans les modes laisserait croire à douze
+        // protections là où il peut n'y en avoir aucune : une règle en audit
+        // journalise sans bloquer, une règle à 0 est éteinte.
+        assert_eq!(mode_asr("1"), "bloque");
+        assert_eq!(mode_asr("2"), "audit");
+        assert_eq!(mode_asr("0"), "éteinte");
+        assert_eq!(mode_asr("5"), "non configurée");
+        assert_eq!(mode_asr("6"), "avertit");
+        assert_eq!(mode_asr(" 1 "), "bloque", "le registre pad ses chaînes");
+        assert_eq!(mode_asr(""), "mode inconnu");
+        assert_eq!(mode_asr("42"), "mode inconnu");
     }
 
     #[cfg(windows)]
