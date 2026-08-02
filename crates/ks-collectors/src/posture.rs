@@ -162,6 +162,75 @@ pub fn liste(lecture: Lecture<Vec<String>>) -> ItemValue {
     }
 }
 
+/// Traduit `VirtualizationBasedSecurityStatus` de `Win32_DeviceGuard`.
+///
+/// Table documentée par Microsoft, page « Validate enabled VBS and memory
+/// integrity features » :
+///
+/// > **0** VBS isn't enabled. **1** VBS is enabled but not running.
+/// > **2** VBS is enabled and running.
+///
+/// **C'est le 1 qui justifie toute cette lecture.** Une machine où VBS est
+/// configuré sans tourner — pilote incompatible, refus côté hyperviseur — porte
+/// exactement la même configuration au registre qu'une machine protégée. Le
+/// registre les confond ; cette valeur les sépare.
+#[must_use]
+pub fn etat_vbs(lecture: &Lecture<u32>) -> ItemValue {
+    let texte = match lecture {
+        Lecture::Absente => return ItemValue::Absent,
+        Lecture::Refusee => return ItemValue::illisible(REFUS),
+        Lecture::Trouvee(0) => "éteinte".to_owned(),
+        Lecture::Trouvee(1) => "configurée, mais pas en cours d'exécution".to_owned(),
+        Lecture::Trouvee(2) => "en cours d'exécution".to_owned(),
+        Lecture::Trouvee(n) => format!("code inconnu ({n})"),
+    };
+    ItemValue::Text(texte)
+}
+
+/// Codes de `SecurityServicesRunning` et `SecurityServicesConfigured`.
+///
+/// Les deux champs partagent la même table, documentée par Microsoft. On ne
+/// nomme que ce dont on se sert : ajouter les autres sans les publier
+/// encombrerait sans rien apporter.
+pub mod service_vbs {
+    /// Credential Guard.
+    pub const CREDENTIAL_GUARD: u32 = 1;
+    /// Intégrité mémoire, alias HVCI.
+    pub const INTEGRITE_MEMOIRE: u32 = 2;
+}
+
+/// Un service protégé par l'hyperviseur figure-t-il dans la liste ?
+///
+/// Contrairement au registre, **un `false` est ici un constat**, pas une
+/// supposition : la liste a été lue, et le code n'y est pas. C'est toute la
+/// différence entre « je n'ai rien trouvé » et « j'ai regardé, ce n'est pas là ».
+#[must_use]
+pub fn service_vbs_present(lecture: &Lecture<Vec<u32>>, code: u32) -> ItemValue {
+    match lecture {
+        Lecture::Trouvee(codes) => ItemValue::Bool(codes.contains(&code)),
+        Lecture::Absente => ItemValue::Absent,
+        Lecture::Refusee => ItemValue::illisible(REFUS),
+    }
+}
+
+/// Traduit `CodeIntegrityPolicyEnforcementStatus`.
+///
+/// Documenté : **0** Off, **1** Audit, **2** Enforced. Le mode audit journalise
+/// sans bloquer — même nuance que pour les règles ASR, et même piège : le
+/// compter comme une protection serait un faux positif.
+#[must_use]
+pub fn application_integrite_code(lecture: &Lecture<u32>) -> ItemValue {
+    let texte = match lecture {
+        Lecture::Absente => return ItemValue::Absent,
+        Lecture::Refusee => return ItemValue::illisible(REFUS),
+        Lecture::Trouvee(0) => "éteinte".to_owned(),
+        Lecture::Trouvee(1) => "audit — journalise sans bloquer".to_owned(),
+        Lecture::Trouvee(2) => "imposée".to_owned(),
+        Lecture::Trouvee(n) => format!("code inconnu ({n})"),
+    };
+    ItemValue::Text(texte)
+}
+
 /// Normalise une date de firmware quand, et seulement quand, elle est certaine.
 ///
 /// Les firmwares écrivent leur date en `M/J/AAAA`, sauf ceux qui écrivent
@@ -970,6 +1039,69 @@ mod tests {
         let inconnu = protection_verrouillable(&Lecture::Trouvee(7));
         assert_ne!(inconnu, ItemValue::Text("désactivée".into()));
         assert!(inconnu.to_string().contains('7'));
+    }
+
+    #[test]
+    fn vbs_configure_mais_arrete_ne_passe_pas_pour_vbs_actif() {
+        // La raison d'être de la lecture WMI. Le code 1 — « enabled but not
+        // running » — décrit une machine dont la configuration est identique à
+        // celle d'une machine protégée, et qui ne l'est pas. Le registre les
+        // confond ; ces trois assertions exigent qu'on ne les confonde plus.
+        let arrete = etat_vbs(&Lecture::Trouvee(1));
+        let actif = etat_vbs(&Lecture::Trouvee(2));
+
+        assert_ne!(arrete, actif);
+        assert!(arrete.to_string().contains("pas en cours d'exécution"));
+        assert_eq!(
+            etat_vbs(&Lecture::Trouvee(0)),
+            ItemValue::Text("éteinte".into())
+        );
+
+        // Un code inconnu se nomme, comme partout ailleurs dans ce module.
+        assert!(etat_vbs(&Lecture::Trouvee(9)).to_string().contains('9'));
+        assert_eq!(etat_vbs(&Lecture::Absente), ItemValue::Absent);
+        assert!(!etat_vbs(&Lecture::Refusee).est_constat());
+    }
+
+    #[test]
+    fn un_service_absent_dune_liste_lue_est_un_constat() {
+        // La différence décisive avec le registre. Ici la liste a été LUE : que
+        // Credential Guard n'y figure pas est une information, pas une lacune.
+        // C'est le seul endroit du module où un `false` est légitime.
+        let mesure = Lecture::Trouvee(vec![service_vbs::INTEGRITE_MEMOIRE]);
+
+        assert_eq!(
+            service_vbs_present(&mesure, service_vbs::INTEGRITE_MEMOIRE),
+            ItemValue::Bool(true)
+        );
+        assert_eq!(
+            service_vbs_present(&mesure, service_vbs::CREDENTIAL_GUARD),
+            ItemValue::Bool(false),
+            "la liste est lue : son absence est un constat, pas une supposition"
+        );
+
+        // En revanche, une liste qu'on n'a pas pu lire ne produit jamais `false`.
+        assert_ne!(
+            service_vbs_present(&Lecture::Refusee, service_vbs::CREDENTIAL_GUARD),
+            ItemValue::Bool(false)
+        );
+        assert_ne!(
+            service_vbs_present(&Lecture::Absente, service_vbs::CREDENTIAL_GUARD),
+            ItemValue::Bool(false)
+        );
+    }
+
+    #[test]
+    fn lintegrite_du_code_en_audit_ne_bloque_rien() {
+        // Même piège que les règles ASR : le mode audit journalise sans bloquer.
+        // Le compter comme une protection serait un faux positif.
+        let audit = application_integrite_code(&Lecture::Trouvee(1));
+        assert!(audit.to_string().contains("sans bloquer"));
+        assert_ne!(audit, application_integrite_code(&Lecture::Trouvee(2)));
+        assert_eq!(
+            application_integrite_code(&Lecture::Trouvee(2)),
+            ItemValue::Text("imposée".into())
+        );
     }
 
     #[test]

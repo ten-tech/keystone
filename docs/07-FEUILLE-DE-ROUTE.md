@@ -35,17 +35,25 @@ confirme qu'aucun octet n'a été modifié.
 - [x] **Secure Boot**, VBS/HVCI, Credential Guard, protection LSA — lus par le registre
 - [x] **Defender** : exclusions, règles ASR, date des signatures, versions du moteur et des signatures
 - [x] Démarrage de six services de sécurité — WinDefend, MpsSvc, EventLog, Sense, wscsvc, BITS. Une liste choisie, pas un inventaire général
-- [ ] **Defender en temps réel** — l'état effectif, distinct de la configuration
-- [ ] **Protection DMA** — hors registre, exige l'API Kernel DMA Protection
-- [ ] **TPM** : présence, version, état, propriétaire
-- [ ] **BitLocker par volume** : état, méthode, protecteurs, *présence de la clé de récupération*
 - [x] **Pare-feu** : les trois profils, et les règles autorisant une connexion entrante *active* — 197 sur 649 relevées, le total ne se dépliant en rien
 - [x] **Firmware et microcode** : fabricant, version, date de publication, révision du microcode en hexadécimal brut
-- [x] **Horloge, la configuration** : source de temps et fuseau. La *cohérence* (D1-09) est une mesure, pas une lecture, et reste à faire
-- [ ] Tâches planifiées — `TaskCache\Tree` refuse la lecture sans élévation, donc pas avant le broker
-- [ ] **Usure NVMe / SMART**, santé et cycles de la batterie
-- [ ] Firmware UEFI, microcode
-- [ ] **Cohérence de l'horloge** (D1-09) — prérequis de toute la valeur forensique
+- [x] **Horloge, la configuration** : source de temps et fuseau
+- [ ] **État effectif** de VBS, de l'intégrité mémoire, de Credential Guard et du temps réel Defender — par WMI, voir [ADR-0005](adr/0005-lecture-detat-effectif.md)
+- [ ] **Protection DMA** — seule sa *disponibilité* matérielle est lisible, pas son activation
+- [ ] **Usure NVMe / SMART**, santé et cycles de la batterie — `DeviceIoControl`, donc `unsafe`, donc une autre décision
+- [ ] **Cohérence de l'horloge** (D1-09) — une mesure contre une référence externe, pas une lecture
+
+> **Trois sujets quittent la Phase 0**, non par manque d'API mais faute de
+> privilège. Mesuré en session non élevée, c'est-à-dire dans le contexte où la
+> CLI s'exécute réellement (SEC-01) :
+>
+> - `Win32_Tpm` — **accès refusé** ;
+> - `Win32_EncryptableVolume`, donc BitLocker par volume — **accès refusé** ;
+> - `Schedule\TaskCache\Tree`, donc les tâches planifiées — **accès refusé**.
+>
+> Aucun choix de bibliothèque ne les rendra lisibles. Ils appartiennent au
+> broker, donc à la **Phase 2**. Les annoncer en Phase 0 aurait été une promesse
+> que la plateforme interdit de tenir.
 
 ### 0.3 — Réconciliation d'inventaire logiciel *(le morceau à forte valeur)*
 
@@ -146,6 +154,11 @@ de fumée et annulée automatiquement en moins de 15 minutes, sans intervention 
 
 - [ ] Broker : service Windows, gRPC sur named pipe, jeton de session, ACL
 - [ ] Contrôle d'intégrité au démarrage, mode sans échec en lecture seule (SEC-07)
+- [ ] **Ce que la Phase 0 n'a pas pu lire, faute de privilège** — mesuré en accès refusé sans élévation, donc reporté ici et non abandonné :
+  - **TPM** : présence, version, état, propriétaire (`Win32_Tpm`)
+  - **BitLocker par volume** : état, méthode, protecteurs, *présence de la clé de récupération* (`Win32_EncryptableVolume`)
+  - **Tâches planifiées** (`Schedule\TaskCache\Tree`)
+  - Ces lectures restent des **lectures** : elles n'ajoutent aucun verbe, et ne relèvent donc pas des quatre questions du §7
 - [ ] Moteur d'instantanés : point de restauration, checkpoint Hyper-V, `wsl --export`, export de registre
 - [ ] Convergence par item et par domaine, **simulation obligatoire d'abord**
 - [ ] Tests d'idempotence automatisés (D2-09, critère A2)
