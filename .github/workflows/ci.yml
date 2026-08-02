@@ -360,14 +360,17 @@ jobs:
       # est qu'il ne parle à personne, et qui annonce à un tiers qu'on l'ouvre :
       # c'est la contradiction la plus visible qu'on pouvait laisser.
       #
-      # Le filtre écarte `http://www.w3.org/…`, qui est un espace de noms XML —
-      # une chaîne d'identification qu'aucun navigateur ne va chercher — et le
-      # dossier d'import, archive documentée par son propre README.
+      # Le filtre n'écarte que `http://www.w3.org/…`, qui est un espace de noms
+      # XML — une chaîne d'identification qu'aucun navigateur ne va chercher.
+      #
+      # Il écartait aussi un dossier d'import, dont le script téléchargeait React
+      # et Babel depuis un CDN. Une exception dans un garde-fou est une exception
+      # qui reste : le dossier a été supprimé, sa substance de conception extraite
+      # dans `design/ecrans-et-libelles.md`, et l'exception avec lui.
       - name: Aucune ressource réseau dans les maquettes
         run: |
           hits=$(grep -rnoE "https?://[^\"')[:space:]]+" design/ crates/ks-cli/src/rapport.rs 2>/dev/null \
-                 | grep -v "www\.w3\.org" \
-                 | grep -v "^design/import-claude-design/" || true)
+                 | grep -v "www\.w3\.org" || true)
           if [ -n "$hits" ]; then
             echo "$hits"
             echo "::error::ressource réseau dans une maquette ou un rapport — principe P5"
