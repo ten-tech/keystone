@@ -201,9 +201,13 @@ if (-not ($zb -and $zig)) {
 
 # ─── Le reste ──────────────────────────────────────────────────────────────
 Write-Section 'Outils du projet'
-Test-Outil -Nom 'git'         -Commande 'git'         -Installation 'winget install Git.Git' | Out-Null
-Test-Outil -Nom 'cargo-audit' -Commande 'cargo-audit' -Installation 'cargo install cargo-audit' -Optionnel | Out-Null
-Test-Outil -Nom 'cargo-deny'  -Commande 'cargo-deny'  -Installation 'cargo install cargo-deny'  -Optionnel | Out-Null
+Test-Outil -Nom 'git'           -Commande 'git'           -Installation 'winget install Git.Git' | Out-Null
+Test-Outil -Nom 'cargo-audit'   -Commande 'cargo-audit'   -Installation 'cargo install cargo-audit --locked'   -Optionnel | Out-Null
+Test-Outil -Nom 'cargo-deny'    -Commande 'cargo-deny'    -Installation 'cargo install cargo-deny --locked'    -Optionnel | Out-Null
+$nextest = Test-Outil -Nom 'cargo-nextest' -Commande 'cargo-nextest' -Installation 'cargo install cargo-nextest --locked' -Optionnel
+if (-not $nextest) {
+    Write-Note 'Lanceur de tests optionnel. `cargo test` reste la référence, et la seule à couvrir les doc-tests.'
+}
 
 # ─── Le shell lui-même ─────────────────────────────────────────────────────
 Write-Section 'Shell'
