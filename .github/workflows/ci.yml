@@ -221,9 +221,21 @@ jobs:
   #
   # `cargo +VERSION` est nécessaire : rust-toolchain.toml épingle « stable » et
   # l'emporterait autrement sur la toolchain installée par l'action.
+  #
+  # **La matrice n'est pas du confort.** Ce job ne tournait que sur Linux, et ne
+  # compilait donc jamais une seule ligne de `#[cfg(windows)]` — c'est-à-dire
+  # l'essentiel des deux collecteurs, et la totalité des crates Windows. La MSRV
+  # était vérifiée partout sauf sur la plateforme qu'on livre. Un cas réel l'a
+  # montré : le script de build de `libsqlite3-sys` 0.38 appelle `cfg_select!`,
+  # stabilisée en Rust 1.95 ; la régression n'aurait été visible ni ici, ni chez
+  # quiconque compile avec la toolchain épinglée.
   msrv:
-    name: Version minimale (MSRV)
-    runs-on: ubuntu-24.04
+    name: Version minimale (MSRV, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@8641a17e25bf5b40c118d48fe0f81e8655731839 # branche 1.85.0

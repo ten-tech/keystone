@@ -40,6 +40,7 @@
 
 pub mod posture;
 pub mod software;
+pub mod winget;
 
 use chrono::Utc;
 use ks_core::{Domain, Item, ItemValue, Provenance};

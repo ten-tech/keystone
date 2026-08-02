@@ -83,20 +83,6 @@ impl Gestionnaire {
         }
     }
 
-    /// Ce gestionnaire sait-il dire **quelles** applications il gère ?
-    ///
-    /// winget est le contre-exemple : on détecte sa présence, mais son inventaire
-    /// vit dans une base SQLite (`StoreEdgeFD`) dont le format n'est pas
-    /// contractuel. Le détecter sans savoir l'interroger ne permet d'attribuer
-    /// aucune application — et c'est ce qui rend l'inventaire incomplet aujourd'hui.
-    #[must_use]
-    pub const fn sait_attribuer(self) -> bool {
-        matches!(
-            self,
-            Self::Scoop | Self::Chocolatey | Self::VisualStudio | Self::JetBrainsToolbox
-        )
-    }
-
     /// L'application a-t-elle un gestionnaire identifié ?
     #[must_use]
     pub const fn est_attribue(self) -> bool {
@@ -115,6 +101,15 @@ pub struct Application {
     pub editeur: Option<String>,
     /// Qui la met à jour.
     pub gestionnaire: Gestionnaire,
+    /// Le nom de la clé de désinstallation qui a produit cette entrée.
+    ///
+    /// C'est la seule identité stable dont on dispose, et c'est **exactement** ce
+    /// que winget range dans sa table `productcodes`. Le rapprochement par ce
+    /// champ vaut mieux que par libellé, et un cas réel le prouve : le paquet
+    /// `readyfor` s'affiche « Smart Connect » côté registre et « Ready For
+    /// Assistant » côté winget. Deux noms sans rapport, qu'aucune comparaison de
+    /// chaînes n'aurait reliés.
+    pub clef_source: Option<String>,
 }
 
 impl Application {
@@ -140,6 +135,14 @@ pub struct Inventaire {
     pub applications: Vec<Application>,
     /// Gestionnaires effectivement présents sur la machine.
     pub gestionnaires: Vec<Gestionnaire>,
+    /// Gestionnaires présents que l'on n'a **pas** su interroger.
+    ///
+    /// Constaté à l'exécution, et non déduit d'une table de capacités figée : le
+    /// premier jet portait un `sait_attribuer()` constant qui décrétait winget
+    /// définitivement muet. Il est désormais interrogeable, mais peut cesser de
+    /// l'être — base absente, verrouillée, ou schéma inconnu. La capacité dépend
+    /// de la machine, pas du type.
+    pub non_interrogeables: Vec<Gestionnaire>,
 }
 
 impl Inventaire {
@@ -158,11 +161,7 @@ impl Inventaire {
     /// une application gérée par ce gestionnaire-là serait comptée à tort.
     #[must_use]
     pub fn attribution_incomplete(&self) -> Vec<Gestionnaire> {
-        self.gestionnaires
-            .iter()
-            .copied()
-            .filter(|g| !g.sait_attribuer())
-            .collect()
+        self.non_interrogeables.clone()
     }
 
     /// Part des non attribuées, en pourcentage entier.
@@ -246,8 +245,11 @@ impl SoftwareCollector {
         item(
             "inventory.software.unattributed".to_owned(),
             ItemValue::Int(i64::try_from(sans_gestionnaire.len()).unwrap_or(-1)),
-            "Applications dont le gestionnaire n'a pas pu être identifié. À ne pas \
-             lire « orphelines » tant que l'attribution est incomplète.",
+            "Applications qu'aucun gestionnaire de paquets ne suit. Deux réserves : \
+             tant que l'attribution est incomplète, c'est un majorant ; et certaines \
+             se mettent à jour seules (navigateurs, éditeurs), donc « non attribuée » \
+             ne se lit pas « jamais mise à jour ». Distinguer les deux est une tâche \
+             de la Phase 1.",
             "Aucun — cet item est un constat.",
         );
 
@@ -399,6 +401,7 @@ mod windows_impl {
                     version: lire_texte(&clef, "DisplayVersion"),
                     editeur: lire_texte(&clef, "Publisher"),
                     gestionnaire: Gestionnaire::NonAttribue,
+                    clef_source: Some(nom_clef.clone()),
                 });
             }
         }
@@ -464,6 +467,26 @@ mod windows_impl {
         chemin_env("LOCALAPPDATA", r"Microsoft\WindowsApps\winget.exe").is_some_and(|p| p.exists())
     }
 
+    /// Attribue à winget les applications que ses bases de suivi revendiquent.
+    ///
+    /// Renvoie `true` si l'interrogation a été complète. Dans le cas contraire, le
+    /// gestionnaire rejoint les non interrogeables et le pourcentage se tait —
+    /// une attribution partielle ne se laisse pas lire comme une mesure.
+    fn attribuer_winget(applications: &mut [Application]) -> bool {
+        let suivi = crate::winget::lire_suivi();
+        for app in applications.iter_mut() {
+            if !app.gestionnaire.est_attribue()
+                && app
+                    .clef_source
+                    .as_deref()
+                    .is_some_and(|c| suivi.revendique_code(c))
+            {
+                app.gestionnaire = Gestionnaire::Winget;
+            }
+        }
+        suivi.est_complet()
+    }
+
     pub(super) fn inventorier() -> Inventaire {
         let mut applications = applications_du_registre();
 
@@ -490,13 +513,22 @@ mod windows_impl {
             }
         }
 
-        if winget_present() {
-            gestionnaires.push(Gestionnaire::Winget);
-        }
-
         for app in &mut applications {
             if let Some(g) = revendications.get(&Application::clef(&app.nom)) {
                 app.gestionnaire = *g;
+            }
+        }
+
+        // winget en dernier : les autres gestionnaires revendiquent par nom, lui
+        // par code produit. Le code produit est la source la plus sûre, mais il ne
+        // doit pas écraser une revendication déjà faite — deux gestionnaires sur
+        // la même application est un conflit qui mérite d'être vu, pas arbitré en
+        // silence. C'est une question ouverte pour la Phase 1.
+        let mut non_interrogeables = Vec::new();
+        if winget_present() {
+            gestionnaires.push(Gestionnaire::Winget);
+            if !attribuer_winget(&mut applications) {
+                non_interrogeables.push(Gestionnaire::Winget);
             }
         }
 
@@ -518,6 +550,7 @@ mod windows_impl {
         Inventaire {
             applications,
             gestionnaires,
+            non_interrogeables,
         }
     }
 }
@@ -532,6 +565,7 @@ mod tests {
             version: Some("1.0".to_owned()),
             editeur: None,
             gestionnaire: g,
+            clef_source: None,
         }
     }
 
@@ -559,6 +593,7 @@ mod tests {
             // Scoop sait dire ce qu'il gère : l'attribution est complète, donc le
             // pourcentage veut dire quelque chose.
             gestionnaires: vec![Gestionnaire::Scoop],
+            non_interrogeables: Vec::new(),
         };
         assert_eq!(inv.non_attribuees().len(), 2);
         assert!(inv.attribution_incomplete().is_empty());
@@ -567,15 +602,18 @@ mod tests {
 
     #[test]
     fn un_gestionnaire_non_interrogeable_supprime_le_pourcentage() {
-        // Le cas rencontré sur une machine réelle : winget présent, donc toutes les
-        // applications remontent « non attribuées » — et « 100 % » signifierait
-        // « on n'a pas su regarder ». Publier ce chiffre serait une décoration.
+        // Le cas rencontré sur une machine réelle : winget présent mais muet, donc
+        // toutes les applications remontent « non attribuées » — et « 100 % »
+        // signifierait « on n'a pas su regarder ». Publier ce chiffre serait une
+        // décoration. winget se lit désormais, mais peut redevenir muet : base
+        // absente, verrouillée, ou schéma inconnu. Le cas reste donc à couvrir.
         let inv = Inventaire {
             applications: vec![
                 app("Brave", Gestionnaire::NonAttribue),
                 app("Obsidian", Gestionnaire::NonAttribue),
             ],
             gestionnaires: vec![Gestionnaire::Winget],
+            non_interrogeables: vec![Gestionnaire::Winget],
         };
         assert_eq!(inv.non_attribuees().len(), 2);
         assert_eq!(inv.attribution_incomplete(), vec![Gestionnaire::Winget]);
