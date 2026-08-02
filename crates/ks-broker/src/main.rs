@@ -698,6 +698,63 @@ mod tests {
         );
     }
 
+    /// **Le source lu porte les mêmes champs que le type compilé.**
+    ///
+    /// L'ancrage descend ici au niveau du **champ**, et c'est le dernier étage
+    /// d'une escalade de cinq revues. Chaque étage précédent a été franchi :
+    ///
+    /// 1. la délimitation — accolade dans un commentaire, puis dans un littéral ;
+    /// 2. l'ancre — un leurre `#[cfg(any())]` déclaré plus haut ;
+    /// 3. l'unicité de l'ancre — qu'on croyait suffisante.
+    ///
+    /// La onzième attaque a montré qu'elle ne l'était pas. Un `pub use crate::
+    /// Commande as Verb;` laisse le leurre être le **seul** `pub enum Verb` du
+    /// fichier : l'unicité est satisfaite, l'égalité des noms aussi puisque serde
+    /// interroge l'alias, et les champs lus sont ceux du leurre. Une barrière qui
+    /// désigne son sujet par un nom écrit dans le texte peut toujours se faire
+    /// présenter un autre sujet.
+    ///
+    /// D'où ce contrôle, qui ne fait plus confiance au texte pour dire *quels
+    /// champs existent*. Les échantillons sont construits contre le **type**, pas
+    /// contre le source : leur sérialisation dit la vérité gratuitement. Si les
+    /// deux divergent, la lecture textuelle porte sur autre chose que
+    /// l'énumération réellement exposée, et tout ce qui s'appuie dessus est nul.
+    #[test]
+    fn le_source_lu_porte_les_champs_du_type_compile() {
+        use std::collections::BTreeSet;
+
+        let par_variante = champs_par_variante(&bloc_apres(SOURCE, "pub enum Verb"));
+
+        for verbe in echantillons() {
+            let nom = nom_du_verbe(&verbe);
+            let valeur: serde_json::Value =
+                serde_json::to_value(&verbe).expect("un verbe est sérialisable");
+            let objet = valeur.as_object().expect("un verbe sérialise en objet");
+
+            // `verb` est la étiquette de la variante, pas un champ.
+            let reels: BTreeSet<&str> = objet
+                .keys()
+                .map(String::as_str)
+                .filter(|c| *c != "verb")
+                .collect();
+
+            let lus: BTreeSet<&str> = par_variante
+                .iter()
+                .filter(|(v, _, _)| en_kebab(v) == nom)
+                .map(|(_, champ, _)| champ.as_str())
+                .collect();
+
+            assert_eq!(
+                lus, reels,
+                "SEC-02 / ADR-0006 : pour « {nom} », le source lu ne porte pas les \
+                 mêmes champs que le type compilé. La lecture textuelle porte donc \
+                 sur autre chose que l'énumération réellement exposée — typiquement \
+                 un leurre, éventuellement rendu unique par un alias. Toutes les \
+                 barrières textuelles sont nulles tant que cet écart existe."
+            );
+        }
+    }
+
     /// Aucune variante ne cache sa charge utile dans un type enveloppé.
     ///
     /// `SetTuning(Tuning)` n'a aucun `nom: Type`, donc échappait à l'inspection
@@ -871,11 +928,14 @@ mod tests {
     /// le filtre, `path` étant légitimement employé par deux verbes existants. Aucun
     /// test grossier ne remplacera la revue et l'ADR ; son rôle est de rendre le
     /// raccourci évident bruyant, pas de rendre la revue superflue.
-    #[test]
-    fn aucun_verbe_ne_transporte_dexecution_arbitraire() {
-        let interdits = INTERDITS;
-
-        let echantillons = vec![
+    /// Un exemplaire de chaque verbe, construit **contre le type**.
+    ///
+    /// C'est ce qui en fait une source de vérité indépendante du source : le
+    /// compilateur refuse un échantillon qui ne correspondrait pas à
+    /// l'énumération réellement exposée, et sa sérialisation donne les champs
+    /// exacts. Aucune ruse textuelle ne l'atteint.
+    fn echantillons() -> Vec<Verb> {
+        vec![
             Verb::Scan { domain: None },
             Verb::TakeSnapshot {
                 kind: "hyperv-checkpoint".into(),
@@ -901,7 +961,13 @@ mod tests {
                 expires: "2027-01-01".into(),
             },
             Verb::Isolate,
-        ];
+        ]
+    }
+
+    #[test]
+    fn aucun_verbe_ne_transporte_dexecution_arbitraire() {
+        let interdits = INTERDITS;
+        let echantillons = echantillons();
 
         // 1. Le nom de CHAQUE variante, y compris non échantillonnée, passe le
         //    filtre. C'est le contrôle qui tient réellement : la liste vient de

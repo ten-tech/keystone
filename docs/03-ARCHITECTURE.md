@@ -105,10 +105,10 @@ mécanismes répondent à cela, et aucun ne dépend de l'intégrité de la machi
 | `ks-core` | vocabulaire : `Item`, `Drift`, `Plan`, `Action`, `Snapshot`, `JournalEntry` | portable | aucun | ✅ 24 tests, exécutés |
 | `ks-collectors` | collecte **lecture seule** | portable ; matériel, inventaire logiciel, posture par le registre **et état effectif par WMI** — TPM, BitLocker et SMART restent hors de portée sans élévation (Phase 2) | aucun | ✅ 39 tests, 4 collecteurs |
 | `ks-cli` | la CLI `ks`, surface de référence | Windows (et Linux pour le dev) | aucun | ✅ `scan`/`status`/`explain`/`journal`/`report`, 18 tests |
-| `ks-broker` | service privilégié | Windows visé ; compile aussi ailleurs, sans effet | élevé | 🔨 verbes énumérés + **six** barrières SEC-02, 6 tests — aucun verbe implémenté |
+| `ks-broker` | service privilégié | Windows visé ; compile aussi ailleurs, sans effet | élevé | 🔨 verbes énumérés + **sept** barrières SEC-02, 7 tests — aucun verbe implémenté |
 | `ks-agent-linux` | agent satellite | Linux musl | aucun | 🔨 scan local, 0 test |
 
-**87 tests au total**, tous portables et tous exécutés — `cargo test --workspace`,
+**88 tests au total**, tous portables et tous exécutés — `cargo test --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings` et `cargo fmt --all --check`
 passent. Ce n'était pas le cas au premier commit : rien n'avait alors jamais été
 compilé, et les comptes annoncés étaient des déclarations.
