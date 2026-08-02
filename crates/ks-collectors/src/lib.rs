@@ -19,17 +19,22 @@
 //!
 //! ## Ce qui est implémenté aujourd'hui
 //!
-//! Cette section se périme en silence : elle n'appartient à aucune liste de
-//! contrôle de revue, contrairement à la feuille de route. Elle a déjà été
-//! doublée deux fois par des modules ajoutés sans la corriger. **Tout ajout de
-//! module public se relit ici.**
+//! Cette section se périmait en silence. Elle a été doublée **trois** fois par
+//! des modules ajoutés sans la corriger, et une quatrième fois par deux
+//! affirmations devenues fausses sous elle. La consigne de relecture qui
+//! figurait ici n'a jamais rien retenu : une consigne n'est pas une barrière.
+//!
+//! Un test la tient désormais — `la_liste_des_collecteurs_est_a_jour` — en
+//! comparant cette liste aux `impl Collector for` réellement présents dans ce
+//! fichier. Ajouter un collecteur sans le citer ici fait échouer la suite.
 //!
 //! [`HardwareCollector`] — portable, via `sysinfo`. C'est le socle qui tourne
 //! partout, et qui sert de référence pour l'écriture des suivants.
 //!
-//! [`SoftwareCollector`] — réconciliation d'inventaire logiciel (D1-01),
-//! attribution encore partielle : winget est détecté sans être interrogeable.
-//! Voir `docs/07-FEUILLE-DE-ROUTE.md`, Phase 0.3.
+//! [`SoftwareCollector`] — réconciliation d'inventaire logiciel (D1-01).
+//! L'attribution interroge les bases de suivi de winget en lecture seule
+//! ([`winget`]), et déclare elle-même son incomplétude quand une base est
+//! illisible plutôt que de publier un pourcentage flatteur.
 //!
 //! [`PostureCollector`] — Secure Boot, VBS/HVCI, Credential Guard, protection
 //! LSA, exclusions et règles ASR de Defender, pare-feu, firmware, microcode,
@@ -40,16 +45,12 @@
 //! [`VirtualisationCollector`] — distributions WSL par le registre : version,
 //! taille réelle du disque virtuel, intégration et montage des lecteurs.
 //!
-//! **Cette omission-ci est la troisième du genre.** Le collecteur de
-//! virtualisation manquait à cette liste alors qu'il est exporté, qu'il
-//! implémente [`Collector`] et qu'il tourne dans [`Inventory::collect_all`].
-//! L'avertissement ci-dessus ne suffit visiblement pas : si une quatrième
-//! survient, il faudra un test qui compare cette liste aux implémentations
-//! réelles du trait, plutôt qu'une consigne de relecture.
-//!
 //! Restent à écrire : TPM, BitLocker par volume, tâches planifiées — tous trois
 //! refusés sans élévation, donc reportés au broker (Phase 2) —, la protection
-//! DMA effective, l'usure NVMe/SMART et la cohérence de l'horloge.
+//! DMA effective et l'usure NVMe/SMART.
+//!
+//! La cohérence de l'horloge figurait ici comme restant à écrire, quinze lignes
+//! sous les items `security.clock.*` qui la produisent depuis plusieurs commits.
 
 pub mod etat_effectif;
 pub mod posture;
@@ -357,5 +358,52 @@ mod tests {
     fn linventaire_agrege_plusieurs_domaines() {
         let inv = Inventory::collect_all();
         assert!(!inv.by_domain(Domain::Inventory).is_empty());
+    }
+
+    /// Le commentaire de tête cite-t-il tous les collecteurs qui existent ?
+    ///
+    /// Trois modules ont été ajoutés sans que la liste bouge, malgré une
+    /// consigne de relecture écrite en toutes lettres au-dessus d'elle. Une
+    /// consigne ne retient rien : elle s'adresse à quelqu'un qui a déjà oublié
+    /// de la lire.
+    ///
+    /// La barrière est textuelle et autonome — les quatre `impl Collector for`
+    /// vivent dans ce fichier, donc `include_str!` suffit à confronter la
+    /// documentation à son propre code, sans dépendance ni macro. Elle est
+    /// éprouvée par falsification : ajouter un `impl Collector for` non cité
+    /// fait échouer ce test.
+    #[test]
+    fn la_liste_des_collecteurs_est_a_jour() {
+        const SOURCE: &str = include_str!("lib.rs");
+
+        let implementes: std::collections::BTreeSet<&str> = SOURCE
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("impl Collector for "))
+            .filter_map(|reste| reste.split_whitespace().next())
+            .collect();
+
+        // La documentation cite chaque collecteur par un lien intra-doc.
+        let cites: std::collections::BTreeSet<&str> = SOURCE
+            .lines()
+            .take_while(|l| l.starts_with("//!"))
+            .flat_map(|l| {
+                l.match_indices("[`").map(move |(i, _)| {
+                    let reste = &l[i + 2..];
+                    &reste[..reste.find('`').unwrap_or(reste.len())]
+                })
+            })
+            .filter(|nom| nom.ends_with("Collector") && *nom != "Collector")
+            .collect();
+
+        assert!(
+            !implementes.is_empty(),
+            "aucun `impl Collector for` trouvé — la barrière ne barre plus rien"
+        );
+        assert_eq!(
+            implementes, cites,
+            "le commentaire de tête et les implémentations divergent : 
+               implémentés {implementes:?}
+  cités        {cites:?}"
+        );
     }
 }

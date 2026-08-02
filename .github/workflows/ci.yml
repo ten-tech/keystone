@@ -118,6 +118,46 @@ jobs:
       - name: Tests
         run: cargo test --locked --workspace
 
+      # Le nombre de tests annoncé par la documentation doit être le vrai.
+      #
+      # Ce n'est pas du zèle : la valeur a déjà dérivé deux fois — 34 annoncés
+      # pour 107 réels, puis 100 pour 110 — et elle apparaît dans plusieurs
+      # documents à la fois. Un chiffre écrit à la main, cité à cinq endroits et
+      # vérifié nulle part, est un mensonge à échéance connue.
+      #
+      # La friction est assumée : ajouter un test oblige à toucher la
+      # documentation dans le même commit, ce que les conventions du projet
+      # exigent déjà. Le contrôle ne réécrit rien, il refuse.
+      - name: Le nombre de tests annoncé est le vrai
+        shell: bash
+        run: |
+          # `awk` plutôt que `paste | bc` : `bc` n'est pas présent dans le bash
+          # fourni avec Git sous Windows, et c'est ce bash qui exécute cette
+          # étape. Mesuré, pas supposé.
+          mesure=$(cargo test --locked --workspace 2>&1 \
+            | grep -oE 'test result: ok\. [0-9]+ passed' \
+            | grep -oE '[0-9]+' | awk '{s+=$1} END {print s+0}')
+          echo "Mesuré : $mesure tests."
+          # Une formulation unique porte le total : « N tests au total ». Les
+          # décomptes par crate emploient délibérément une autre tournure, pour
+          # que ce contrôle ne les confonde pas avec le total.
+          ecarts=0
+          vus=0
+          for f in $(git ls-files 'docs/*.md' 'README.md'); do
+            for annonce in $(grep -oE '[0-9]+ tests au total' "$f" | grep -oE '^[0-9]+'); do
+              vus=$((vus + 1))
+              if [ "$annonce" != "$mesure" ]; then
+                echo "::error file=$f::annonce $annonce tests au total, la suite en compte $mesure"
+                ecarts=1
+              fi
+            done
+          done
+          if [ "$vus" -eq 0 ]; then
+            echo "::error::aucune annonce « N tests au total » trouvée — le contrôle ne contrôle plus rien"
+            ecarts=1
+          fi
+          exit $ecarts
+
       # Cette étape n'est pas décorative : elle isole les BARRIÈRES DE CONCEPTION
       # du broker (SEC-02 et SEC-03, critère A11) pour qu'un échec se lise d'un
       # coup d'œil, sans fouiller la sortie de tout le workspace.
