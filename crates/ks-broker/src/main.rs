@@ -698,6 +698,79 @@ mod tests {
         );
     }
 
+    /// Les seules clefs d'attribut `serde` tolérées dans ce fichier.
+    ///
+    /// Liste blanche, et volontairement minuscule : deux clefs, qui décrivent la
+    /// forme du protocole et rien d'autre. Tout le reste — `skip`, `rename`,
+    /// `alias`, `flatten`, `other`, `from` — **règle une projection**, c'est-à-dire
+    /// découple ce que le client peut envoyer de ce que le source montre.
+    const CLEFS_SERDE_ADMISES: &[&str] = &["rename_all", "tag"];
+
+    /// **Personne ne règle la projection.**
+    ///
+    /// C'est la dernière marche d'une escalade de six revues, et elle porte sur
+    /// une nature différente des précédentes. Les barrières d'avant ancraient la
+    /// lecture sur une projection du type : les noms que serde dérive, puis les
+    /// champs qu'il sérialise. Or **chaque projection est elle-même réglable par
+    /// attribut**, donc chaque ancrage tombait d'un cran plus bas.
+    ///
+    /// `#[serde(skip_serializing)]` retire un champ du JSON sans rien retirer à
+    /// la désérialisation : le client peut toujours l'envoyer. Combiné à un
+    /// leurre, l'échantillon sérialise en `{"verb":"set-tuning"}`, les deux
+    /// ensembles comparés sont vides, et l'égalité tient. Huit tests verts.
+    ///
+    /// # Et le contournement cachait pire que lui-même
+    ///
+    /// Un paramètre marqué `skip_serializing` est un paramètre que **le journal
+    /// ne peut pas enregistrer**. SEC-03 exige « appelant, verbe, paramètres,
+    /// diff, résultat » ; toute implémentation du journal fondée sur serde
+    /// l'omettra en silence. Un contributeur qui ajoute `skip_serializing_if`
+    /// pour ne pas journaliser une chaîne vide retire ce paramètre de la piste
+    /// d'audit **sans aucun leurre et sans aucune malveillance**.
+    ///
+    /// Ce contrôle vaut donc autant pour SEC-03 que pour SEC-02.
+    ///
+    /// Il cherche `serde(` et non `#[serde(`, pour attraper l'enveloppe
+    /// `cfg_attr(all(), serde(rename = "…"))` — que le contrôle voisin laissait
+    /// passer, ne cherchant que la forme littérale. Et il porte sur le source
+    /// **entier**, blanchi : il n'essaie pas d'identifier le bon bloc, donc aucun
+    /// leurre ne le détourne.
+    #[test]
+    fn aucun_attribut_serde_ne_regle_la_projection() {
+        let epure = sans_commentaires_ni_chaines(SOURCE);
+        let mut examinees = 0usize;
+
+        for (position, _) in epure.match_indices("serde(") {
+            let apres = &epure[position + "serde(".len()..];
+            let fin = apres
+                .find(')')
+                .expect("un attribut serde doit se refermer sur sa ligne");
+
+            for clef in apres[..fin].split(',') {
+                let clef = clef.split('=').next().unwrap_or_default().trim();
+                if clef.is_empty() {
+                    continue;
+                }
+                examinees += 1;
+                assert!(
+                    CLEFS_SERDE_ADMISES.contains(&clef),
+                    "SEC-02 / SEC-03 : l'attribut « serde({clef}) » règle une projection. \
+                     Il découple ce que le client peut envoyer de ce que le source montre \
+                     — et, s'il porte sur un paramètre, de ce que le journal enregistre. \
+                     Si le besoin est réel, il passe par une ADR."
+                );
+            }
+        }
+
+        // Garde-fou de non-vacuité : un contrôle qui ne parcourt rien est vert
+        // pour la pire des raisons. Six clefs sont attendues aujourd'hui — deux
+        // sur `Verb`, une sur chacune des quatre énumérations de paramètres.
+        assert!(
+            examinees >= 6,
+            "le contrôle n'a examiné que {examinees} clef(s) : l'extraction est cassée"
+        );
+    }
+
     /// **Le source lu porte les mêmes champs que le type compilé.**
     ///
     /// L'ancrage descend ici au niveau du **champ**, et c'est le dernier étage
