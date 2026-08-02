@@ -28,6 +28,12 @@ repository = "https://github.com/ten-tech/keystone"
 ks-core = { path = "crates/ks-core", version = "0.1.0" }
 ks-collectors = { path = "crates/ks-collectors", version = "0.1.0" }
 
+# BLAKE3 remplace le bouchon FNV-1a du chaînage du journal (ADR-0004).
+# `default-features = false` retire rayon et la parallélisation : on hache
+# quelques centaines d'octets par entrée, un pool de threads n'y sert à rien
+# et ajoute une surface. Version stable vérifiée à la source le 2026-08-02.
+blake3 = { version = "1.8", default-features = false }
+
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
