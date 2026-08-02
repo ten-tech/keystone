@@ -388,116 +388,199 @@ mod tests {
         }
     }
 
-    /// Champs `String` tolérés dans `Verb`, **chacun nommé et justifié ici**.
+    /// Champs `String` tolérés, **par couple (variante, champ)**.
     ///
-    /// La logique est inversée par rapport au premier jet, qui listait six noms
-    /// de champs interdits. Une liste noire est un échantillon : une revue
-    /// adverse l'a franchie en une ligne, avec
-    /// `SetPosture { root, location, entry, data }` — quatre mots qu'aucun
-    /// interdit ne couvrait, pour exactement la même écriture de registre
-    /// arbitraire. `security.md` le dit d'ailleurs sans détour : liste blanche
-    /// plutôt que liste noire.
+    /// La clé porte la variante, et ce n'est pas un raffinement. Une liste
+    /// indexée sur le seul nom de champ transforme une dette localisée en
+    /// exemption générale : l'exception accordée à `AddDefenderExclusion.path`
+    /// — un chemin qui est le *sujet* de l'opération — bénissait du même coup
+    /// un futur `ApplyProfile { path: String }`, c'est-à-dire très exactement le
+    /// `RunScript { path }` que ce fichier documente comme son angle mort.
     ///
-    /// Ce qui suit est donc la liste **complète** des champs textuels admis. Tout
-    /// autre champ de `Verb` doit porter le type d'une énumération fermée
-    /// déclarée dans ce fichier.
-    const CHAMPS_TEXTE_ADMIS: &[(&str, &str)] = &[
+    /// Une revue adverse l'a fait passer, vert et conforme à `rustfmt`. Ajouter
+    /// un couple est désormais un geste visible, donc la revue qu'on veut.
+    const CHAMPS_TEXTE_ADMIS: &[(&str, &str, &str)] = &[
         (
+            "Scan",
             "domain",
-            "filtre d'affichage d'un scan : ne désigne aucune écriture",
+            "filtre d'affichage : ne désigne aucune écriture",
         ),
         (
+            "AddDefenderExclusion",
             "path",
-            "sujet d'une exclusion Defender, choisi par l'utilisateur parmi tous \
-             les chemins possibles (D11-02). Le typer n'aurait aucun sens.",
+            "sujet de l'exclusion, choisi par l'utilisateur parmi tous les \
+             chemins possibles (D11-02). Le typer n'aurait aucun sens.",
         ),
-        ("reason", "motif destiné à un humain, libre par nature"),
         (
+            "AddDefenderExclusion",
+            "reason",
+            "motif destiné à un humain, libre par nature",
+        ),
+        (
+            "AddDefenderExclusion",
             "expires",
             "DETTE, ADR-0006 : devrait être un horodatage typé. « hier » et « » \
              compilent aujourd'hui.",
         ),
         (
+            "RestoreSnapshot",
             "snapshot_id",
-            "DETTE, ADR-0006 : identifiant à typer et à valider. Restaurer, c'est \
-             appliquer en SYSTEM un contenu désigné par l'appelant.",
+            "DETTE, ADR-0006 : restaurer, c'est appliquer en SYSTEM un contenu \
+             que l'appelant désigne.",
         ),
         (
+            "TakeSnapshot",
             "kind",
             "DETTE, ADR-0006 : devrait être un genre d'instantané fermé.",
         ),
         (
+            "TakeSnapshot",
             "target",
-            "DETTE, ADR-0006 : cible d'instantané. « registry-export » sur \
-             HKLM\\SAM fait extraire les empreintes de comptes par le broker.",
+            "DETTE, ADR-0006 : « registry-export » sur HKLM\\SAM fait extraire \
+             les empreintes de comptes par le broker.",
         ),
     ];
 
-    /// Les couples (nom, type) des champs déclarés dans `enum Verb`.
-    ///
-    /// Lecture textuelle, sur un bloc dont les commentaires ont déjà été
-    /// blanchis par [`bloc_apres`] — sans quoi une ligne de documentation
-    /// contenant « : » fabriquerait un faux champ.
-    fn champs_de_verbe(bloc: &str) -> Vec<(String, String)> {
-        let plat = bloc.replace(['\n', '\r'], " ");
+    /// « SetManagedSetting » → « set-managed-setting ».
+    fn en_kebab(ident: &str) -> String {
+        mots_de_pascal_case(ident).join("-")
+    }
+
+    /// Les triplets (variante, champ, type) déclarés dans `enum Verb`.
+    fn champs_par_variante(bloc: &str) -> Vec<(String, String, String)> {
+        let mut variante = String::new();
         let mut champs = Vec::new();
-        for morceau in plat.split(',') {
-            let Some((gauche, droite)) = morceau.split_once(':') else {
+
+        for ligne in bloc.lines() {
+            let texte = ligne.trim();
+            if texte.is_empty() || texte.starts_with('#') {
                 continue;
-            };
-            let nom = gauche
-                .rsplit(['{', ' '])
-                .find(|s| !s.is_empty())
-                .unwrap_or_default()
-                .trim();
-            let type_champ = droite
-                .split(['}', ' '])
-                .find(|s| !s.is_empty())
-                .unwrap_or_default()
-                .trim();
-            if !nom.is_empty() && !type_champ.is_empty() {
-                champs.push((nom.to_owned(), type_champ.to_owned()));
+            }
+
+            let ident: String = texte
+                .chars()
+                .take_while(char::is_ascii_alphanumeric)
+                .collect();
+            let suite = &texte[ident.len()..];
+            if ident.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+                && (suite.starts_with(" {") || suite.starts_with(',') || suite.starts_with('('))
+            {
+                variante.clone_from(&ident);
+            }
+
+            for morceau in texte.split(',') {
+                let Some((gauche, droite)) = morceau.split_once(':') else {
+                    continue;
+                };
+                let nom = gauche
+                    .rsplit(['{', ' '])
+                    .find(|s| !s.is_empty())
+                    .unwrap_or_default()
+                    .trim();
+                let type_champ = droite
+                    .split(['}', ' '])
+                    .find(|s| !s.is_empty())
+                    .unwrap_or_default()
+                    .trim();
+                if nom.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+                    && !type_champ.is_empty()
+                {
+                    champs.push((variante.clone(), nom.to_owned(), type_champ.to_owned()));
+                }
             }
         }
         champs
     }
 
+    /// **La lecture textuelle voit exactement ce que serde voit.**
+    ///
+    /// C'est l'ancrage qui ferme une famille entière d'attaques au lieu de ses
+    /// membres, et il a fallu trois passes de revue adverse pour y arriver.
+    ///
+    /// Toutes les barrières précédentes lisaient le source avec `str::split`.
+    /// Chaque correctif fermait une ruse et en laissait une autre du même
+    /// genre : d'abord une accolade fermante dans un commentaire de ligne, puis
+    /// la même dans un **littéral de chaîne** d'un attribut `#[doc = "…"]` —
+    /// que `rustfmt` ne réindente pas, contrairement au commentaire de bloc.
+    /// Un analyseur écrit en découpage de chaînes perdra toujours contre
+    /// quelqu'un qui connaît la grammaire.
+    ///
+    /// D'où cet ancrage sur une source que le texte **ne contrôle pas** : la
+    /// liste que le derive `Deserialize` produit à partir du type. Toute ruse de
+    /// délimitation tronque la lecture textuelle et fait diverger les deux
+    /// listes — sans qu'il ait fallu prévoir la ruse. Elle remplace au passage
+    /// les deux seuils numériques, qui n'avaient sauvé la mise que par accident.
+    #[test]
+    fn la_lecture_textuelle_voit_tous_les_verbes() {
+        use std::collections::BTreeSet;
+
+        let lus: BTreeSet<String> = variantes_declarees(&bloc_apres(SOURCE, "pub enum Verb"))
+            .iter()
+            .map(|v| en_kebab(v))
+            .collect();
+        let vus_par_serde: BTreeSet<String> = noms_connus_de_serde().into_iter().collect();
+
+        assert_eq!(
+            lus, vus_par_serde,
+            "SEC-02 : la lecture du source ne voit pas les mêmes verbes que serde. \
+             Soit une variante est masquée par un renommage, soit le bloc analysé a \
+             été tronqué — typiquement par une accolade fermante glissée dans un \
+             commentaire ou dans un littéral de chaîne. Dans les deux cas, les \
+             barrières qui suivent lisent un source incomplet et ne garantissent \
+             plus rien."
+        );
+    }
+
+    /// Aucune variante ne cache sa charge utile dans un type enveloppé.
+    ///
+    /// `SetTuning(Tuning)` n'a aucun `nom: Type`, donc échappait à l'inspection
+    /// des champs — et se désérialisait pourtant parfaitement depuis un client,
+    /// vérifié par aller-retour. Seule `serde` interdisait les variantes *tuple*
+    /// à plusieurs éléments sous `tag = "verb"` ; les *newtype* passaient.
+    #[test]
+    fn aucune_variante_nenveloppe_sa_charge_utile() {
+        for ligne in bloc_apres(SOURCE, "pub enum Verb").lines().map(str::trim) {
+            let ident: String = ligne
+                .chars()
+                .take_while(char::is_ascii_alphanumeric)
+                .collect();
+            if !ident.chars().next().is_some_and(|c| c.is_ascii_uppercase()) {
+                continue;
+            }
+            assert!(
+                !ligne[ident.len()..].starts_with('('),
+                "SEC-02 / ADR-0006 : « {ligne} » enveloppe sa charge utile dans un \
+                 type, qui échappe à l'inspection des champs. Déclare les champs \
+                 nommément dans la variante."
+            );
+        }
+    }
+
     /// **Tout paramètre de verbe désigne un ensemble fini, ou est un texte admis.**
     ///
-    /// C'est la barrière que l'ADR-0006 installe, et elle a été réécrite après
-    /// qu'une revue adverse l'a franchie de trois façons. Ce qui a changé :
+    /// La liste des énumérations contrôlées est **dérivée des types de champs de
+    /// `Verb`**, jamais écrite à la main : c'est ce qui la fait suivre l'ajout
+    /// qu'on n'a pas anticipé. Un premier jet la nommait en dur, et
+    /// `SettingValue::Raw(String)` passait donc au vert, rendant sa chaîne libre
+    /// au verbe par la porte de service.
     ///
-    /// * la liste des énumérations à contrôler n'est plus **écrite en dur** — elle
-    ///   est **dérivée des types de champs de `Verb`**. `SettingValue` et
-    ///   `StartupType` n'étaient pas dans la liste, et `SettingValue::Raw(String)`
-    ///   passait donc au vert, rendant sa chaîne libre au verbe ;
-    /// * les champs textuels ne sont plus filtrés par une liste noire de six
-    ///   noms, mais par la liste blanche ci-dessus ;
-    /// * une énumération de paramètre déplacée dans un autre fichier fait
-    ///   **paniquer** l'extraction, avec un message explicite, plutôt que de
-    ///   disparaître silencieusement du contrôle.
-    ///
-    /// Le raisonnement de fond n'a pas bougé : un verbe est sûr tant qu'il ne peut
-    /// désigner qu'une cible d'un ensemble fini. Dès qu'un paramètre transporte
-    /// une donnée libre, l'ensemble redevient infini et le verbe redevient
-    /// `SetRegistryValue` sans ACL, c'est-à-dire une exécution de code par IFEO.
+    /// Effet secondaire précieux : un alias de type ne trompe pas ce test, parce
+    /// qu'il n'y cherche pas le mot « String » — il **exige** que tout type non
+    /// textuel se résolve en `pub enum <Type>` dans ce fichier.
     #[test]
     fn tout_parametre_de_verbe_designe_un_ensemble_fini() {
-        let champs = champs_de_verbe(&bloc_apres(SOURCE, "pub enum Verb"));
-        assert!(
-            champs.len() >= 8,
-            "extraction des champs défaillante : {champs:?}"
-        );
-
-        for (nom, type_champ) in &champs {
+        for (variante, nom, type_champ) in champs_par_variante(&bloc_apres(SOURCE, "pub enum Verb"))
+        {
             if type_champ.contains("String") {
                 assert!(
-                    CHAMPS_TEXTE_ADMIS.iter().any(|(admis, _)| admis == nom),
-                    "SEC-02 / ADR-0006 : le champ « {nom}: {type_champ} » est un texte \
+                    CHAMPS_TEXTE_ADMIS
+                        .iter()
+                        .any(|(v, c, _)| *v == variante && *c == nom),
+                    "SEC-02 / ADR-0006 : « {variante}.{nom}: {type_champ} » est un texte \
                      libre non répertorié. Soit il désigne une cible, et il faut une \
                      énumération fermée ; soit il est légitimement libre, et il faut \
-                     l'inscrire dans CHAMPS_TEXTE_ADMIS avec sa justification — ce qui \
-                     est précisément la revue qu'on veut provoquer."
+                     inscrire le couple dans CHAMPS_TEXTE_ADMIS avec sa justification — \
+                     ce qui est précisément la revue qu'on veut provoquer."
                 );
                 continue;
             }
@@ -505,18 +588,19 @@ mod tests {
             // Le type doit être une énumération déclarée ICI. Si elle vit
             // ailleurs, l'extraction panique en le disant : c'est le seul
             // comportement acceptable, la barrière ne lisant qu'un fichier.
-            let bloc_enum = bloc_apres(SOURCE, &format!("pub enum {type_champ}"));
-            for ligne in bloc_enum.lines().map(str::trim) {
+            for ligne in bloc_apres(SOURCE, &format!("pub enum {type_champ}"))
+                .lines()
+                .map(str::trim)
+            {
                 if ligne.is_empty() || ligne.starts_with('#') {
                     continue;
                 }
                 assert!(
                     !ligne.contains('{') && !ligne.contains('('),
                     "SEC-02 / ADR-0006 : « {ligne} », dans l'énumération « {type_champ} » \
-                     du champ « {nom} », porte une donnée. Une variante porteuse rend \
-                     l'ensemble des cibles infini — le verbe redevient une écriture de \
-                     registre arbitraire. Ajoute une variante unitaire, et la \
-                     correspondance dans le broker."
+                     du champ « {variante}.{nom} », porte une donnée. Une variante \
+                     porteuse rend l'ensemble des cibles infini — le verbe redevient une \
+                     écriture de registre arbitraire."
                 );
             }
         }
