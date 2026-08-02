@@ -1,4 +1,9 @@
-#Requires -Version 7.0
+﻿#Requires -Version 5.1
+# PowerShell 5.1 et non 7, volontairement : ce script vérifie l'outillage d'un
+# poste neuf. Exiger PowerShell 7 en ferait un script qui ne peut pas s'exécuter
+# tant que l'outillage est incomplet — c'est-à-dire précisément quand on en a
+# besoin. 5.1 est présent sur tout Windows ; PowerShell 7 figure donc parmi ce
+# que ce script CONTRÔLE, pas parmi ce qu'il exige.
 <#
 .SYNOPSIS
     Vérifie que l'environnement de développement Keystone est complet.
@@ -115,20 +120,61 @@ Test-Outil -Nom 'git'         -Commande 'git'         -Installation 'winget inst
 Test-Outil -Nom 'cargo-audit' -Commande 'cargo-audit' -Installation 'cargo install cargo-audit' -Optionnel | Out-Null
 Test-Outil -Nom 'cargo-deny'  -Commande 'cargo-deny'  -Installation 'cargo install cargo-deny'  -Optionnel | Out-Null
 
+# ─── Le shell lui-même ─────────────────────────────────────────────────────
+Write-Host ''
+Write-Host '  Shell' -ForegroundColor White
+Write-Host ("  [ok]   Windows PowerShell     {0} — suffit pour tous les scripts du dépôt" -f $PSVersionTable.PSVersion) -ForegroundColor Green
+Test-Outil -Nom 'PowerShell 7' -Commande 'pwsh' `
+    -Installation 'winget install Microsoft.PowerShell' -Optionnel | Out-Null
+Write-Host '         Recommandé pour le confort interactif, jamais requis par les scripts.' -ForegroundColor DarkGray
+
 # ─── Contexte de la machine ────────────────────────────────────────────────
 Write-Host ''
 Write-Host '  Contexte de la machine' -ForegroundColor White
 
-$hv = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -ErrorAction SilentlyContinue
-if ($hv -and $hv.State -eq 'Enabled') {
+# `Get-WindowsOptionalFeature -Online` exige l'élévation. Sans elle, l'appel
+# échoue et l'ancien code concluait « Hyper-V absent » — un faux négatif sur le
+# cas normal, puisque ce script est censé tourner sans privilège. On distingue
+# donc « désactivé » de « indéterminable ».
+$eleve = ([Security.Principal.WindowsPrincipal] `
+    [Security.Principal.WindowsIdentity]::GetCurrent()
+).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+$hv = $null
+if ($eleve) {
+    $hv = Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -ErrorAction SilentlyContinue
+}
+
+# Sans élévation, la présence du module de gestion est un bon indicateur de
+# substitution : il n'est livré qu'avec le rôle Hyper-V. À ne pas confondre avec
+# `HypervisorPresent`, qui vaut True dès que WSL2 ou Docker Desktop tourne — la
+# plateforme de virtualisation suffit à ceux-là, pas à créer une VM de labo.
+$outilsHv = [bool](Get-Command Get-VM -ErrorAction SilentlyContinue)
+
+if (($hv -and $hv.State -eq 'Enabled') -or (-not $eleve -and $outilsHv)) {
     Write-Host '  [ok]   Hyper-V                 activé — la VM de labo est possible' -ForegroundColor Green
+} elseif (-not $eleve) {
+    Write-Host '  [opt]  Hyper-V                 ' -NoNewline -ForegroundColor Yellow
+    Write-Host 'outils de gestion absents — requis seulement à partir de la Phase 2' -ForegroundColor DarkGray
 } else {
     Write-Host '  [opt]  Hyper-V                 ' -NoNewline -ForegroundColor Yellow
     Write-Host 'requis à partir de la Phase 2 (voir docs/06-VM-DE-LABO.md)' -ForegroundColor DarkGray
 }
 
 if (Get-Command wsl -ErrorAction SilentlyContinue) {
-    $distros = (wsl --list --quiet 2>$null) -join ', '
+    # `wsl.exe` écrit en UTF-16LE. Windows PowerShell 5.1 lit la sortie d'un
+    # exécutable natif avec l'encodage console courant : sans le forcer, chaque
+    # caractère est suivi d'un octet nul et « Debian » s'affiche « D e b i a n ».
+    # On restaure l'encodage ensuite pour ne rien laisser derrière soi.
+    $encodagePrecedent = [Console]::OutputEncoding
+    try {
+        [Console]::OutputEncoding = [System.Text.Encoding]::Unicode
+        $distros = (wsl --list --quiet 2>$null |
+            Where-Object { $_ -and $_.Trim() }) -join ', '
+    } finally {
+        [Console]::OutputEncoding = $encodagePrecedent
+    }
+    if (-not $distros) { $distros = 'aucune distribution installée' }
     Write-Host ('  [ok]   WSL                     ' + $distros) -ForegroundColor Green
 } else {
     Write-Host '  [opt]  WSL                     ' -NoNewline -ForegroundColor Yellow
