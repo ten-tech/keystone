@@ -740,11 +740,27 @@ mod tests {
         let epure = sans_commentaires_ni_chaines(SOURCE);
         let mut examinees = 0usize;
 
-        for (position, _) in epure.match_indices("serde(") {
-            let apres = &epure[position + "serde(".len()..];
-            let fin = apres
+        // L'aiguille est « serde » **puis** une parenthèse éventuellement
+        // précédée d'espaces, et non le littéral « serde( ».
+        //
+        // La grammaire des attributs tolère `#[serde (skip_serializing)]`, que
+        // la forme littérale ne voyait pas. Ce n'était pas exploitable — rustfmt
+        // normalise l'espace et `cargo fmt --all --check` est bloquant à chaque
+        // poussée — mais la défense était alors **externe et fortuite**, exactement
+        // comme rustfmt l'avait été pour le commentaire de bloc. Une barrière
+        // sauvée par un outil voisin cesse de protéger le jour où l'on assouplit
+        // cet outil, et plus personne ne relie la brèche à sa cause.
+        for (position, _) in epure.match_indices("serde") {
+            let suite = epure[position + "serde".len()..].trim_start();
+            let Some(arguments) = suite.strip_prefix('(') else {
+                // `serde::Serialize`, `serde_json`, une mention en prose : rien
+                // à contrôler, on passe.
+                continue;
+            };
+            let fin = arguments
                 .find(')')
-                .expect("un attribut serde doit se refermer sur sa ligne");
+                .expect("un attribut serde doit se refermer");
+            let apres = arguments;
 
             for clef in apres[..fin].split(',') {
                 let clef = clef.split('=').next().unwrap_or_default().trim();
