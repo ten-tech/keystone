@@ -3,7 +3,7 @@
 
 **Version** 1.0 · **Date** 30 juillet 2026 · **Auteur** Ingénierie poste de travail
 **Livrable attendu** un design system complet + 7 écrans maquettés, mode sombre natif
-**Document jumeau** `KEYSTONE-CDC.md` (cahier des charges fonctionnel et technique)
+**Document jumeau** [`01-CAHIER-DES-CHARGES.md`](01-CAHIER-DES-CHARGES.md) (cahier des charges fonctionnel et technique)
 
 ---
 

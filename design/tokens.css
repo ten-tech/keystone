@@ -34,7 +34,7 @@
      Contrastes mesurés contre --surface-1.                                 */
   --ink-1: #E6EDF3;       /* primaire        14,8:1                         */
   --ink-2: #9FB0C0;       /* secondaire       7,9:1                         */
-  --ink-3: #6E8091;       /* atténué          4,3:1 — PAS sur --surface-2   */
+  --ink-3: #798C9D;       /* atténué          4,52:1 mini — AA sur les 3    */
 
   /* ─── États ───────────────────────────────────────────────────────────
      Usage : icônes, arcs, filets, texte d'état. PAS comme couleur de série.

@@ -94,7 +94,12 @@ fn observed(path: &str, domain: Domain, value: ItemValue, purpose: &str, risk: &
         desired: None,
         observed: value,
         observed_at: Utc::now(),
-        provenance: Provenance::Keystone,
+        // `Observed`, et surtout pas `Keystone` : un collecteur *lit*, il ne produit
+        // pas la valeur. Marquer un relevé « Keystone » revenait à prétendre que
+        // l'outil est l'auteur de la version de l'OS ou du taux de remplissage d'un
+        // disque — et rendait `Unknown` inatteignable, donc le signal de sécurité
+        // du modèle inopérant.
+        provenance: Provenance::Observed,
         purpose: purpose.to_owned(),
         risk: risk.to_owned(),
         reference: None,
@@ -223,6 +228,33 @@ mod tests {
             assert!(
                 !item.is_drifted(),
                 "et il ne peut donc pas produire d'écart"
+            );
+        }
+    }
+
+    #[test]
+    fn un_releve_ne_sattribue_pas_la_paternite_de_la_valeur() {
+        // Keystone n'a pas *fait* la version de l'OS ni le remplissage du disque :
+        // il les a *lus*. Marquer cela `Keystone` était faux, et avait une
+        // conséquence lourde — `Unknown` devenait inatteignable, donc
+        // `is_security_signal` toujours faux, donc le signal le plus valorisé du
+        // modèle structurellement mort en Phase 0.
+        for item in Inventory::collect_all().items {
+            assert_eq!(
+                item.provenance,
+                Provenance::Observed,
+                "« {} » : un item collecté est relevé, pas produit",
+                item.path
+            );
+            assert!(
+                !item.provenance.is_security_signal(),
+                "« {} » : un simple relevé ne doit rien déclencher",
+                item.path
+            );
+            assert!(
+                !item.provenance.is_sovereign(),
+                "« {} » : un relevé n'est pas une politique gérée",
+                item.path
             );
         }
     }

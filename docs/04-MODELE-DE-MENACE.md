@@ -62,7 +62,7 @@ effacer la trace de son passage, parce qu'elle est déjà ailleurs.
 | SEC-11 | Pas d'auto-mise-à-jour silencieuse | A4 |
 | SEC-12 | **Aucun port réseau en écoute** | A1 |
 
-## 5. Ce qui n'est pas couvert — et le sera jamais
+## 5. Ce qui n'est pas couvert — et ne le sera jamais
 
 Cette liste doit figurer **en première page de la documentation utilisateur**, pas en
 annexe (exigence NF-09). Un outil de sécurité qui laisse croire qu'il voit tout est

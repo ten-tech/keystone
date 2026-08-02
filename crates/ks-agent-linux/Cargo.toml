@@ -12,7 +12,9 @@ name = "ks-agent"
 path = "src/main.rs"
 
 [dependencies]
-ks-core.workspace = true
+# `ks-core` n'est pas déclaré : l'agent ne l'importe pas directement, il ne
+# manipule que l'`Inventory` de `ks-collectors`, qui en dépend déjà. Le déclarer
+# ne coûtait rien en compilation mais décrivait une dépendance qui n'existe pas.
 ks-collectors.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true

@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+#
+# Les portes de qualité, avant que le code quitte la machine.
+#
+# docs/08-CONVENTIONS.md pose que `main` est TOUJOURS vert : cargo test et
+# clippy -D warnings y passent. Ce hook rend cette phrase vraie au lieu de
+# la laisser à la discipline de chacun — et il évite d'apprendre l'échec
+# huit minutes plus tard, par un courriel de la CI.
+#
+# Compter deux à quatre minutes. C'est le prix d'un dépôt dont l'historique
+# ne contient aucun commit cassé.
+
+set -u
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "  ⚠ cargo introuvable — portes de qualité non vérifiées avant push."
+  exit 0
+fi
+
+echo ""
+echo "  Portes de qualité avant push — voir docs/08-CONVENTIONS.md"
+echo ""
+
+etape() {
+  printf '    %-34s' "$1"
+  shift
+  if "$@" >/tmp/ks-prepush.log 2>&1; then
+    echo "ok"
+  else
+    echo "ÉCHEC"
+    echo ""
+    tail -n 30 /tmp/ks-prepush.log | sed 's/^/      /'
+    echo ""
+    echo "    Push interrompu. « git push --no-verify » force le passage."
+    echo ""
+    exit 1
+  fi
+}
+
+etape "cargo fmt --all --check"      cargo fmt --all --check
+etape "clippy -D warnings"           cargo clippy --locked --workspace --all-targets -- -D warnings
+etape "cargo test --workspace"       cargo test --locked --workspace
+
+# La barrière SEC-02 est rejouée seule, comme en CI. L'étape a déjà été verte
+# à vide une fois — le filtre n'appariait aucun test — donc on vérifie ici
+# qu'elle s'exécute réellement, et pas seulement qu'elle ne casse pas.
+printf '    %-34s' "barrière SEC-02"
+sortie=$(cargo test --locked -p ks-broker \
+  tests::aucun_verbe_ne_transporte_dexecution_arbitraire -- --exact 2>&1)
+if printf '%s' "$sortie" | grep -q "^test result: ok\. 1 passed"; then
+  echo "ok"
+else
+  echo "ÉCHEC"
+  echo ""
+  printf '%s\n' "$sortie" | tail -n 20 | sed 's/^/      /'
+  echo ""
+  echo "    La barrière n'a pas été exécutée, ou elle a échoué."
+  echo "    Un garde-fou vert qui ne tourne pas est pire qu'aucun garde-fou."
+  echo ""
+  exit 1
+fi
+
+echo ""
+exit 0

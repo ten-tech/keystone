@@ -1,0 +1,12 @@
+{
+  // Extensions recommandées — voir docs/05-ENVIRONNEMENT-DE-DEV.md § « Extensions ».
+  // VS Code les propose à l'ouverture du dossier ; il n'en installe aucune tout seul.
+  "recommendations": [
+    "rust-lang.rust-analyzer",
+    "tamasfe.even-better-toml",
+    "ms-vscode.powershell",
+    "redhat.vscode-yaml",
+    "usernamehw.errorlens",
+    "editorconfig.editorconfig"
+  ]
+}

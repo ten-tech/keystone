@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; background: #0B0F14; }
+  * { box-sizing: border-box; }
+  ::selection { background: rgba(79,209,197,.24); }
+  a { color: #4FD1C5; text-decoration: none; }
+  a:hover { color: #7FE0D8; }
+  button, input { font: inherit; color: inherit; }
+  @keyframes ks-breathe {
+    0%, 100% { opacity: .86; }
+    50% { opacity: 1; }
+  }
+  @keyframes ks-halo {
+    0%, 100% { filter: blur(8px); opacity: .34; }
+    50% { filter: blur(14px); opacity: .6; }
+  }
+  @keyframes ks-rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes ks-sweep {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+  }
+</style>
+</helmet>
+<div style="position: relative; height: 100vh; width: 100%; overflow: hidden; background: #0B0F14; color: #E6EDF3; font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.55; display: flex; flex-direction: column;">
+
+  <div aria-hidden="true" style="position: absolute; inset: 0; pointer-events: none; z-index: 60; mix-blend-mode: overlay; opacity: .02; background-image: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22160%22 height=%22160%22><filter id=%22n%22><feTurbulence type=%22fractalNoise%22 baseFrequency=%220.85%22 numOctaves=%222%22 stitchTiles=%22stitch%22/><feColorMatrix type=%22saturate%22 values=%220%22/></filter><rect width=%22160%22 height=%22160%22 filter=%22url(%23n)%22/></svg>');"></div>
+  <div aria-hidden="true" style="position: absolute; top: -240px; left: 50%; transform: translateX(-50%); width: 1200px; height: 520px; pointer-events: none; z-index: 0; background: radial-gradient(ellipse at 50% 0%, rgba(255,255,255,.04), rgba(255,255,255,0) 70%);"></div>
+
+  <div style="height: 2px; width: 100%; flex: 0 0 auto; background: {{ filetColor }}; transition: background 200ms cubic-bezier(.2,.8,.2,1); position: relative; z-index: 20;"></div>
+
+  <div style="display: flex; flex: 1 1 auto; min-height: 0; position: relative; z-index: 10;">
+
+    <nav aria-label="Navigation principale" style="width: 216px; flex: 0 0 216px; border-right: 1px solid rgba(255,255,255,.07); display: flex; flex-direction: column; padding: 16px 12px 12px; gap: 4px; background: linear-gradient(180deg, rgba(255,255,255,.012), rgba(255,255,255,0));">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 4px 8px 18px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 2.6 20.2 7v10L12 21.4 3.8 17V7z" stroke="#4FD1C5" stroke-width="1.5" stroke-linejoin="round"></path>
+          <path d="M12 8.4 15.8 12 12 15.6 8.2 12z" stroke="#4FD1C5" stroke-width="1.5" stroke-linejoin="round"></path>
+        </svg>
+        <span style="font-family: 'Inter Tight', Inter, sans-serif; font-size: 15px; font-weight: 600; letter-spacing: .06em;">KEYSTONE</span>
+      </div>
+
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091; padding: 0 8px 8px;">Surveiller</div>
+      <sc-for list="{{ navWatch }}" as="item" hint-placeholder-count="3">
+        <button type="button" onClick="{{ item.go }}" style="{{ item.style }}" style-hover="background: #1B242F;" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">
+          <span style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+            <span style="width: 16px; height: 16px; flex: 0 0 16px; display: block;">{{ item.icon }}</span>
+            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ item.label }}</span>
+          </span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6E8091;">{{ item.note }}</span>
+        </button>
+      </sc-for>
+
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091; padding: 18px 8px 8px;">Agir</div>
+      <sc-for list="{{ navAct }}" as="item" hint-placeholder-count="2">
+        <button type="button" onClick="{{ item.go }}" style="{{ item.style }}" style-hover="background: #1B242F;" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">
+          <span style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+            <span style="width: 16px; height: 16px; flex: 0 0 16px; display: block;">{{ item.icon }}</span>
+            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ item.label }}</span>
+          </span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6E8091;">{{ item.note }}</span>
+        </button>
+      </sc-for>
+
+      <div style="flex: 1 1 auto;"></div>
+
+      <sc-if value="{{ isAttention }}" hint-placeholder-val="{{ true }}">
+        <button type="button" onClick="{{ isolate }}" style="display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 12px; border-radius: 6px; border: 1px solid #E5534B; background: transparent; color: #E6EDF3; cursor: pointer; text-align: left; transition: background 120ms cubic-bezier(.2,.8,.2,1); animation: ks-rise 400ms cubic-bezier(.16,1,.3,1) both;" style-hover="background: rgba(229,83,75,.1);" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="flex: 0 0 16px;">
+            <circle cx="12" cy="12" r="8.5" stroke="#E5534B" stroke-width="1.5"></circle>
+            <path d="M6 6l12 12" stroke="#E5534B" stroke-width="1.5"></path>
+          </svg>
+          <span style="font-size: 13px;">Isoler la machine</span>
+        </button>
+      </sc-if>
+
+      <div style="padding: 12px 8px 4px; border-top: 1px solid rgba(255,255,255,.07); margin-top: 12px; display: flex; flex-direction: column; gap: 3px;">
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9FB0C0;">WKS-ORION-04</div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6E8091;">win11 26100.2894 · wsl 2.3.26</div>
+      </div>
+    </nav>
+
+    <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;">
+
+      <header style="height: 52px; flex: 0 0 52px; border-bottom: 1px solid rgba(255,255,255,.07); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; gap: 24px;">
+        <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 0 1 auto; overflow: hidden;">
+          <h1 style="margin: 0; font-family: 'Inter Tight', Inter, sans-serif; font-size: 22px; line-height: 1.3; font-weight: 500; letter-spacing: -.02em; white-space: nowrap; flex: 0 0 auto;">{{ screenTitle }}</h1>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #6E8091; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;">{{ screenMeta }}</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; flex: 0 0 auto;">
+          <div role="group" aria-label="État simulé" style="display: flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid rgba(255,255,255,.07); border-radius: 999px;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6E8091; padding: 0 8px 0 6px; letter-spacing: .09em;">DÉMO</span>
+            <button type="button" onClick="{{ setSain }}" style="{{ demoSainStyle }}" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Sain</button>
+            <button type="button" onClick="{{ setAttention }}" style="{{ demoAttStyle }}" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Attention</button>
+          </div>
+          <button type="button" onClick="{{ openPalette }}" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px 0 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,.07); background: #131A22; color: #9FB0C0; font-size: 13px; cursor: pointer; transition: background 120ms cubic-bezier(.2,.8,.2,1);" style-hover="background: #1B242F;" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="6.5" stroke="#9FB0C0" stroke-width="1.5"></circle><path d="M16 16l4 4" stroke="#9FB0C0" stroke-width="1.5"></path></svg>
+            <span>Commandes</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6E8091; border: 1px solid rgba(255,255,255,.07); border-radius: 4px; padding: 1px 5px;">Ctrl K</span>
+          </button>
+        </div>
+      </header>
+
+      <main style="flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 32px 24px 48px;">
+        <div style="max-width: 1440px; margin: 0 auto;">
+
+          <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ true }}">
+            <div style="display: flex; flex-direction: column; gap: 24px;">
+
+              <sc-if value="{{ showRollback }}" hint-placeholder-val="{{ false }}">
+                <section aria-label="Retour en arrière" style="background: #1B242F; border: 1px solid rgba(255,255,255,.07); border-left: 1px solid rgba(75,201,125,.5); border-radius: 10px; padding: 20px 24px; display: flex; flex-direction: column; gap: 12px; animation: ks-rise 400ms cubic-bezier(.16,1,.3,1) both;">
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="#4BC97D" stroke-width="1.5"></circle><path d="M8.2 12.2l2.6 2.6 5-5.4" stroke="#4BC97D" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                    <span style="font-family: 'Inter Tight', Inter, sans-serif; font-size: 16px; font-weight: 500; color: #4BC97D;">Revenu en arrière</span>
+                  </div>
+                  <p style="margin: 0; color: #E6EDF3; max-width: 76ch; text-wrap: pretty;">La mise à jour du pilote NVIDIA 570.12 a été installée à 20:14, puis annulée à 20:19.</p>
+                  <dl style="margin: 0; display: grid; grid-template-columns: 160px 1fr; gap: 6px 16px; max-width: 76ch;">
+                    <dt style="color: #9FB0C0;">Ce qui a échoué</dt>
+                    <dd style="margin: 0; color: #E6EDF3;">le test <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #9FB0C0;">cuda-smoke</span> ne trouvait plus de GPU.</dd>
+                    <dt style="color: #9FB0C0;">Ce que j'ai fait</dt>
+                    <dd style="margin: 0; color: #E6EDF3;">restauration du point pris à 20:12, pilote épinglé en 566.36 jusqu'au 1<sup>er</sup> septembre.</dd>
+                    <dt style="color: #9FB0C0;">Où vous en êtes</dt>
+                    <dd style="margin: 0; color: #E6EDF3;">état identique à 20:12. Rien à faire de votre côté.</dd>
+                  </dl>
+                  <div style="display: flex; gap: 8px; padding-top: 4px;">
+                    <button type="button" style="height: 32px; padding: 0 14px; border-radius: 6px; border: 1px solid rgba(255,255,255,.07); background: transparent; color: #E6EDF3; font-size: 13px; cursor: pointer; transition: background 120ms cubic-bezier(.2,.8,.2,1);" style-hover="background: rgba(255,255,255,.05);" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Voir le journal</button>
+                    <button type="button" style="height: 32px; padding: 0 14px; border-radius: 6px; border: 1px solid rgba(255,255,255,.07); background: transparent; color: #E6EDF3; font-size: 13px; cursor: pointer; transition: background 120ms cubic-bezier(.2,.8,.2,1);" style-hover="background: rgba(255,255,255,.05);" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Lever l'épingle</button>
+                  </div>
+                </section>
+              </sc-if>
+
+              <div style="display: grid; grid-template-columns: minmax(364px, 5fr) minmax(0, 7fr); gap: 24px; align-items: start;">
+
+                <section aria-label="Posture de la machine" style="background: #131A22; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 32px 24px 24px; display: flex; flex-direction: column; align-items: center; gap: 24px; position: relative;">
+                  <div aria-hidden="true" style="position: absolute; top: 0; left: 0; width: 14px; height: 1px; background: rgba(255,255,255,.18);"></div>
+                  <div aria-hidden="true" style="position: absolute; top: 0; left: 0; width: 1px; height: 14px; background: rgba(255,255,255,.18);"></div>
+                  <div aria-hidden="true" style="position: absolute; top: 0; right: 0; width: 14px; height: 1px; background: rgba(255,255,255,.18);"></div>
+                  <div aria-hidden="true" style="position: absolute; top: 0; right: 0; width: 1px; height: 14px; background: rgba(255,255,255,.18);"></div>
+
+                  <div style="position: relative; width: 300px; height: 300px; flex: 0 0 auto;">
+                    <div aria-hidden="true" style="{{ haloStyle }}"></div>
+                    <svg width="300" height="300" viewBox="0 0 300 300" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ score }}" aria-valuetext="{{ ariaScore }}" style="position: absolute; inset: 0; display: block;">
+                      <g>
+                        <sc-for list="{{ ticks }}" as="t" hint-placeholder-count="24">
+                          <line x1="{{ t.x1 }}" y1="{{ t.y1 }}" x2="{{ t.x2 }}" y2="{{ t.y2 }}" stroke="#1F2A36" stroke-width="1"></line>
+                        </sc-for>
+                      </g>
+                      <circle cx="150" cy="150" r="145" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="10"></circle>
+                      <circle cx="150" cy="150" r="145" fill="none" stroke="{{ arcColor }}" stroke-width="10" stroke-linecap="round" stroke-dasharray="911.06" stroke-dashoffset="{{ arcOffset }}" transform="rotate(-90 150 150)" style="{{ arcStyle }}"></circle>
+                    </svg>
+                    <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 0 56px; text-align: center;">
+                      <div style="font-family: 'Inter Tight', Inter, sans-serif; font-size: 76px; line-height: 1; font-weight: 500; letter-spacing: -.02em; font-variant-numeric: proportional-nums;">{{ score }}</div>
+                      <div style="font-size: 13px; color: #9FB0C0; text-wrap: pretty;">{{ stateSentence }}</div>
+                      <div style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #6E8091; font-variant-numeric: tabular-nums; padding-top: 2px;">{{ lastCheck }}</div>
+                    </div>
+                  </div>
+
+                  <div style="display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 12px; border-radius: 999px; border: 1px solid {{ stateBorder }}; color: {{ arcColor }}; font-size: 13px;">
+                      <span style="width: 14px; height: 14px; display: block;">{{ stateIcon }}</span>
+                      {{ stateWord }}
+                    </span>
+                    <button type="button" onClick="{{ toggleRing }}" aria-expanded="{{ ringOpen }}" style="height: 26px; padding: 0 12px; border-radius: 999px; border: 1px solid rgba(255,255,255,.07); background: transparent; color: #9FB0C0; font-size: 13px; cursor: pointer; transition: background 120ms cubic-bezier(.2,.8,.2,1);" style-hover="background: #1B242F; color: #E6EDF3;" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Déplier le calcul</button>
+                  </div>
+                </section>
+
+                <div style="display: flex; flex-direction: column; gap: 24px;">
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(232px, 1fr)); gap: 16px;">
+                    <sc-for list="{{ vitals }}" as="v" hint-placeholder-count="4">
+                      <section style="background: #131A22; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 12px; transition: background 120ms cubic-bezier(.2,.8,.2,1);" style-hover="background: #1B242F;">
+                        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+                          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091;">{{ v.label }}</span>
+                          <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: {{ v.tone }}; white-space: nowrap;">
+                            <span style="width: 14px; height: 14px; display: block;">{{ v.icon }}</span>
+                            {{ v.stateWord }}
+                          </span>
+                        </div>
+                        <div style="display: flex; align-items: baseline; gap: 6px;">
+                          <span style="font-family: 'Inter Tight', Inter, sans-serif; font-size: 34px; line-height: 1.15; font-weight: 500; letter-spacing: -.02em; font-variant-numeric: proportional-nums;">{{ v.value }}</span>
+                          <span style="font-size: 14px; color: #9FB0C0;">{{ v.unit }}</span>
+                        </div>
+                        <div style="height: 4px; border-radius: 999px; background: rgba(255,255,255,.06); overflow: hidden;">
+                          <div style="{{ v.gauge }}"></div>
+                        </div>
+                        <div style="font-size: 13px; color: #9FB0C0; text-wrap: pretty;">{{ v.context }}</div>
+                      </section>
+                    </sc-for>
+                  </div>
+
+                  <section aria-label="Écarts constatés" style="background: #131A22; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 16px 20px; display: flex; flex-direction: column; gap: 4px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 8px;">
+                      <h2 style="margin: 0; font-family: 'Inter Tight', Inter, sans-serif; font-size: 16px; font-weight: 500; line-height: 1.4;">Écarts avec l'état désiré</h2>
+                      <button type="button" onClick="{{ goDrift }}" style="background: transparent; border: 0; color: #4FD1C5; font-size: 13px; cursor: pointer; padding: 4px 6px; border-radius: 6px;" style-hover="background: rgba(79,209,197,.08);" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Tout voir</button>
+                    </div>
+                    <sc-for list="{{ driftPreview }}" as="d" hint-placeholder-count="3">
+                      <div style="display: grid; grid-template-columns: 120px 1fr auto; gap: 16px; align-items: center; padding: 9px 0; border-top: 1px solid rgba(255,255,255,.07);">
+                        <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: {{ d.tone }};">
+                          <span style="width: 14px; height: 14px; display: block;">{{ d.icon }}</span>
+                          {{ d.severity }}
+                        </span>
+                        <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #E6EDF3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ d.path }}</span>
+                        <span style="font-size: 13px; color: #9FB0C0; white-space: nowrap;">{{ d.source }}</span>
+                      </div>
+                    </sc-for>
+                  </section>
+
+                  <section aria-label="Prochaine fenêtre de maintenance" style="background: #131A22; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 24px;">
+                    <div style="display: flex; flex-direction: column; gap: 2px;">
+                      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091;">Prochaine fenêtre calme</span>
+                      <span style="font-size: 14px;">Ce soir 20:10 — 5 correctifs, 1 redémarrage regroupé, 11 min estimées.</span>
+                    </div>
+                    <button type="button" onClick="{{ goUpdates }}" style="height: 32px; padding: 0 14px; border-radius: 6px; border: 1px solid rgba(79,209,197,.4); background: rgba(79,209,197,.08); color: #4FD1C5; font-size: 13px; cursor: pointer; white-space: nowrap; transition: background 120ms cubic-bezier(.2,.8,.2,1);" style-hover="background: rgba(79,209,197,.16);" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Voir le plan</button>
+                  </section>
+                </div>
+              </div>
+
+              <section aria-label="Journal des événements" style="background: #131A22; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 14px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+                  <h2 style="margin: 0; font-family: 'Inter Tight', Inter, sans-serif; font-size: 16px; font-weight: 500; line-height: 1.4;">Dernières 24 heures</h2>
+                  <div style="display: flex; align-items: center; gap: 16px;">
+                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                      <sc-for list="{{ legend }}" as="l" hint-placeholder-count="4">
+                        <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #9FB0C0;">
+                          <span style="{{ l.dot }}"></span>{{ l.label }}
+                        </span>
+                      </sc-for>
+                    </div>
+                    <div role="group" aria-label="Représentation" style="display: flex; gap: 2px; padding: 3px; border: 1px solid rgba(255,255,255,.07); border-radius: 999px;">
+                      <button type="button" onClick="{{ setBand }}" style="{{ tlBandStyle }}" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Bandeau</button>
+                      <button type="button" onClick="{{ setTable }}" style="{{ tlTableStyle }}" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Tableau</button>
+                    </div>
+                  </div>
+                </div>
+
+                <sc-if value="{{ timelineBand }}" hint-placeholder-val="{{ true }}">
+                  <div>
+                    <div style="position: relative; height: 76px; border-top: 1px solid #1F2A36; border-bottom: 1px solid #1F2A36;">
+                      <sc-for list="{{ events }}" as="e" hint-placeholder-count="9">
+                        <button type="button" title="{{ e.title }}" style="{{ e.mark }}" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;"></button>
+                      </sc-for>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; padding-top: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #6E8091; font-variant-numeric: tabular-nums;">
+                      <span>08:00</span><span>12:00</span><span>16:00</span><span>20:00</span><span>00:00</span><span>04:00</span><span>08:00</span>
+                    </div>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ timelineTable }}" hint-placeholder-val="{{ false }}">
+                  <table style="width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; font-variant-numeric: tabular-nums;">
+                    <thead>
+                      <tr>
+                        <th scope="col" style="text-align: left; padding: 8px 12px 8px 0; color: #6E8091; font-weight: 400; border-bottom: 1px solid rgba(255,255,255,.07);">Heure</th>
+                        <th scope="col" style="text-align: left; padding: 8px 12px 8px 0; color: #6E8091; font-weight: 400; border-bottom: 1px solid rgba(255,255,255,.07);">Catégorie</th>
+                        <th scope="col" style="text-align: left; padding: 8px 12px 8px 0; color: #6E8091; font-weight: 400; border-bottom: 1px solid rgba(255,255,255,.07);">Événement</th>
+                        <th scope="col" style="text-align: left; padding: 8px 0; color: #6E8091; font-weight: 400; border-bottom: 1px solid rgba(255,255,255,.07);">Source</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <sc-for list="{{ events }}" as="e" hint-placeholder-count="9">
+                        <tr>
+                          <td style="padding: 8px 12px 8px 0; border-bottom: 1px solid rgba(255,255,255,.07); color: #9FB0C0;">{{ e.time }}</td>
+                          <td style="padding: 8px 12px 8px 0; border-bottom: 1px solid rgba(255,255,255,.07); color: #9FB0C0;">{{ e.cat }}</td>
+                          <td style="padding: 8px 12px 8px 0; border-bottom: 1px solid rgba(255,255,255,.07); color: #E6EDF3;">{{ e.what }}</td>
+                          <td style="padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.07); color: #9FB0C0;">{{ e.source }}</td>
+                        </tr>
+                      </sc-for>
+                    </tbody>
+                  </table>
+                </sc-if>
+              </section>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isDrift }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start;">
+              <div style="display: flex; flex-direction: column; gap: 16px; min-width: 0; flex: 1 1 620px;">
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <sc-for list="{{ filters }}" as="f" hint-placeholder-count="5">
+                    <button type="button" onClick="{{ f.go }}" style="{{ f.style }}" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">{{ f.label }}</button>
+                  </sc-for>
+                  <div style="flex: 1 1 auto;"></div>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #6E8091; font-variant-numeric: tabular-nums;">{{ driftCount }}</span>
+                </div>
+
+                <section style="background: #131A22; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; overflow: hidden;">
+                  <div style="display: grid; grid-template-columns: minmax(104px,132px) minmax(240px,2.4fr) minmax(150px,1.4fr) minmax(120px,1fr) 40px; gap: 16px; padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,.07); font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091;">
+                    <span>Gravité</span><span>Item</span><span>Voulu → constaté</span><span>Source</span><span></span>
+                  </div>
+                  <sc-for list="{{ driftRows }}" as="d" hint-placeholder-count="6">
+                    <div onClick="{{ d.select }}" style="{{ d.rowStyle }}" style-hover="background: #1B242F;">
+                      <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: {{ d.tone }};">
+                        <span style="width: 14px; height: 14px; display: block;">{{ d.icon }}</span>
+                        {{ d.severity }}
+                      </span>
+                      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #E6EDF3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ d.path }}</span>
+                      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; display: flex; align-items: center; gap: 8px; min-width: 0;">
+                        <span style="color: #9FB0C0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ d.wanted }}</span>
+                        <span style="color: #6E8091; flex: 0 0 auto;">→</span>
+                        <span style="color: #E6EDF3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ d.found }}</span>
+                      </span>
+                      <span style="font-size: 13px; color: {{ d.sourceTone }}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ d.source }}</span>
+                      <button type="button" aria-label="Actions" style="width: 28px; height: 28px; border-radius: 6px; border: 1px solid rgba(255,255,255,.07); background: transparent; color: #9FB0C0; cursor: pointer; display: flex; align-items: center; justify-content: center;" style-hover="background: rgba(255,255,255,.06); color: #E6EDF3;" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">⋯</button>
+                    </div>
+                  </sc-for>
+                </section>
+
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                  <button type="button" style="height: 34px; padding: 0 16px; border-radius: 6px; border: 1px solid rgba(79,209,197,.4); background: rgba(79,209,197,.08); color: #4FD1C5; font-size: 13px; cursor: pointer; transition: background 120ms cubic-bezier(.2,.8,.2,1);" style-hover="background: rgba(79,209,197,.16);" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Faire converger la sélection</button>
+                  <button type="button" style="height: 34px; padding: 0 16px; border-radius: 6px; border: 1px solid rgba(255,255,255,.07); background: transparent; color: #E6EDF3; font-size: 13px; cursor: pointer; transition: background 120ms cubic-bezier(.2,.8,.2,1);" style-hover="background: rgba(255,255,255,.05);" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Accepter la dérive</button>
+                  <button type="button" style="height: 34px; padding: 0 16px; border-radius: 6px; border: 1px solid rgba(255,255,255,.07); background: transparent; color: #E6EDF3; font-size: 13px; cursor: pointer; transition: background 120ms cubic-bezier(.2,.8,.2,1);" style-hover="background: rgba(255,255,255,.05);" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Expliquer</button>
+                </div>
+              </div>
+
+              <aside style="background: #131A22; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 16px; flex: 1 1 320px; max-width: 360px; min-width: 0;">
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091;">Expliquer</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #E6EDF3; word-break: break-all;">{{ sel.path }}</span>
+                </div>
+                <div style="height: 1px; background: rgba(255,255,255,.07);"></div>
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091;">Pourquoi cet item existe</span>
+                  <p style="margin: 0; color: #E6EDF3; text-wrap: pretty;">{{ sel.why }}</p>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091;">Ce que change l'écart</span>
+                  <p style="margin: 0; color: #E6EDF3; text-wrap: pretty;">{{ sel.risk }}</p>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091;">Origine</span>
+                  <p style="margin: 0; color: #9FB0C0; font-family: 'JetBrains Mono', monospace; font-size: 12.5px;">{{ sel.origin }}</p>
+                </div>
+                <div style="height: 1px; background: rgba(255,255,255,.07);"></div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                  <button type="button" style="height: 34px; border-radius: 6px; border: 1px solid rgba(79,209,197,.4); background: rgba(79,209,197,.08); color: #4FD1C5; font-size: 13px; cursor: pointer;" style-hover="background: rgba(79,209,197,.16);" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Faire converger cet item</button>
+                  <button type="button" style="height: 34px; border-radius: 6px; border: 1px solid rgba(255,255,255,.07); background: transparent; color: #E6EDF3; font-size: 13px; cursor: pointer;" style-hover="background: rgba(255,255,255,.05);" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Accepter la dérive — note requise</button>
+                </div>
+              </aside>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isUpdates }}" hint-placeholder-val="{{ false }}">
+            <div style="display: grid; grid-template-columns: minmax(0,1fr) 340px; gap: 24px; align-items: start;">
+              <section style="background: #131A22; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; display: flex; flex-direction: column;">
+                <div style="padding: 20px 24px; display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; border-bottom: 1px solid rgba(255,255,255,.07);">
+                  <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <h2 style="margin: 0; font-family: 'Inter Tight', Inter, sans-serif; font-size: 16px; font-weight: 500; line-height: 1.4;">Plan de convergence — 5 correctifs, 3 vagues</h2>
+                    <span style="font-size: 13px; color: #9FB0C0;">Durée estimée 11 min · redémarrage requis : 1, regroupé en fin de plan.</span>
+                  </div>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #6E8091; font-variant-numeric: tabular-nums; white-space: nowrap;">plan a41f9c</span>
+                </div>
+
+                <sc-for list="{{ waves }}" as="w" hint-placeholder-count="3">
+                  <div style="border-bottom: 1px solid rgba(255,255,255,.07);">
+                    <button type="button" onClick="{{ w.toggle }}" aria-expanded="{{ w.open }}" style="width: 100%; display: grid; grid-template-columns: 28px minmax(0,1fr) auto; gap: 16px; align-items: center; padding: 14px 24px; background: transparent; border: 0; color: inherit; text-align: left; cursor: pointer; transition: background 120ms cubic-bezier(.2,.8,.2,1);" style-hover="background: #1B242F;" style-focus="outline: 2px solid #4FD1C5; outline-offset: -2px;">
+                      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #6E8091;">{{ w.num }}</span>
+                      <span style="display: flex; flex-direction: column; gap: 2px; min-width: 0;">
+                        <span style="font-size: 14px;">{{ w.title }}</span>
+                        <span style="font-size: 13px; color: #9FB0C0;">{{ w.sub }}</span>
+                      </span>
+                      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #6E8091; font-variant-numeric: tabular-nums;">{{ w.dur }}</span>
+                    </button>
+                    <sc-if value="{{ w.open }}" hint-placeholder-val="{{ false }}">
+                      <div style="padding: 0 24px 16px 68px; display: flex; flex-direction: column; gap: 8px;">
+                        <sc-for list="{{ w.items }}" as="it" hint-placeholder-count="2">
+                          <div style="display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 16px; align-items: baseline; padding: 7px 0; border-top: 1px solid rgba(255,255,255,.07); font-family: 'JetBrains Mono', monospace; font-size: 12.5px; font-variant-numeric: tabular-nums;">
+                            <span style="color: #E6EDF3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ it.name }}</span>
+                            <span style="color: #9FB0C0; white-space: nowrap;">{{ it.ver }}</span>
+                          </div>
+                        </sc-for>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+
+                <div style="padding: 16px 24px; border-bottom: 1px solid rgba(255,255,255,.07); background: rgba(79,209,197,.04); display: flex; align-items: center; gap: 12px;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true" style="flex: 0 0 16px;"><path d="M12 3.2 19.4 6.6v6.1c0 4-3 6.6-7.4 8.1-4.4-1.5-7.4-4.1-7.4-8.1V6.6z" stroke="#4FD1C5" stroke-width="1.5" stroke-linejoin="round"></path></svg>
+                  <span style="font-size: 13px; color: #E6EDF3;">Filet de sécurité — point de restauration système + export de <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #9FB0C0;">ubuntu-dev</span> avant la vague 1.</span>
+                </div>
+
+                <div style="padding: 16px 24px; border-bottom: 1px solid rgba(255,255,255,.07); display: flex; flex-direction: column; gap: 10px;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091;">Tests de fumée qui jugeront le résultat</span>
+                  <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <sc-for list="{{ smokeTests }}" as="s" hint-placeholder-count="4">
+                      <div style="display: grid; grid-template-columns: 20px minmax(0,1fr) auto; gap: 12px; align-items: center; font-family: 'JetBrains Mono', monospace; font-size: 12.5px;">
+                        <span style="width: 14px; height: 14px; display: block;">{{ s.icon }}</span>
+                        <span style="color: #E6EDF3;">{{ s.name }}</span>
+                        <span style="color: {{ s.tone }};">{{ s.status }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+
+                <div style="padding: 16px 24px; display: flex; align-items: center; gap: 12px;">
+                  <button type="button" onClick="{{ simulate }}" style="height: 36px; padding: 0 18px; border-radius: 6px; border: 1px solid rgba(79,209,197,.4); background: rgba(79,209,197,.12); color: #4FD1C5; font-size: 14px; cursor: pointer; transition: background 120ms cubic-bezier(.2,.8,.2,1);" style-hover="background: rgba(79,209,197,.2);" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">{{ simLabel }}</button>
+                  <button type="button" disabled="{{ applyLocked }}" style="{{ applyStyle }}" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Appliquer</button>
+                  <span style="font-size: 13px; color: #9FB0C0;">{{ applyHint }}</span>
+                </div>
+              </section>
+
+              <aside style="display: flex; flex-direction: column; gap: 16px;">
+                <section style="background: #131A22; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091;">Dernier plan appliqué</span>
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="#4BC97D" stroke-width="1.5"></circle><path d="M8.2 12.2l2.6 2.6 5-5.4" stroke="#4BC97D" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                    <span style="font-size: 14px; color: #4BC97D;">Revenu en arrière</span>
+                  </div>
+                  <p style="margin: 0; font-size: 13px; color: #9FB0C0; text-wrap: pretty;">NVIDIA 570.12 installée à 20:14, annulée à 20:19 — le test <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px;">cuda-smoke</span> ne trouvait plus de GPU. État identique à 20:12.</p>
+                  <button type="button" onClick="{{ goOverviewRollback }}" style="align-self: flex-start; background: transparent; border: 0; color: #4FD1C5; font-size: 13px; cursor: pointer; padding: 4px 6px; border-radius: 6px;" style-hover="background: rgba(79,209,197,.08);" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Voir le récit complet</button>
+                </section>
+
+                <section style="background: #131A22; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091;">Équivalent CLI</span>
+                  <code style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #9FB0C0; line-height: 1.7; word-break: break-all;">keystone plan --scope updates<br />keystone apply --dry-run<br />keystone apply --plan a41f9c</code>
+                </section>
+              </aside>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isFirst }}" hint-placeholder-val="{{ false }}">
+            <div style="display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 24px; align-items: start;">
+              <section style="background: #131A22; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 32px; display: flex; flex-direction: column; gap: 24px;">
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091;">M1 · Premier lancement</span>
+                  <h2 style="margin: 0; font-family: 'Inter Tight', Inter, sans-serif; font-size: 22px; font-weight: 500; letter-spacing: -.02em; line-height: 1.3;">J'ai lu votre machine. Rien n'a été modifié.</h2>
+                  <p style="margin: 0; color: #9FB0C0; max-width: 60ch; text-wrap: pretty;">Aucune configuration à remplir. J'ai écrit votre état actuel dans <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #E6EDF3;">workstation.yaml</span> — 312 items, en lecture seule.</p>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <sc-for list="{{ scanDomains }}" as="s" hint-placeholder-count="6">
+                    <div style="display: grid; grid-template-columns: 20px minmax(0,1fr) 64px 120px; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.07); animation: ks-rise 400ms cubic-bezier(.16,1,.3,1) both; animation-delay: {{ s.delay }};">
+                      <span style="width: 14px; height: 14px; display: block;">{{ s.icon }}</span>
+                      <span style="font-size: 14px;">{{ s.name }}</span>
+                      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #E6EDF3; font-variant-numeric: tabular-nums; text-align: right;">{{ s.count }}</span>
+                      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #6E8091; text-align: right;">{{ s.detail }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <button type="button" style="height: 36px; padding: 0 18px; border-radius: 6px; border: 1px solid rgba(79,209,197,.4); background: rgba(79,209,197,.12); color: #4FD1C5; font-size: 14px; cursor: pointer;" style-hover="background: rgba(79,209,197,.2);" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Adopter cet état comme référence</button>
+                  <button type="button" style="height: 36px; padding: 0 18px; border-radius: 6px; border: 1px solid rgba(255,255,255,.07); background: transparent; color: #E6EDF3; font-size: 14px; cursor: pointer;" style-hover="background: rgba(255,255,255,.05);" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">Lire le fichier</button>
+                </div>
+              </section>
+
+              <section style="background: #131A22; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 32px; display: flex; flex-direction: column; gap: 24px;">
+                <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px;">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091;">M2 · Rapport matinal</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #6E8091; font-variant-numeric: tabular-nums;">jeu. 30 juil. · 08:02</span>
+                </div>
+                <sc-for list="{{ morning }}" as="m" hint-placeholder-count="3">
+                  <div style="display: flex; flex-direction: column; gap: 8px; animation: ks-rise 700ms cubic-bezier(.16,1,.3,1) both; animation-delay: {{ m.delay }};">
+                    <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091;">{{ m.title }}</span>
+                    <sc-for list="{{ m.lines }}" as="l" hint-placeholder-count="2">
+                      <div style="display: grid; grid-template-columns: 20px minmax(0,1fr); gap: 12px; align-items: start; padding: 6px 0;">
+                        <span style="width: 14px; height: 14px; display: block; margin-top: 3px;">{{ l.icon }}</span>
+                        <span style="font-size: 14px; color: #E6EDF3; text-wrap: pretty;">{{ l.text }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-for>
+                <div style="height: 1px; background: rgba(255,255,255,.07);"></div>
+                <p style="margin: 0; font-size: 13px; color: #6E8091; text-wrap: pretty;">Une fois par jour, puis silence. S'il n'y avait rien eu, cette carte tiendrait en une ligne.</p>
+              </section>
+            </div>
+          </sc-if>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <sc-if value="{{ ringOpen }}" hint-placeholder-val="{{ false }}">
+    <aside aria-label="Composantes de la posture" style="position: absolute; top: 2px; right: 0; bottom: 0; width: 420px; z-index: 40; background: rgba(19,26,34,.86); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); border-left: 1px solid rgba(255,255,255,.07); padding: 24px; display: flex; flex-direction: column; gap: 20px; overflow-y: auto; animation: ks-rise 200ms cubic-bezier(.2,.8,.2,1) both;">
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;">
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091;">Posture composite</span>
+          <span style="font-family: 'Inter Tight', Inter, sans-serif; font-size: 34px; line-height: 1.15; font-weight: 500; letter-spacing: -.02em;">{{ score }}</span>
+        </div>
+        <button type="button" onClick="{{ toggleRing }}" aria-label="Fermer" style="width: 28px; height: 28px; border-radius: 6px; border: 1px solid rgba(255,255,255,.07); background: transparent; color: #9FB0C0; cursor: pointer;" style-hover="background: rgba(255,255,255,.06); color: #E6EDF3;" style-focus="outline: 2px solid #4FD1C5; outline-offset: 2px;">✕</button>
+      </div>
+      <sc-for list="{{ components }}" as="c" hint-placeholder-count="4">
+        <div style="display: flex; flex-direction: column; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,.07);">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 12px;">
+            <span style="font-size: 14px;">{{ c.name }}</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #9FB0C0; font-variant-numeric: tabular-nums;">{{ c.detail }}</span>
+          </div>
+          <div style="height: 4px; border-radius: 999px; background: rgba(255,255,255,.06); overflow: hidden;">
+            <div style="{{ c.gauge }}"></div>
+          </div>
+        </div>
+      </sc-for>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091;">Formule exacte</span>
+        <code style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #9FB0C0; line-height: 1.7;">{{ formula }}</code>
+        <p style="margin: 0; font-size: 13px; color: #6E8091; text-wrap: pretty;">Le plus faible domaine plafonne le total : aucune moyenne ne peut masquer un domaine grave.</p>
+      </div>
+    </aside>
+  </sc-if>
+
+  <sc-if value="{{ paletteOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closePalette }}" style="position: absolute; inset: 0; z-index: 50; background: rgba(11,15,20,.6); display: flex; align-items: flex-start; justify-content: center; padding-top: 96px;">
+      <div onClick="{{ stop }}" role="dialog" aria-label="Palette de commandes" style="width: 680px; max-width: calc(100% - 48px); border-radius: 14px; border: 1px solid rgba(255,255,255,.07); background: rgba(19,26,34,.78); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); overflow: hidden; animation: ks-rise 200ms cubic-bezier(.2,.8,.2,1) both;">
+        <div style="display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 1px solid rgba(255,255,255,.07);">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="6.5" stroke="#6E8091" stroke-width="1.5"></circle><path d="M16 16l4 4" stroke="#6E8091" stroke-width="1.5"></path></svg>
+          <input value="{{ query }}" onChange="{{ onQuery }}" autoFocus="{{ true }}" placeholder="Chercher une action, un item, une page de documentation" style="flex: 1 1 auto; background: transparent; border: 0; outline: none; font-size: 16px; color: #E6EDF3;" />
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6E8091; border: 1px solid rgba(255,255,255,.07); border-radius: 4px; padding: 1px 5px;">Esc</span>
+        </div>
+        <div style="max-height: 420px; overflow-y: auto; padding: 8px 0 12px;">
+          <sc-for list="{{ paletteGroups }}" as="g" hint-placeholder-count="3">
+            <div>
+              <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6E8091; padding: 10px 20px 6px;">{{ g.title }}</div>
+              <sc-for list="{{ g.items }}" as="i" hint-placeholder-count="3">
+                <button type="button" onClick="{{ i.go }}" style="width: 100%; display: grid; grid-template-columns: 20px minmax(0,1fr) auto; gap: 12px; align-items: center; padding: 9px 20px; background: transparent; border: 0; color: inherit; text-align: left; cursor: pointer; transition: background 120ms cubic-bezier(.2,.8,.2,1);" style-hover="background: rgba(255,255,255,.06);" style-focus="outline: 2px solid #4FD1C5; outline-offset: -2px;">
+                  <span style="width: 14px; height: 14px; display: block;">{{ i.icon }}</span>
+                  <span style="font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ i.label }}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #6E8091; white-space: nowrap;">{{ i.cli }}</span>
+                </button>
+              </sc-for>
+            </div>
+          </sc-for>
+          <sc-if value="{{ paletteEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="padding: 24px 20px; font-size: 14px; color: #9FB0C0;">Rien ne correspond. La CLI accepte la même requête avec <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px;">keystone find</span>.</div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 1440, &quot;height&quot;: 900}}">
+const C = 911.06;
+const TONES = { sain: "#4FD1C5", attention: "#E8A33D", grave: "#E5534B", good: "#4BC97D", ink2: "#9FB0C0" };
+
+function icon(kind, color) {
+  const s = { display: "block", width: "100%", height: "100%" };
+  const p = (d, extra) => React.createElement("path", Object.assign({ d, stroke: color, strokeWidth: 1.5, fill: "none", strokeLinecap: "round", strokeLinejoin: "round" }, extra || {}));
+  const c = (r) => React.createElement("circle", { cx: 12, cy: 12, r, stroke: color, strokeWidth: 1.5, fill: "none" });
+  const kids = {
+    check: [c(8.5), p("M8.2 12.2l2.6 2.6 5-5.4")],
+    watch: [c(8.5), p("M12 7.6v5l3 1.8")],
+    alert: [p("M12 4.4 21 19.6H3z"), p("M12 10v4.2"), p("M12 17.2v.1")],
+    grave: [c(8.5), p("M12 7.6v5"), p("M12 15.8v.1")],
+    shield: [p("M12 3.2 19.4 6.6v6.1c0 4-3 6.6-7.4 8.1-4.4-1.5-7.4-4.1-7.4-8.1V6.6z")],
+    diff: [p("M4.5 8.5h11"), p("M12 5l3.5 3.5L12 12"), p("M19.5 15.5h-11"), p("M12 19l-3.5-3.5L12 12")],
+    disk: [React.createElement("rect", { x: 3.5, y: 5.5, width: 17, height: 13, rx: 2, stroke: color, strokeWidth: 1.5, fill: "none" }), p("M3.5 12h17"), p("M7 15.6h.1")],
+    down: [p("M12 4.5v11.5"), p("M7.5 12 12 16.5 16.5 12"), p("M4.5 19.5h15")],
+    grid: [React.createElement("rect", { x: 4, y: 4, width: 7, height: 7, rx: 1.5, stroke: color, strokeWidth: 1.5, fill: "none" }), React.createElement("rect", { x: 13, y: 4, width: 7, height: 7, rx: 1.5, stroke: color, strokeWidth: 1.5, fill: "none" }), React.createElement("rect", { x: 4, y: 13, width: 7, height: 7, rx: 1.5, stroke: color, strokeWidth: 1.5, fill: "none" }), React.createElement("rect", { x: 13, y: 13, width: 7, height: 7, rx: 1.5, stroke: color, strokeWidth: 1.5, fill: "none" })],
+    clock: [c(8.5), p("M12 7.4v4.9l3.4 2")],
+    doc: [p("M6.5 3.5h7l4.5 4.5v12h-11.5z"), p("M13.5 3.5V8h4.5")],
+    term: [React.createElement("rect", { x: 3.5, y: 4.5, width: 17, height: 15, rx: 2, stroke: color, strokeWidth: 1.5, fill: "none" }), p("M7.5 9.5 10.5 12l-3 2.5"), p("M13 15h4")],
+    dot: [c(3.2)]
+  }[kind] || [c(8.5)];
+  return React.createElement("svg", { viewBox: "0 0 24 24", "aria-hidden": "true", style: s }, kids.map((k, i) => React.cloneElement(k, { key: i })));
+}
+
+const DRIFT = [
+  { severity: "Attention", tone: TONES.attention, ic: "alert", path: "HKLM\\SOFTWARE\\...\\TrustedRoot\\CA-Vidalia", wanted: "absent", found: "présent", source: "inconnu", cat: "secu",
+    why: "Votre référence n'autorise que les autorités racines du socle Microsoft et de l'entreprise. Toute autre racine peut signer un certificat que votre machine croira valide.",
+    risk: "Tant qu'elle est présente, votre trafic HTTPS peut être lu par le détenteur de cette clé.", origin: "ajoutée hier à 23:14 · aucun processus parent identifié" },
+  { severity: "Attention", tone: TONES.attention, ic: "alert", path: "wsl/ubuntu-dev/etc/resolv.conf", wanted: "generateResolvConf=true", found: "fichier statique", source: "moi (17:42)", cat: "wsl",
+    why: "La résolution DNS de la distro doit suivre celle de l'hôte pour survivre à un changement de réseau.", risk: "Le VPN d'entreprise ne sera pas résolu depuis la distro après un changement de site.", origin: "modifié par vous, hier 17:42, session interactive" },
+  { severity: "Conforme", tone: TONES.ink2, ic: "check", path: "Defender/CloudBlockLevel", wanted: "High", found: "High", source: "Intune", cat: "secu",
+    why: "Niveau de blocage cloud imposé par la politique Intune du parc.", risk: "Aucun écart.", origin: "appliqué par Intune, 28 juil. 06:00" },
+  { severity: "Écart accepté", tone: TONES.ink2, ic: "watch", path: "hyperv/vm/win-lab-01/dynamicMemory", wanted: "false", found: "true", source: "moi (12 juil.)", cat: "vm",
+    why: "La VM de test doit avoir une mémoire fixe pour que les mesures de latence soient reproductibles.", risk: "Les mesures de latence varient de ±8 % — accepté jusqu'au 15 août.", origin: "dérive acceptée le 12 juil. · expire le 15 août" },
+  { severity: "Attention", tone: TONES.attention, ic: "alert", path: "firewall/rules/Inbound-5432-postgres", wanted: "Domain uniquement", found: "Domain, Public", source: "Windows Update", cat: "secu",
+    why: "La règle n'ouvre PostgreSQL que sur le profil Domaine.", risk: "Le port 5432 est joignable depuis un réseau public — un café, un hôtel.", origin: "élargie le 29 juil. 04:12 pendant la maintenance" },
+  { severity: "Conforme", tone: TONES.ink2, ic: "check", path: "packages/git", wanted: "2.51.0", found: "2.51.0", source: "winget", cat: "maj",
+    why: "Version épinglée par la référence.", risk: "Aucun écart.", origin: "installé le 24 juil." },
+  { severity: "Attention", tone: TONES.attention, ic: "alert", path: "wsl/ubuntu-dev/disk", wanted: "≤ 60 Go", found: "84,2 Go", source: "moi (croissance)", cat: "wsl",
+    why: "Le disque virtuel d'une distro ne se réduit pas seul après suppression de fichiers.", risk: "24,2 Go de disque hôte immobilisés sans usage réel.", origin: "croissance continue depuis le 3 juil." }
+];
+
+const EVENTS = [
+  { time: "08:12", cat: "Mise à jour", what: "winget upgrade — 3 paquets", source: "keystone", color: "#2BAAA0", pos: 3 },
+  { time: "09:40", cat: "Dérive", what: "resolv.conf modifié", source: "moi", color: "#C98500", pos: 10 },
+  { time: "11:05", cat: "Sauvegarde", what: "export ubuntu-dev · 8,4 Go", source: "keystone", color: "#3987E5", pos: 18 },
+  { time: "13:22", cat: "Espace", what: "quarantaine — 12,8 Go", source: "keystone", color: "#D55181", pos: 30 },
+  { time: "17:42", cat: "Dérive", what: "resolv.conf statique", source: "moi", color: "#C98500", pos: 45 },
+  { time: "20:14", cat: "Mise à jour", what: "NVIDIA 570.12 installée", source: "keystone", color: "#2BAAA0", pos: 55 },
+  { time: "20:19", cat: "Mise à jour", what: "rollback · point de 20:12", source: "keystone", color: "#2BAAA0", pos: 57 },
+  { time: "23:14", cat: "Sécurité", what: "autorité racine ajoutée", source: "inconnu", color: "#E8A33D", pos: 68 },
+  { time: "04:00", cat: "Sauvegarde", what: "instantané nocturne", source: "keystone", color: "#3987E5", pos: 83 }
+];
+
+class Component extends DCLogic {
+  state = {
+    screen: "overview", health: "sain", ringOpen: false, paletteOpen: false,
+    rollback: false, timeline: "band", filter: "tous", sel: 0, query: "",
+    waves: { 0: true, 1: false, 2: false }, simulated: false
+  };
+
+  componentDidMount() {
+    this.onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); this.setState((s) => ({ paletteOpen: !s.paletteOpen })); }
+      if (e.key === "Escape") this.setState({ paletteOpen: false, ringOpen: false });
+    };
+    window.addEventListener("keydown", this.onKey);
+  }
+  componentWillUnmount() { window.removeEventListener("keydown", this.onKey); }
+
+  go = (screen) => this.setState({ screen, paletteOpen: false });
+
+  renderVals() {
+    const att = this.state.health === "attention";
+    const tone = att ? TONES.attention : TONES.sain;
+    const score = att ? 71 : 94;
+    const navBtn = (id) => "display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 9px 12px; border-radius: 6px; border: 0; cursor: pointer; text-align: left; font-size: 14px; transition: background 120ms cubic-bezier(.2,.8,.2,1); background: " + (this.state.screen === id ? "#1B242F" : "transparent") + "; color: " + (this.state.screen === id ? "#E6EDF3" : "#9FB0C0") + ";";
+    const seg = (on) => "height: 24px; padding: 0 12px; border-radius: 999px; border: 0; cursor: pointer; font-size: 13px; transition: background 120ms cubic-bezier(.2,.8,.2,1); background: " + (on ? "#1B242F" : "transparent") + "; color: " + (on ? "#E6EDF3" : "#6E8091") + ";";
+    const gauge = (pct, col) => "height: 100%; width: " + pct + "%; border-radius: 999px; background: " + col + "; transition: width 400ms cubic-bezier(.16,1,.3,1);";
+
+    const ticks = [];
+    for (let i = 0; i < 48; i++) {
+      const a = (i / 48) * Math.PI * 2 - Math.PI / 2;
+      const r1 = i % 4 === 0 ? 122 : 128, r2 = 133;
+      ticks.push({ x1: 150 + Math.cos(a) * r1, y1: 150 + Math.sin(a) * r1, x2: 150 + Math.cos(a) * r2, y2: 150 + Math.sin(a) * r2 });
+    }
+
+    const rows = DRIFT.filter((d) => this.state.filter === "tous" || d.cat === this.state.filter);
+    const sel = DRIFT[this.state.sel] || DRIFT[0];
+
+    const paletteAll = [
+      { title: "Actions", items: [
+        { label: "Simuler le plan de mise à jour", cli: "keystone apply --dry-run", icon: icon("down", "#9FB0C0"), go: () => this.go("updates") },
+        { label: "Faire converger tous les écarts", cli: "keystone converge --all", icon: icon("diff", "#9FB0C0"), go: () => this.go("drift") },
+        { label: "Compacter les disques WSL", cli: "keystone wsl compact", icon: icon("disk", "#9FB0C0"), go: () => this.go("overview") },
+        { label: "Isoler la machine", cli: "keystone isolate --confirm", icon: icon("grave", "#E5534B"), go: () => this.setState({ health: "attention", screen: "overview", paletteOpen: false }) }
+      ] },
+      { title: "Items", items: [
+        { label: "CA-Vidalia — autorité racine non reconnue", cli: "cert:root/CA-Vidalia", icon: icon("alert", "#E8A33D"), go: () => this.setState({ screen: "drift", sel: 0, paletteOpen: false }) },
+        { label: "ubuntu-dev — 84,2 Go", cli: "wsl:ubuntu-dev", icon: icon("term", "#9FB0C0"), go: () => this.setState({ screen: "drift", sel: 6, paletteOpen: false }) },
+        { label: "Inbound-5432-postgres", cli: "fw:rule/5432", icon: icon("shield", "#9FB0C0"), go: () => this.setState({ screen: "drift", sel: 4, paletteOpen: false }) }
+      ] },
+      { title: "Documentation", items: [
+        { label: "Comment la posture est calculée", cli: "keystone docs posture", icon: icon("doc", "#9FB0C0"), go: () => this.setState({ screen: "overview", ringOpen: true, paletteOpen: false }) },
+        { label: "Accepter une dérive — règles et expiration", cli: "keystone docs drift-accept", icon: icon("doc", "#9FB0C0"), go: () => this.go("drift") }
+      ] }
+    ];
+    const q = this.state.query.trim().toLowerCase();
+    const groups = paletteAll.map((g) => ({ title: g.title, items: g.items.filter((i) => !q || i.label.toLowerCase().includes(q) || i.cli.toLowerCase().includes(q)) })).filter((g) => g.items.length);
+
+    return {
+      isOverview: this.state.screen === "overview",
+      isDrift: this.state.screen === "drift",
+      isUpdates: this.state.screen === "updates",
+      isFirst: this.state.screen === "first",
+      isAttention: att,
+      screenTitle: { overview: "Vue d'ensemble", drift: "Écarts", updates: "Mises à jour", first: "Moments fondateurs" }[this.state.screen],
+      screenMeta: { overview: "WKS-ORION-04 · contrôle il y a 4 min", drift: "312 items suivis · 7 affichés", updates: "plan a41f9c · fenêtre 20:10", first: "M1 · M2" }[this.state.screen],
+      filetColor: att ? TONES.attention : "rgba(255,255,255,.07)",
+
+      navWatch: [
+        { label: "Vue d'ensemble", note: "", icon: icon("grid", this.state.screen === "overview" ? "#E6EDF3" : "#6E8091"), style: navBtn("overview"), go: () => this.go("overview") },
+        { label: "Écarts", note: att ? "attention" : "3", icon: icon("diff", this.state.screen === "drift" ? "#E6EDF3" : "#6E8091"), style: navBtn("drift"), go: () => this.go("drift") },
+        { label: "Sécurité", note: "", icon: icon("shield", "#6E8091"), style: navBtn("secu"), go: () => this.go("overview") }
+      ],
+      navAct: [
+        { label: "Mises à jour", note: "5", icon: icon("down", this.state.screen === "updates" ? "#E6EDF3" : "#6E8091"), style: navBtn("updates"), go: () => this.go("updates") },
+        { label: "Espace", note: "47 Go", icon: icon("disk", "#6E8091"), style: navBtn("espace"), go: () => this.go("overview") },
+        { label: "Moments", note: "", icon: icon("clock", this.state.screen === "first" ? "#E6EDF3" : "#6E8091"), style: navBtn("first"), go: () => this.go("first") }
+      ],
+      isolate: () => {},
+
+      setSain: () => this.setState({ health: "sain" }),
+      setAttention: () => this.setState({ health: "attention" }),
+      demoSainStyle: seg(!att),
+      demoAttStyle: seg(att),
+
+      score,
+      ariaScore: "posture " + score + " sur 100, " + (att ? "attention" : "conforme"),
+      arcColor: tone,
+      arcOffset: C * (1 - score / 100),
+      arcStyle: "transition: stroke-dashoffset 700ms cubic-bezier(.16,1,.3,1), stroke 200ms cubic-bezier(.2,.8,.2,1); animation: ks-breathe " + (att ? 5200 : 4000) + "ms ease-in-out infinite;",
+      haloStyle: "position: absolute; inset: 26px; border-radius: 50%; border: 10px solid " + tone + "; opacity: .4; animation: ks-halo " + (att ? 5200 : 4000) + "ms ease-in-out infinite; pointer-events: none;",
+      stateSentence: att ? "Attention · un changement non expliqué depuis 23:14" : "Conforme · rien n'a changé depuis 19 h",
+      lastCheck: att ? "dernier contrôle 08:06 · 30 juil." : "dernier contrôle 08:06 · 30 juil.",
+      stateWord: att ? "Attention" : "Conforme",
+      stateIcon: icon(att ? "alert" : "check", tone),
+      stateBorder: att ? "rgba(232,163,61,.4)" : "rgba(79,209,197,.4)",
+      ticks,
+
+      vitals: [
+        { label: "Sécurité", value: att ? "3" : "0", unit: att ? "points ouverts" : "point ouvert", context: att ? "une autorité racine ajoutée hier à 23:14, non reconnue" : "socle conforme, dernière vérification il y a 4 min", gauge: gauge(att ? 62 : 100, att ? TONES.attention : TONES.sain), stateWord: att ? "Attention" : "Conforme", tone: att ? TONES.attention : TONES.ink2, icon: icon(att ? "alert" : "check", att ? TONES.attention : TONES.ink2) },
+        { label: "Dérive", value: att ? "4" : "3", unit: "écarts", context: "2 en dérive acceptée, 1 sans auteur identifié", gauge: gauge(att ? 52 : 74, att ? TONES.attention : TONES.sain), stateWord: "À regarder", tone: TONES.ink2, icon: icon("watch", TONES.ink2) },
+        { label: "Espace", value: "47", unit: "Go récupérables", context: "12,8 Go en quarantaine, restaurables 30 jours", gauge: gauge(68, TONES.sain), stateWord: "Conforme", tone: TONES.ink2, icon: icon("check", TONES.ink2) },
+        { label: "Mises à jour", value: "5", unit: "en attente", context: "disponibles depuis 12 jours · fenêtre calme ce soir 20:10", gauge: gauge(58, TONES.sain), stateWord: "Planifié", tone: TONES.ink2, icon: icon("clock", TONES.ink2) }
+      ],
+
+      driftPreview: DRIFT.slice(0, 3).map((d) => ({ severity: d.severity, tone: d.tone, icon: icon(d.ic, d.tone), path: d.path, source: d.source })),
+
+      legend: ["Mise à jour", "Dérive", "Sauvegarde", "Espace"].map((label, i) => ({
+        label, dot: "width: 8px; height: 8px; border-radius: 999px; display: block; background: " + ["#2BAAA0", "#C98500", "#3987E5", "#D55181"][i] + ";"
+      })),
+      timelineBand: this.state.timeline === "band",
+      timelineTable: this.state.timeline === "table",
+      setBand: () => this.setState({ timeline: "band" }),
+      setTable: () => this.setState({ timeline: "table" }),
+      tlBandStyle: seg(this.state.timeline === "band"),
+      tlTableStyle: seg(this.state.timeline === "table"),
+      events: EVENTS.map((e) => Object.assign({}, e, {
+        title: e.time + " · " + e.cat + " · " + e.what + " · " + e.source,
+        mark: "position: absolute; left: " + e.pos + "%; top: 50%; transform: translate(-50%,-50%); width: 24px; height: 24px; border-radius: 999px; border: 0; padding: 0; cursor: pointer; background: transparent; background-image: radial-gradient(circle, " + e.color + " 0 5px, transparent 5px);"
+      })),
+
+      filters: [
+        { key: "tous", label: "Tous" }, { key: "secu", label: "Sécurité" }, { key: "wsl", label: "WSL" },
+        { key: "vm", label: "Machines virtuelles" }, { key: "maj", label: "Paquets" }
+      ].map((f) => ({
+        label: f.label, go: () => this.setState({ filter: f.key }),
+        style: "height: 30px; padding: 0 14px; border-radius: 999px; cursor: pointer; font-size: 13px; transition: background 120ms cubic-bezier(.2,.8,.2,1); border: 1px solid " + (this.state.filter === f.key ? "rgba(79,209,197,.4)" : "rgba(255,255,255,.07)") + "; background: " + (this.state.filter === f.key ? "rgba(79,209,197,.1)" : "transparent") + "; color: " + (this.state.filter === f.key ? "#4FD1C5" : "#9FB0C0") + ";"
+      })),
+      driftCount: rows.length + " lignes sur 312 items",
+      driftRows: rows.map((d) => {
+        const i = DRIFT.indexOf(d);
+        return {
+          severity: d.severity, tone: d.tone, icon: icon(d.ic, d.tone), path: d.path, wanted: d.wanted, found: d.found, source: d.source,
+          sourceTone: d.source === "inconnu" ? "#E8A33D" : "#9FB0C0",
+          select: () => this.setState({ sel: i }),
+          rowStyle: "display: grid; grid-template-columns: minmax(104px,132px) minmax(240px,2.4fr) minmax(150px,1.4fr) minmax(120px,1fr) 40px; gap: 16px; align-items: center; padding: 11px 16px; border-top: 1px solid rgba(255,255,255,.07); cursor: pointer; transition: background 120ms cubic-bezier(.2,.8,.2,1); background: " + (this.state.sel === i ? "#1B242F" : "transparent") + ";"
+        };
+      }),
+      sel,
+
+      waves: [
+        { num: "01", title: "Sans redémarrage", sub: "3 paquets utilisateur", dur: "2 min", items: [{ name: "git", ver: "2.51.0 → 2.51.1" }, { name: "ripgrep", ver: "14.1.1 → 14.1.2" }, { name: "windows-terminal", ver: "1.22.10 → 1.23.1" }] },
+        { num: "02", title: "Services", sub: "1 correctif WSL", dur: "4 min", items: [{ name: "wsl", ver: "2.3.26 → 2.4.4" }] },
+        { num: "03", title: "Redémarrage groupé", sub: "1 correctif noyau", dur: "5 min", items: [{ name: "KB5062553", ver: "cumulatif 26100.2894" }] }
+      ].map((w, i) => ({
+        num: w.num, title: w.title, sub: w.sub, dur: w.dur, items: w.items,
+        open: !!this.state.waves[i], toggle: () => this.setState((s) => ({ waves: Object.assign({}, s.waves, { [i]: !s.waves[i] }) }))
+      })),
+      smokeTests: [
+        { name: "cuda-smoke", status: this.state.simulated ? "simulé · passé" : "en attente" },
+        { name: "wsl-network", status: this.state.simulated ? "simulé · passé" : "en attente" },
+        { name: "docker-daemon", status: this.state.simulated ? "simulé · passé" : "en attente" },
+        { name: "vpn-handshake", status: this.state.simulated ? "simulé · passé" : "en attente" }
+      ].map((s) => ({
+        name: s.name, status: s.status,
+        tone: this.state.simulated ? TONES.good : "#6E8091",
+        icon: icon(this.state.simulated ? "check" : "dot", this.state.simulated ? TONES.good : "#6E8091")
+      })),
+      simulate: () => this.setState({ simulated: true }),
+      simLabel: this.state.simulated ? "Simuler à nouveau" : "Simuler",
+      applyLocked: !this.state.simulated,
+      applyStyle: "height: 36px; padding: 0 18px; border-radius: 6px; font-size: 14px; transition: background 120ms cubic-bezier(.2,.8,.2,1); border: 1px solid rgba(255,255,255,.07); background: transparent; color: " + (this.state.simulated ? "#E6EDF3" : "#6E8091") + "; cursor: " + (this.state.simulated ? "pointer" : "not-allowed") + ";",
+      applyHint: this.state.simulated ? "Simulation passée il y a 12 s — 5 items, aucun conflit." : "Appliquer s'ouvre une fois la simulation passée.",
+      goOverviewRollback: () => this.setState({ screen: "overview", rollback: true }),
+      showRollback: this.state.rollback,
+
+      scanDomains: [
+        { name: "Sécurité et posture", count: "64", detail: "lecture seule", icon: icon("shield", TONES.ink2) },
+        { name: "Paquets et applications", count: "118", detail: "winget, scoop", icon: icon("down", TONES.ink2) },
+        { name: "Distributions WSL", count: "3", detail: "ubuntu-dev, alpine, debian", icon: icon("term", TONES.ink2) },
+        { name: "Machines virtuelles Hyper-V", count: "2", detail: "win-lab-01, k8s-node", icon: icon("grid", TONES.ink2) },
+        { name: "Volumes et espace", count: "5", detail: "C:, D:, 3 vhdx", icon: icon("disk", TONES.ink2) },
+        { name: "Tâches planifiées et services", count: "120", detail: "dont 11 hors socle", icon: icon("clock", TONES.ink2) }
+      ].map((s, i) => Object.assign({}, s, { delay: 60 * i + "ms" })),
+
+      morning: [
+        { title: "Ce qui a changé", delay: "0ms", lines: [
+          { icon: icon("alert", TONES.attention), text: "Une autorité de certification racine a été ajoutée hier à 23:14. Je ne la reconnais pas. Tant qu'elle est présente, votre trafic HTTPS peut être lu." },
+          { icon: icon("watch", TONES.ink2), text: "La règle de pare-feu 5432 a été élargie au profil public pendant la maintenance de 04:12." }
+        ] },
+        { title: "Ce qui vous attend", delay: "60ms", lines: [
+          { icon: icon("clock", TONES.ink2), text: "3 correctifs attendent un redémarrage. La prochaine fenêtre calme est ce soir 20:10." },
+          { icon: icon("disk", TONES.ink2), text: "47 Go récupérables, dont 24,2 Go dans le disque de ubuntu-dev." }
+        ] },
+        { title: "Ce que j'ai fait pendant la nuit", delay: "120ms", lines: [
+          { icon: icon("check", TONES.good), text: "Export de ubuntu-dev à 11:05 — 8,4 Go, vérifié." },
+          { icon: icon("check", TONES.good), text: "Le pilote NVIDIA 570.12 a cassé cuda-smoke à 20:14 ; je suis revenu au point de 20:12 à 20:19. Rien à faire de votre côté." }
+        ] }
+      ],
+
+      toggleRing: () => this.setState((s) => ({ ringOpen: !s.ringOpen })),
+      ringOpen: this.state.ringOpen,
+      components: [
+        { name: "Sécurité", detail: att ? "62 / 100 · plafonne le total" : "98 / 100", gauge: gauge(att ? 62 : 98, att ? TONES.attention : TONES.sain) },
+        { name: "Dérive", detail: att ? "78 / 100" : "88 / 100", gauge: gauge(att ? 78 : 88, TONES.sain) },
+        { name: "Espace", detail: "91 / 100", gauge: gauge(91, TONES.sain) },
+        { name: "Mises à jour", detail: "84 / 100", gauge: gauge(84, TONES.sain) }
+      ],
+      formula: att ? "min(secu, 0.35·secu + 0.25·derive + 0.2·espace + 0.2·maj) = 71" : "0.35·98 + 0.25·88 + 0.2·91 + 0.2·84 = 94",
+
+      openPalette: () => this.setState({ paletteOpen: true, query: "" }),
+      closePalette: () => this.setState({ paletteOpen: false }),
+      stop: (e) => e.stopPropagation(),
+      paletteOpen: this.state.paletteOpen,
+      query: this.state.query,
+      onQuery: (e) => this.setState({ query: e.target.value }),
+      paletteGroups: groups,
+      paletteEmpty: groups.length === 0
+    };
+  }
+}
+
+</script>
+</body>
+</html>

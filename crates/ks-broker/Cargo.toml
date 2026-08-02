@@ -17,8 +17,15 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
-[target.'cfg(windows)'.dependencies]
-windows-service = "0.7"
+# Pas de dépendance Windows ici, et c'est délibéré.
+#
+# `windows-service = "0.7"` y figurait sans être importée nulle part : cinq crates
+# de surface transitive sur le composant que le modèle de menace qualifie lui-même
+# d'« outil d'attaque le plus efficace imaginable sur ce poste », pour zéro fonction.
+# Elle était de surcroît entrée sans l'ADR que docs/04-MODELE-DE-MENACE.md §7 exige
+# pour toute dépendance de ce crate.
+#
+# Elle reviendra en Phase 2, avec son ADR, le jour où le service Windows existe.
 
 [lints.rust]
 unsafe_code = "warn"

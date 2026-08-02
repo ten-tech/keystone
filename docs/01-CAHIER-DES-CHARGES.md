@@ -7,7 +7,7 @@
 | **Date** | 30 juillet 2026 |
 | **Statut** | Pour revue |
 | **Cible** | Poste Windows 11 24H2+ avec WSL2 et Hyper-V, usage ingénierie |
-| **Document jumeau** | `KEYSTONE-BRIEF-DESIGN.md` (direction UI/UX « Poste de pilotage ») |
+| **Document jumeau** | [`02-BRIEF-DESIGN.md`](02-BRIEF-DESIGN.md) (direction UI/UX « Poste de pilotage ») |
 
 ---
 
@@ -148,7 +148,7 @@ Ces limites sont **structurelles** et doivent figurer dans la documentation util
 |---|---|---|
 | Broker privilégié | **Rust**, service Windows | Pas de runtime à charger, empreinte minimale, binaire facile à signer et à attester, sûreté mémoire sur le composant qui a le plus de privilèges. |
 | Transport | **gRPC sur named pipe** | Contrat typé, pas de port TCP exposé, ACL Windows natives sur le pipe. |
-| Collecteurs | **modules WASM** (wasmtime) | Bac à sable, capacités déclarées, plantage isolé, tiers possibles sans confiance implicite. |
+| Collecteurs | **natif pour les nôtres, WASM (wasmtime) pour les tiers** | Deux régimes selon l'origine — voir [ADR-0003](adr/0003-collecteurs-en-wasm.md). Nos collecteurs ont besoin d'un accès direct à WMI et au registre ; tout mettre en WASM imposerait une API hôte si large qu'elle deviendrait elle-même la surface d'attaque. Un collecteur tiers, lui, ne doit jamais hériter du privilège du broker : bac à sable, capacités déclarées, plantage isolé. |
 | Exécuteurs Windows | **PowerShell 7 + CIM/WMI + WinAPI** | BitLocker, Defender, MSU, politiques : PowerShell est la seule voie de première classe. Appelé par le broker uniquement, jamais exposé brut. |
 | Agent WSL | **binaire ELF statique** sous systemd | Mêmes protocole et schéma que l'hôte. |
 | Canal VM | **Hyper-V Socket (AF_HYPERV)** | Fonctionne sans réseau dans l'invité — indispensable quand la VM est justement cassée au niveau réseau. |
@@ -158,9 +158,18 @@ Ces limites sont **structurelles** et doivent figurer dans la documentation util
 
 ### 5.3 Modèle de plugin
 
-Chaque capacité est un module déclarant dans son manifeste : `reads` · `writes` · `privileges` · `supports_dryrun` · `supports_rollback` · `platform` · `signature`.
+Chaque capacité est un module déclarant dans son manifeste : `reads` · `writes` · `privileges` · `supports_dryrun` · `supports_rollback` · `idempotent` · `platform` · `signature`.
 
 **Un module sans `supports_dryrun` ne peut pas être appelé en mode `apply` (P2). Un module sans `supports_rollback` ne peut pas être appelé par l'ordonnanceur automatique (P3).** Ces deux règles sont vérifiées par le broker au chargement, pas par convention.
+
+**Un collecteur déclare `writes: []`.** Un module qui déclare une écriture n'est pas un collecteur, et le chargement le refuse.
+
+> **État d'implémentation.** Le manifeste n'existe pas encore en code : seule la
+> structure `Capabilities` de `ks-core` en porte trois champs (`dry_run`,
+> `rollback`, `idempotent`), et le broker n'a pas de chargeur de module. Tant
+> que c'est le cas, les deux règles ci-dessus tiennent par la discipline de
+> l'auteur, pas par une vérification. Le passage de l'une à l'autre est une
+> tâche de la Phase 2, et elle se paie d'autant plus cher qu'on l'ajourne.
 
 ## 6. Modèle de sécurité de l'outil lui-même
 
@@ -411,7 +420,7 @@ Priorités : **P0** = indispensable au premier usage réel · **P1** = valeur fo
 | **NF-09** | Documentation | Chaque exigence fonctionnelle est documentée côté utilisateur avec son *pourquoi* et son *risque*. Les limites du §4.3 figurent dans la documentation d'accueil, pas en annexe. |
 | **NF-10** | Observabilité de l'outil | Keystone s'applique à lui-même : ses propres métriques, journaux et santé sont visibles dans son interface. |
 | **NF-11** | Compatibilité | Windows 11 24H2+ Pro/Enterprise, x64 et ARM64. Distros WSL2 : Ubuntu, Debian, Fedora, Alpine, Arch. Dégradation propre et explicite si Hyper-V ou TPM est absent. |
-| **NF-12** | Licence et gouvernance du projet | Source ouverte (à trancher : Apache 2.0 ou MPL 2.0), pas de dépendance à un service propriétaire, facteur d'autobus documenté (§14). |
+| **NF-12** | Licence et gouvernance du projet | Source ouverte sous **Apache-2.0** — tranché, voir [`LICENSE`](../LICENSE) et `Cargo.toml`. Pas de dépendance à un service propriétaire, facteur d'autobus documenté (§14). |
 
 ---
 
@@ -423,9 +432,9 @@ Priorités : **P0** = indispensable au premier usage réel · **P1** = valeur fo
 apiVersion: keystone/v1
 kind: Workstation
 metadata:
-  name: WKS-TENE-01
+  name: WKS-ORION-04
   inherits: ./base.yaml            # surcouche de flotte (D13-01)
-  owner: tene
+  owner: alix
 
 platform:
   secureBoot: enabled
@@ -536,8 +545,8 @@ acceptedDrift:                     # D2-06 — toujours daté et justifié
 ks status                      # posture composite et vitaux
 ks scan [--domain security]    # collecte, lecture seule
 ks diff [--domain updates]     # dérive contre workstation.yaml
-ks converge [--dry-run|--apply] [--item ...]
-ks plan updates [--ring stable] [--dry-run]
+ks converge [--apply] [--item ...]
+ks plan updates [--ring stable] [--apply]
 ks rollback <snapshotId>
 ks space [--attribute] [--reclaim --quarantine]
 ks quarantine list|restore|purge
@@ -550,10 +559,10 @@ ks explain services.Fax.startupType
 ks rebuild --emit-bootstrap
 ```
 
-`--dry-run` est le comportement par défaut de toute commande mutante. `--apply` est toujours explicite (P2). Toute commande dispose d'une sortie `--json` stable et versionnée.
+La simulation est le comportement par défaut de toute commande mutante ; `--apply` est toujours explicite (P2). **Il n'existe volontairement pas de drapeau `--dry-run`** : un drapeau qu'on peut oublier de passer est un drapeau par lequel on écrit par omission. Seul `--apply` existe, et son absence ne peut donc pas être un accident (voir [`09-GLOSSAIRE.md`](09-GLOSSAIRE.md) § « Simulation ≠ Application »). Toute commande dispose d'une sortie `--json` stable et versionnée.
 
 ### 10.2 Interface graphique
-Voir `KEYSTONE-BRIEF-DESIGN.md`. Contraintes issues du présent document : parité fonctionnelle avec la CLI (P4), commande CLI équivalente affichée dans la palette de commandes, simulation en action primaire, aucun sens porté par la couleur seule, budget de 2 interruptions par jour (D16-06).
+Voir [`02-BRIEF-DESIGN.md`](02-BRIEF-DESIGN.md). Contraintes issues du présent document : parité fonctionnelle avec la CLI (P4), commande CLI équivalente affichée dans la palette de commandes, simulation en action primaire, aucun sens porté par la couleur seule, budget de 2 interruptions par jour (D16-06).
 
 ### 10.3 API locale
 gRPC sur named pipe, contrat versionné, jeton par session, verbes énumérés (SEC-02). Aucun port TCP en écoute (SEC-12).
@@ -612,7 +621,7 @@ Ces critères sont vérifiés sur une machine réelle, pas sur maquette.
 | R6 | **Dérive de périmètre** : le projet ne finit jamais | Élevée | Priorités P0/P1/P2 tenues, sorties de phase avec critère mesurable, refus explicite de tout ce qui figure au §4.2. |
 | R7 | **Fausse assurance de sécurité** | Élevée | §4.3 en première page de la documentation, matrice ATT&CK honnête (D5-12), positionnement complémentaire à l'EDR affirmé partout. |
 | R8 | **Faux positifs de détection sur un poste de dev** (l'activité normale ressemble à une attaque) | Moyenne | Référence par machine apprise sur 14 jours, seuils par domaine, distinction nette entre « écart » et « constat de sécurité ». |
-| R9 | **Rupture d'API Windows** entre versions | Moyenne | Collecteurs isolés en WASM, matrice de VM éphémères en intégration continue (NF-07), dégradation propre. |
+| R9 | **Rupture d'API Windows** entre versions | Moyenne | Collecteurs isolés — bac à sable WASM pour les tiers, processus et budget contraints pour les nôtres (ADR-0003) — matrice de VM éphémères en intégration continue (NF-07), dégradation propre. |
 | R10 | **Facteur d'autobus** : un seul auteur | Moyenne | §14, documentation d'architecture, source ouverte, tout automatisme reproductible à la main. |
 | R11 | **Empreinte perçue** : « encore un agent qui rame » | Moyenne | Budgets NF-01 appliqués, collecteur hors budget mis en veille, empreinte affichée dans l'interface (NF-10). |
 | R12 | **Le copilote local propose une bêtise et elle est appliquée** | Moyenne | D15-03 : lecture seule, aucune application automatique, même portail d'approbation qu'un humain. |

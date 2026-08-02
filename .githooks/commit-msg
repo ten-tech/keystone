@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+#
+# Valide le message de commit contre docs/08-CONVENTIONS.md.
+#
+# Le sujet est la seule partie que tout le monde lira dans six mois. Il porte
+# donc trois informations : ce qui change (type), où (portée), et pourquoi
+# c'était demandé (référence d'exigence). Le reste va dans le corps.
+#
+# Activation : scripts/dev-hooks.ps1   (ou `git config core.hooksPath .githooks`)
+
+set -u
+
+msg_file="$1"
+sujet=$(head -n1 "$msg_file")
+
+# Les messages produits par git lui-même ne suivent pas la convention.
+case "$sujet" in
+  "Merge "*|"Revert "*|"fixup! "*|"squash! "*|"Reapply "*) exit 0 ;;
+esac
+
+# Un message vide : git annulera le commit de lui-même.
+[ -z "${sujet// /}" ] && exit 0
+
+TYPES='feat|fix|docs|refactor|test|perf|chore|ci|build|revert'
+PORTEES='core|cli|broker|collectors|agent|sec|docs|ci|design|schema|d[1-9]|d1[0-6]'
+
+erreur() {
+  echo ""
+  echo "  ✗ $1"
+  echo ""
+  echo "    Reçu   : $sujet"
+  echo "    Attendu: <type>(<portée>): <sujet> (<EXIGENCE>)"
+  echo "    Exemple: feat(d5): détecte l'ajout d'une CA racine dans le magasin (D5-03)"
+  echo ""
+  echo "    types   : $TYPES"
+  echo "    portées : core cli broker collectors agent sec docs ci design schema d1…d16"
+  echo "    voir    : docs/08-CONVENTIONS.md"
+  echo ""
+  exit 1
+}
+
+# ── Forme générale ────────────────────────────────────────────────────
+if ! printf '%s' "$sujet" | grep -qE "^($TYPES)(\([a-z0-9-]+\))?!?: .+"; then
+  erreur "le sujet ne suit pas Conventional Commits."
+fi
+
+# ── Portée, si elle est présente, doit appartenir à la liste ──────────
+if printf '%s' "$sujet" | grep -qE "^($TYPES)\("; then
+  portee=$(printf '%s' "$sujet" | sed -E "s/^($TYPES)\(([a-z0-9-]+)\).*/\2/")
+  if ! printf '%s' "$portee" | grep -qE "^($PORTEES)$"; then
+    erreur "portée « $portee » inconnue."
+  fi
+fi
+
+# ── Longueur : le sujet doit tenir dans un `git log --oneline` ────────
+longueur=${#sujet}
+if [ "$longueur" -gt 72 ]; then
+  erreur "sujet de $longueur caractères, maximum 72. Déplace le détail dans le corps."
+fi
+
+# ── Ponctuation finale ────────────────────────────────────────────────
+case "$sujet" in
+  *.) erreur "pas de point final au sujet." ;;
+esac
+
+# ── Référence d'exigence : exigée sur feat et fix ─────────────────────
+# Ce sont les commits qui changent le produit ; les autres décrivent
+# l'outillage et n'ont pas toujours d'exigence à citer.
+REF='\((D[0-9]{1,2}-[0-9]{2}|SEC-[0-9]{2}|NF-[0-9]{2}|A[0-9]{1,2}|P[0-9]{1,2}|M[0-9])\)$'
+if printf '%s' "$sujet" | grep -qE "^(feat|fix)"; then
+  if ! printf '%s' "$sujet" | grep -qE "$REF"; then
+    echo ""
+    echo "  ⚠ pas de référence d'exigence en fin de sujet (ex. « (D5-03) »)."
+    echo "    C'est ce qui rend l'historique traçable jusqu'au cahier des charges."
+    echo "    Si le changement n'en a réellement pas, ignore cet avertissement."
+    echo ""
+  fi
+fi
+
+exit 0
