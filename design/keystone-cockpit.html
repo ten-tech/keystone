@@ -56,10 +56,14 @@
      précédente (#39485A, 1,68:1 sur --surface-2) ne faisait pas. */
   --s-other:#607184;    /* 3.13:1 mini */
 
-  /* Typo */
-  --sans:'Inter','Segoe UI',system-ui,sans-serif;
-  --tight:'Inter Tight','Inter',system-ui,sans-serif;
-  --mono:'JetBrains Mono',ui-monospace,monospace;
+  /* Typo — noms identiques à ceux de design/tokens.css.
+     Ils divergeaient : --sans ici, --font-sans là-bas, mêmes valeurs.
+     Deux noms pour la même chose, et la barrière de CI ne comparait
+     que les hexadécimaux, donc ne le voyait pas. Elle compare
+     désormais aussi les piles de polices. */
+  --font-sans:'Inter','Segoe UI',system-ui,sans-serif;
+  --font-tight:'Inter Tight','Inter',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,monospace;
 
   /* Rythme */
   --t-micro:120ms; --t-state:200ms; --t-enter:400ms;
@@ -68,6 +72,21 @@
   --breathe:4000ms;
 
   --r-ctl:6px; --r-card:10px; --r-sheet:14px;
+
+  /* Élévation par la LUMIÈRE, pas par le trait.
+     La maquette portait 28 traits fins : chaque conteneur était une boîte
+     dessinée dans une boîte, et la profondeur venait du contour. Un cockpit
+     fait l'inverse — une arête claire en haut (la lumière tombe d'en haut),
+     une ombre longue et très diffuse en dessous. Le trait ne subsiste que
+     là où il porte du sens : lignes de tableau, contraste forcé.
+     L'arête reste sous le seuil de perception consciente (4 %) : elle se
+     voit sans se regarder. */
+  --arete:inset 0 1px 0 rgba(255,255,255,.04);
+  --elev-1:var(--arete),0 1px 2px rgba(0,0,0,.34),0 10px 28px -14px rgba(0,0,0,.62);
+  --elev-2:var(--arete),0 2px 4px rgba(0,0,0,.38),0 20px 48px -20px rgba(0,0,0,.7);
+
+  /* Largeur du rail. Une variable, parce qu'elle s'anime. */
+  --rail-w:216px;
 
   /* Couleur d'état courante, pilotée par [data-state] */
   --state:var(--vital);
@@ -80,7 +99,7 @@ html[data-state="grave"]    {--state:var(--grave);   --state-dim:rgba(229,83,75,
 html,body{height:100%}
 body{
   margin:0;background:var(--surface-0);color:var(--ink-1);
-  font:400 14px/1.55 var(--sans);
+  font:400 14px/1.55 var(--font-sans);
   -webkit-font-smoothing:antialiased;
   overflow:hidden;
 }
@@ -100,7 +119,29 @@ body::after{
 ::selection{background:rgba(79,209,197,.25)}
 
 /* ─── Trame d'application ─────────────────────────────────── */
-.app{position:relative;z-index:1;display:grid;grid-template-columns:216px 1fr;grid-template-rows:52px 1fr;height:100vh}
+.app{position:relative;z-index:1;display:grid;grid-template-columns:var(--rail-w) 1fr;
+  grid-template-rows:52px 1fr;height:100vh;
+  transition:grid-template-columns var(--t-state) var(--e-out)}
+
+/* ── Rail replié ──────────────────────────────────────────────────────
+   60 px : de quoi loger une icône de 16 px dans une cible de 44 px sans
+   la coller aux bords. Les libellés disparaissent de l'écran mais JAMAIS
+   de l'arbre d'accessibilité — chaque bouton garde son `aria-label`
+   complet, décompte inclus. Un lecteur d'écran entend la même chose
+   repliée ou dépliée ; c'est la condition pour que le pliage soit un
+   confort et non une perte d'information. */
+[data-rail="replie"]{--rail-w:60px}
+[data-rail="replie"] .rail{padding:16px 8px;align-items:center}
+[data-rail="replie"] .nav{justify-content:center;padding:10px;width:44px;gap:0}
+[data-rail="replie"] .nav .lbl{display:none}
+[data-rail="replie"] .rail-label{width:100%;height:1px;padding:0;margin:11px 0 9px;
+  overflow:hidden;text-indent:-999px;background:var(--hairline)}
+/* Le décompte survit au pliage, en pastille sur l'icône : le rail doit
+   pouvoir signaler « 14 mises à jour » sans être déplié. */
+[data-rail="replie"] .nav .tag{position:absolute;top:3px;right:3px;font-size:9.5px;
+  padding:0 3px;min-width:14px;text-align:center;background:var(--surface-3);
+  border-radius:999px;line-height:14px}
+[data-rail="replie"] .nav{position:relative}
 
 /* Filet d'état — 2px en haut, remplace toute bannière colorée */
 .statebar{position:fixed;top:0;left:0;right:0;height:2px;z-index:60;background:var(--state);
@@ -110,18 +151,25 @@ html:not([data-state="sain"]) .statebar{opacity:1}
 /* ─── Barre supérieure ────────────────────────────────────── */
 .topbar{grid-column:1/-1;display:flex;align-items:center;gap:20px;padding:0 20px;
   border-bottom:1px solid var(--hairline);background:rgba(11,15,20,.72);backdrop-filter:blur(14px)}
-.brand{display:flex;align-items:center;gap:9px;font-family:var(--tight);font-weight:600;
+.brand{display:flex;align-items:center;gap:9px;font-family:var(--font-tight);font-weight:600;
   letter-spacing:.14em;font-size:12.5px;text-transform:uppercase}
-.brand .mk{width:13px;height:13px;border-radius:50%;border:2px solid var(--state);
-  box-shadow:0 0 10px var(--state-dim);transition:border-color var(--t-state) var(--e-out)}
-.machine{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);
+.brand .mk{width:13px;height:13px;border-radius:50%;border:2px solid var(--ink-3);
+  transition:border-color var(--t-state) var(--e-out)}
+/* La pastille de marque portait la couleur d'état, avec une lueur. Deux
+   défauts pour le prix d'un. Elle transmettait un sens — l'état de la
+   machine — par la SEULE couleur, sans icône ni libellé, ce que NF-05
+   interdit. Et elle allumait l'accent en permanence : si le turquoise est
+   dans le logo, dans l'anneau, dans les badges et dans les jauges, il n'a
+   plus de valeur d'alerte nulle part (loi de Von Restorff). L'état vit
+   dans l'instrument qui existe pour le dire, pas dans le logotype. */
+.machine{font-family:var(--font-mono);font-size:12.5px;color:var(--ink-2);
   padding-left:20px;border-left:1px solid var(--hairline)}
 .machine b{color:var(--ink-1);font-weight:500}
 .spacer{flex:1}
 .profile{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2);
   background:var(--surface-1);border:1px solid var(--hairline);border-radius:999px;padding:5px 12px 5px 10px}
 .profile .dot{width:6px;height:6px;border-radius:50%;background:var(--s1)}
-.kbd{font-family:var(--mono);font-size:11px;color:var(--ink-2);background:var(--surface-1);
+.kbd{font-family:var(--font-mono);font-size:11px;color:var(--ink-2);background:var(--surface-1);
   border:1px solid var(--hairline);border-radius:5px;padding:3px 7px}
 .cmdk{display:flex;align-items:center;gap:9px;background:var(--surface-1);border:1px solid var(--hairline);
   border-radius:var(--r-ctl);padding:6px 10px;color:var(--ink-3);font-size:13px;cursor:pointer;
@@ -129,8 +177,22 @@ html:not([data-state="sain"]) .statebar{opacity:1}
 .cmdk:hover{border-color:var(--hairline-strong);color:var(--ink-2)}
 
 /* ─── Rail ────────────────────────────────────────────────── */
-.rail{border-right:1px solid var(--hairline);padding:16px 10px;display:flex;flex-direction:column;gap:2px;
-  background:linear-gradient(180deg,rgba(255,255,255,.012),transparent 40%)}
+.rail{padding:16px 10px;display:flex;flex-direction:column;gap:2px;
+  background:linear-gradient(180deg,rgba(255,255,255,.012),transparent 40%);
+  /* Le trait de séparation devient une arête de lumière : la frontière se
+     lit par le relief, pas par une ligne dessinée. */
+  box-shadow:inset -1px 0 0 rgba(255,255,255,.035)}
+
+/* Le bouton de pliage. Un vrai <button>, avec aria-expanded, parce qu'un
+   div cliquable n'est pas atteignable au clavier. Cible 34 px de haut
+   dans une zone de 44 : au-dessus du minimum de WCAG 2.2 (24 px). */
+.fold{display:flex;align-items:center;justify-content:center;width:34px;height:34px;
+  border:none;background:none;color:var(--ink-3);border-radius:var(--r-ctl);cursor:pointer;
+  margin-left:2px;flex:none;
+  transition:color var(--t-micro) var(--e-out),background var(--t-micro) var(--e-out)}
+.fold:hover{color:var(--ink-1);background:var(--surface-2)}
+.fold svg{width:17px;height:17px;transition:transform var(--t-state) var(--e-out)}
+[data-rail="replie"] .fold svg{transform:rotate(180deg)}
 .rail-label{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);
   padding:12px 10px 6px}
 .nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--r-ctl);
@@ -140,13 +202,13 @@ html:not([data-state="sain"]) .statebar{opacity:1}
 .nav:hover{background:var(--surface-1);color:var(--ink-1)}
 .nav[aria-current="page"]{background:var(--surface-2);color:var(--ink-1)}
 .nav .ic{width:16px;height:16px;flex:none;opacity:.85}
-.nav .tag{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.nav .tag{margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
 .nav.flagged .tag{color:var(--state)}
 
 /* Bouton d'isolement — contour uniquement, jamais un aplat rouge */
 .panic{margin-top:auto;display:none;align-items:center;gap:9px;width:100%;
   background:transparent;border:1px solid var(--grave);color:var(--grave);
-  border-radius:var(--r-ctl);padding:9px 11px;font:500 13px var(--sans);cursor:pointer;
+  border-radius:var(--r-ctl);padding:9px 11px;font:500 13px var(--font-sans);cursor:pointer;
   transition:background var(--t-micro) var(--e-out)}
 .panic:hover{background:rgba(229,83,75,.09)}
 html:not([data-state="sain"]) .panic{display:flex}
@@ -163,11 +225,11 @@ html:not([data-state="sain"]) .panic-note{display:block}
 .view.on{display:block}
 @keyframes enter{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
-h1{font:500 22px/1.3 var(--tight);margin:0 0 3px;letter-spacing:-.01em}
+h1{font:500 22px/1.3 var(--font-tight);margin:0 0 3px;letter-spacing:-.01em}
 .sub{color:var(--ink-2);font-size:13.5px;margin:0 0 22px}
-h2{font:500 16px/1.4 var(--tight);margin:0}
+h2{font:500 16px/1.4 var(--font-tight);margin:0}
 
-.card{background:var(--surface-1);border:1px solid var(--hairline);border-radius:var(--r-card)}
+.card{background:var(--surface-1);border-radius:var(--r-card);box-shadow:var(--elev-1)}
 .card-h{display:flex;align-items:center;gap:12px;padding:15px 18px;border-bottom:1px solid var(--hairline)}
 .card-h .spacer{flex:1}
 .card-b{padding:18px}
@@ -191,16 +253,31 @@ h2{font:500 16px/1.4 var(--tight);margin:0}
   50%    {opacity:1;  filter:drop-shadow(0 0 15px var(--state-dim))}
 }
 .ringmid{position:absolute;inset:0;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:2px;text-align:center;padding:0 52px}
-.hero-n{font:500 76px/1 var(--tight);letter-spacing:-.035em;font-variant-numeric:proportional-nums}
+  align-items:center;justify-content:center;gap:2px;text-align:center;padding:0 46px}
+/* Un filet fin sépare la mesure de sa télémétrie, comme sur un cadran
+   d'instrument. Il ne borde rien : il indique où finit le chiffre et où
+   commence ce qui l'explique. Largeur volontairement courte — 34 px —
+   pour qu'il se lise comme une graduation, pas comme un trait de boîte. */
+.hero-s::before{content:"";display:block;width:34px;height:1px;margin:0 auto 9px;
+  background:var(--hairline-strong)}
+.hero-n{font:500 76px/1 var(--font-tight);letter-spacing:-.035em;
+  /* Tabulaire, et non proportionnel. Quand la posture passe de 94 à 96,
+     un chiffre proportionnel change de largeur : le nombre TRESSAUTE
+     pendant l'animation. C'est le détail qui sépare un tableau de bord
+     d'un instrument. Toutes les valeurs mesurées du cockpit le portent. */
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1,"ss01" 1}
 .hero-u{font-size:13px;color:var(--ink-3);margin-top:-2px}
-.hero-s{font-size:13px;color:var(--ink-2);margin-top:9px;line-height:1.45}
-.hero-t{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);margin-top:5px}
+.hero-s{font-size:13px;color:var(--ink-2);margin-top:11px;line-height:1.45}
+.hero-t{font-family:var(--font-mono);font-size:11.5px;color:var(--ink-3);margin-top:6px;
+  /* Télémétrie : chiffres tabulaires et suivi légèrement ouvert. Une
+     horloge qui change de largeur à chaque seconde est insupportable sur
+     un instrument, et c'est exactement ce que faisait celle-ci. */
+  font-variant-numeric:tabular-nums;letter-spacing:.02em}
 .unfold{margin-top:20px;background:none;border:1px solid var(--hairline);color:var(--ink-2);
-  border-radius:999px;padding:6px 14px;font:400 12.5px var(--sans);cursor:pointer;
+  border-radius:999px;padding:6px 14px;font:400 12.5px var(--font-sans);cursor:pointer;
   transition:border-color var(--t-micro) var(--e-out),color var(--t-micro) var(--e-out)}
 .unfold:hover{border-color:var(--hairline-strong);color:var(--ink-1)}
-.formula{display:none;margin-top:14px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);
+.formula{display:none;margin-top:14px;font-family:var(--font-mono);font-size:11.5px;color:var(--ink-3);
   background:var(--surface-0);border:1px solid var(--hairline);border-radius:var(--r-ctl);
   padding:11px 13px;line-height:1.8;max-width:340px}
 .formula.on{display:block}
@@ -208,8 +285,8 @@ h2{font:500 16px/1.4 var(--tight);margin:0}
 /* ─── Tuiles vitales ──────────────────────────────────────── */
 .tiles{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-content:start}
 @media (max-width:640px){.tiles{grid-template-columns:1fr}}
-.tile{background:var(--surface-1);border:1px solid var(--hairline);border-radius:var(--r-card);
-  padding:16px 17px;transition:background var(--t-micro) var(--e-out),border-color var(--t-micro) var(--e-out)}
+.tile{background:var(--surface-1);border-radius:var(--r-card);box-shadow:var(--elev-1);
+  padding:16px 17px;transition:background var(--t-micro) var(--e-out),box-shadow var(--t-micro) var(--e-out)}
 .tile:hover{background:var(--surface-2);border-color:var(--hairline-strong)}
 .tile-h{display:flex;align-items:center;gap:8px;margin-bottom:11px}
 .tile-l{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
@@ -217,13 +294,13 @@ h2{font:500 16px/1.4 var(--tight);margin:0}
   padding:2px 8px 2px 6px;border-radius:999px;border:1px solid var(--hairline);color:var(--ink-2)}
 .badge svg{width:12px;height:12px;flex:none}
 .badge.ok{color:var(--vital)} .badge.att{color:var(--attention)} .badge.bad{color:var(--grave)}
-.tile-v{font:500 34px/1.05 var(--tight);letter-spacing:-.02em;display:flex;align-items:baseline;gap:6px}
-.tile-v span{font:400 13px var(--sans);color:var(--ink-2);letter-spacing:0}
+.tile-v{font:500 34px/1.05 var(--font-tight);letter-spacing:-.02em;display:flex;align-items:baseline;gap:6px}
+.tile-v span{font:400 13px var(--font-sans);color:var(--ink-2);letter-spacing:0}
 .meter{height:4px;border-radius:4px;background:rgba(255,255,255,.07);margin:12px 0 9px;overflow:hidden}
 .meter i{display:block;height:100%;border-radius:4px;transition:width 900ms var(--e-soft)}
 .tile-c{font-size:12.5px;color:var(--ink-2);line-height:1.45}
 .counts{display:flex;gap:16px;margin:13px 0 10px;font-size:12.5px;color:var(--ink-3);flex-wrap:wrap}
-.counts b{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--ink-2);
+.counts b{font-family:var(--font-mono);font-size:13px;font-weight:500;color:var(--ink-2);
   font-variant-numeric:tabular-nums;margin-right:3px}
 .counts .c-acc b{color:var(--ink-2)}
 .counts .c-act b{color:var(--attention)}
@@ -233,7 +310,7 @@ h2{font:500 16px/1.4 var(--tight);margin:0}
 /* ─── Table de dérive ─────────────────────────────────────── */
 .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
 .chip{background:var(--surface-1);border:1px solid var(--hairline);color:var(--ink-2);
-  border-radius:999px;padding:5px 13px;font:400 12.5px var(--sans);cursor:pointer;
+  border-radius:999px;padding:5px 13px;font:400 12.5px var(--font-sans);cursor:pointer;
   transition:all var(--t-micro) var(--e-out)}
 .chip:hover{border-color:var(--hairline-strong);color:var(--ink-1)}
 .chip[aria-pressed="true"]{background:var(--surface-3);color:var(--ink-1);border-color:var(--hairline-strong)}
@@ -245,8 +322,8 @@ h2{font:500 16px/1.4 var(--tight);margin:0}
 .drow:hover{background:var(--surface-2)}
 .drow.head{padding:10px 18px;background:var(--surface-0);
   font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
-.path{font-family:var(--mono);font-size:12.5px;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.delta{font-family:var(--mono);font-size:12px}
+.path{font-family:var(--font-mono);font-size:12.5px;color:var(--ink-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.delta{font-family:var(--font-mono);font-size:12px}
 .delta .want{color:var(--ink-2)}
 .delta .arw{color:var(--ink-3);padding:0 5px}
 .delta .got{color:var(--ink-1)}
@@ -254,7 +331,7 @@ h2{font:500 16px/1.4 var(--tight);margin:0}
 .src.unknown{color:var(--attention)}
 .acts{display:flex;gap:6px;justify-content:flex-end}
 .mini{background:none;border:1px solid var(--hairline);color:var(--ink-2);border-radius:5px;
-  padding:4px 9px;font:400 12px var(--sans);cursor:pointer;white-space:nowrap;
+  padding:4px 9px;font:400 12px var(--font-sans);cursor:pointer;white-space:nowrap;
   transition:all var(--t-micro) var(--e-out)}
 .mini:hover{border-color:var(--hairline-strong);color:var(--ink-1);background:var(--surface-3)}
 .mini.pri{border-color:rgba(79,209,197,.4);color:var(--vital)}
@@ -270,17 +347,17 @@ h2{font:500 16px/1.4 var(--tight);margin:0}
 .wave{border:1px solid var(--hairline);border-radius:var(--r-ctl);margin-bottom:10px;overflow:hidden}
 .wave-h{display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--surface-0);
   cursor:pointer;font-size:13.5px}
-.wave-h .n{font-family:var(--mono);font-size:11px;color:var(--ink-3);
+.wave-h .n{font-family:var(--font-mono);font-size:11px;color:var(--ink-3);
   background:var(--surface-2);border-radius:4px;padding:2px 6px}
 .wave-h .spacer{flex:1}
-.wave-h .meta{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+.wave-h .meta{font-family:var(--font-mono);font-size:11.5px;color:var(--ink-3)}
 .wave-b{padding:4px 14px 12px;display:none}
 .wave.open .wave-b{display:block}
 .item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--hairline);
   font-size:13px}
 .item:last-child{border-bottom:none}
-.item .nm{font-family:var(--mono);font-size:12.5px}
-.item .vv{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+.item .nm{font-family:var(--font-mono);font-size:12.5px}
+.item .vv{margin-left:auto;font-family:var(--font-mono);font-size:12px;color:var(--ink-2)}
 .pill{font-size:11px;padding:1.5px 7px;border-radius:999px;border:1px solid var(--hairline);color:var(--ink-2)}
 .pill.cve{color:var(--attention);border-color:rgba(232,163,61,.35)}
 .pill.ring{color:var(--s1);border-color:rgba(43,170,160,.35)}
@@ -291,11 +368,11 @@ h2{font:500 16px/1.4 var(--tight);margin:0}
 .safety b{color:var(--ink-1);font-weight:500}
 .smoke{display:flex;align-items:center;gap:9px;padding:8px 0;font-size:13px;border-bottom:1px solid var(--hairline)}
 .smoke:last-child{border-bottom:none}
-.smoke .id{font-family:var(--mono);font-size:12.5px}
-.smoke .t{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+.smoke .id{font-family:var(--font-mono);font-size:12.5px}
+.smoke .t{margin-left:auto;font-family:var(--font-mono);font-size:11.5px;color:var(--ink-3)}
 
 .foot{display:flex;align-items:center;gap:11px;padding:15px 18px;border-top:1px solid var(--hairline)}
-.btn{border-radius:var(--r-ctl);padding:9px 17px;font:500 13.5px var(--sans);cursor:pointer;
+.btn{border-radius:var(--r-ctl);padding:9px 17px;font:500 13.5px var(--font-sans);cursor:pointer;
   border:1px solid var(--hairline);background:var(--surface-2);color:var(--ink-1);
   transition:all var(--t-micro) var(--e-out)}
 .btn:hover{background:var(--surface-3)}
@@ -307,7 +384,7 @@ h2{font:500 16px/1.4 var(--tight);margin:0}
 /* ─── Bandeau de rollback : un succès, pas une erreur ─────── */
 .rollback{background:var(--surface-2);border:1px solid var(--hairline);
   border-left:2px solid var(--good);border-radius:var(--r-card);padding:17px 19px;margin-bottom:20px}
-.rollback h3{font:500 15px/1.4 var(--tight);margin:0 0 9px;display:flex;align-items:center;gap:9px}
+.rollback h3{font:500 15px/1.4 var(--font-tight);margin:0 0 9px;display:flex;align-items:center;gap:9px}
 .rollback h3 svg{width:15px;height:15px;color:var(--good)}
 .rollback dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:13.5px}
 .rollback dt{color:var(--ink-3);font-style:italic;white-space:nowrap}
@@ -317,7 +394,7 @@ h2{font:500 16px/1.4 var(--tight);margin:0}
 
 /* ─── Attribution d'espace ────────────────────────────────── */
 .tabs{display:flex;gap:2px;background:var(--surface-0);border-radius:var(--r-ctl);padding:2px}
-.tab{background:none;border:none;color:var(--ink-3);font:400 12.5px var(--sans);
+.tab{background:none;border:none;color:var(--ink-3);font:400 12.5px var(--font-sans);
   padding:5px 12px;border-radius:5px;cursor:pointer;transition:all var(--t-micro) var(--e-out)}
 .tab[aria-selected="true"]{background:var(--surface-2);color:var(--ink-1)}
 .stack{display:flex;gap:2px;height:34px;border-radius:5px;overflow:hidden;margin:6px 0 16px}
@@ -326,25 +403,31 @@ h2{font:500 16px/1.4 var(--tight);margin:0}
 .legend{display:flex;flex-wrap:wrap;gap:8px 20px}
 .lg{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-2)}
 .lg .sw{width:10px;height:10px;border-radius:3px;flex:none}
-.lg .v{font-family:var(--mono);font-size:12px;color:var(--ink-1);font-variant-numeric:tabular-nums}
+.lg .v{font-family:var(--font-mono);font-size:12px;color:var(--ink-1);font-variant-numeric:tabular-nums}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);
   font-weight:400;padding:8px 10px;border-bottom:1px solid var(--hairline)}
 td{padding:9px 10px;border-bottom:1px solid var(--hairline);color:var(--ink-2)}
 td:first-child{color:var(--ink-1)}
-td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;color:var(--ink-1)}
+td.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums;text-align:right;color:var(--ink-1)}
 tr:last-child td{border-bottom:none}
 .hidden{display:none}
 
 /* ─── Timeline ────────────────────────────────────────────── */
 .tl{position:relative;height:48px;margin-top:2px}
 .tl-axis{position:absolute;left:0;right:0;bottom:22px;height:1px;background:var(--grid)}
-.tl-tick{position:absolute;bottom:2px;transform:translateX(-50%);font-family:var(--mono);
+.tl-tick{position:absolute;bottom:2px;transform:translateX(-50%);font-family:var(--font-mono);
   font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
 .tl-tick::before{content:'';position:absolute;left:50%;bottom:18px;width:1px;height:5px;background:var(--grid)}
 .ev{position:absolute;bottom:22px;width:9px;height:9px;border-radius:50%;
   transform:translate(-50%,50%);cursor:pointer;border:2px solid var(--surface-1);
   transition:transform var(--t-micro) var(--e-out)}
+/* Le point reste à 9 px — c'est la bonne taille pour lire une densité
+   d'événements. Sa CIBLE, elle, passe à 24 px : WCAG 2.2 SC 2.5.8 fixe ce
+   minimum, et 9 px sur une ligne de temps est intenable à la souris comme
+   au doigt. La zone est invisible et ne déplace rien. */
+.ev::before{content:"";position:absolute;left:50%;top:50%;width:24px;height:24px;
+  transform:translate(-50%,-50%);border-radius:50%}
 .ev:hover,.ev:focus-visible{transform:translate(-50%,50%) scale(1.5)}
 
 /* ─── Infobulle ───────────────────────────────────────────── */
@@ -354,7 +437,7 @@ tr:last-child td{border-bottom:none}
   box-shadow:0 14px 34px rgba(0,0,0,.55);transition:opacity var(--t-micro) var(--e-out)}
 .tip.on{opacity:1}
 .tip .tt{font-weight:500;color:var(--ink-1);margin-bottom:3px}
-.tip .tv{font-family:var(--mono);font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.tip .tv{font-family:var(--font-mono);font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums}
 
 /* ─── Palette de commandes ────────────────────────────────── */
 .scrim{position:fixed;inset:0;z-index:9100;background:rgba(4,7,10,.62);
@@ -365,12 +448,12 @@ tr:last-child td{border-bottom:none}
   box-shadow:0 32px 80px rgba(0,0,0,.6);animation:pop 200ms var(--e-soft) both}
 @keyframes pop{from{opacity:0;transform:translateY(-8px) scale(.985)}to{opacity:1;transform:none}}
 .palette input{width:100%;background:none;border:none;border-bottom:1px solid var(--hairline);
-  color:var(--ink-1);font:400 15px var(--sans);padding:16px 18px;outline:none}
+  color:var(--ink-1);font:400 15px var(--font-sans);padding:16px 18px;outline:none}
 .palette input::placeholder{color:var(--ink-3)}
 .psec{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);padding:12px 18px 5px}
 .pitem{display:flex;align-items:center;gap:11px;padding:9px 18px;font-size:13.5px;cursor:pointer}
 .pitem:hover,.pitem.sel{background:var(--surface-2)}
-.pitem .cli{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+.pitem .cli{margin-left:auto;font-family:var(--font-mono);font-size:11.5px;color:var(--ink-3)}
 .pfoot{padding:10px 18px;border-top:1px solid var(--hairline);font-size:11.5px;color:var(--ink-3)}
 
 /* ─── Panneau de démonstration ────────────────────────────── */
@@ -378,7 +461,7 @@ tr:last-child td{border-bottom:none}
   background:rgba(19,26,34,.9);backdrop-filter:blur(16px);border:1px solid var(--hairline-strong);
   border-radius:999px;padding:7px 9px 7px 14px;font-size:12px;color:var(--ink-3)}
 .demo .sw{display:flex;gap:2px;background:var(--surface-0);border-radius:999px;padding:2px}
-.demo button{background:none;border:none;color:var(--ink-3);font:400 12px var(--sans);
+.demo button{background:none;border:none;color:var(--ink-3);font:400 12px var(--font-sans);
   padding:5px 11px;border-radius:999px;cursor:pointer;transition:all var(--t-micro) var(--e-out)}
 .demo button[aria-pressed="true"]{background:var(--surface-3);color:var(--ink-1)}
 
@@ -432,6 +515,12 @@ tr:last-child td{border-bottom:none}
   <!-- ══ Barre supérieure ══ -->
   <header class="topbar">
     <div class="brand"><span class="mk"></span>Keystone</div>
+    <button class="fold" onclick="plierRail()" aria-expanded="true" aria-controls="rail"
+            title="Replier le rail (Ctrl+B)" aria-label="Replier le rail de navigation">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+        <rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M9.5 4.5v15"/><path d="M14 9.5 16.5 12 14 14.5"/>
+      </svg>
+    </button>
     <div class="machine"><b>WKS-ORION-04</b> · Win 11 26H1 · 3 distros · 2 VM</div>
     <div class="spacer"></div>
     <div class="profile"><span class="dot"></span>Profil <b style="color:var(--ink-1);font-weight:500">Build</b> · dock TB4-BUREAU</div>
@@ -439,44 +528,44 @@ tr:last-child td{border-bottom:none}
   </header>
 
   <!-- ══ Rail ══ -->
-  <nav class="rail" aria-label="Navigation principale">
-    <button class="nav" aria-current="page" data-view="overview">
+  <nav class="rail" id="rail" aria-label="Navigation principale">
+    <button class="nav" aria-current="page" data-view="overview" aria-label="Vue d'ensemble">
       <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.2"/></svg>
-      Vue d'ensemble
+      <span class="lbl">Vue d'ensemble</span>
     </button>
-    <button class="nav" data-view="drift">
+    <button class="nav" data-view="drift" aria-label="Dérive — 3 écarts">
       <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16M4 12h9M4 17h13"/></svg>
-      Dérive <span class="tag">3</span>
+      <span class="lbl">Dérive</span> <span class="tag">3</span>
     </button>
-    <button class="nav" data-view="updates">
+    <button class="nav" data-view="updates" aria-label="Mises à jour — 14 en attente">
       <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
-      Mises à jour <span class="tag">14</span>
+      <span class="lbl">Mises à jour</span> <span class="tag">14</span>
     </button>
-    <button class="nav" data-view="security" id="nav-sec">
+    <button class="nav" data-view="security" id="nav-sec" aria-label="Sécurité — aucun constat ouvert">
       <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l7 3v6c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3z"/></svg>
-      Sécurité <span class="tag">—</span>
+      <span class="lbl">Sécurité</span> <span class="tag">—</span>
     </button>
-    <button class="nav" data-view="space">
+    <button class="nav" data-view="space" aria-label="Espace — volume occupé à 72 %">
       <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg>
-      Espace <span class="tag">72%</span>
+      <span class="lbl">Espace</span> <span class="tag">72%</span>
     </button>
 
     <div class="rail-label">Systèmes</div>
-    <button class="nav" data-view="first">
-            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3.5v3.6M12 16.9v3.6M3.5 12h3.6M16.9 12h3.6"/><circle cx="12" cy="12" r="3.4"/></svg>
-            Premier lancement
-          </button>
-          <button class="nav" data-view="soon">
+    <button class="nav" data-view="first" aria-label="Premier lancement">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3.5v3.6M12 16.9v3.6M3.5 12h3.6M16.9 12h3.6"/><circle cx="12" cy="12" r="3.4"/></svg>
+      <span class="lbl">Premier lancement</span>
+    </button>
+          <button class="nav" data-view="soon" aria-label="WSL &amp; VM">
       <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 20h8"/></svg>
-      WSL &amp; VM
+      <span class="lbl">WSL &amp; VM</span>
     </button>
-    <button class="nav" data-view="soon">
+    <button class="nav" data-view="soon" aria-label="Sauvegarde">
       <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 8v8m0 0-3-3m3 3 3-3M4 4h16"/></svg>
-      Sauvegarde
+      <span class="lbl">Sauvegarde</span>
     </button>
-    <button class="nav" data-view="soon">
+    <button class="nav" data-view="soon" aria-label="Journal">
       <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
-      Journal
+      <span class="lbl">Journal</span>
     </button>
 
     <button class="panic" onclick="alert('Confirmation Windows Hello requise.\n\nCoupe le réseau hors canal d\'administration, verrouille la session, capture un instantané forensique et scelle le journal.')">
@@ -601,7 +690,7 @@ posture = 0.40 × sécurité(96)<br>
     <!-- ─────────── DÉRIVE ─────────── -->
     <section class="view" id="view-drift">
       <h1>Dérive de configuration</h1>
-      <p class="sub">3 écarts entre <code style="font-family:var(--mono);font-size:12.5px">workstation.yaml</code> et l'état réel · dernière mesure il y a 40 secondes</p>
+      <p class="sub">3 écarts entre <code style="font-family:var(--font-mono);font-size:12.5px">workstation.yaml</code> et l'état réel · dernière mesure il y a 40 secondes</p>
 
       <div class="filters">
         <button class="chip" aria-pressed="true">Tous les domaines</button>
@@ -670,7 +759,7 @@ posture = 0.40 × sécurité(96)<br>
         <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 1 0 8-8M4 12V7m0 5h5"/></svg>Revenu en arrière</h3>
         <dl>
           <dt>Ce qui s'est passé</dt><dd>Le pilote <b>NVIDIA 570.12</b> a été installé à 20:14, puis annulé à 20:19.</dd>
-          <dt>Ce qui a échoué</dt><dd>Le test <b>cuda-smoke</b> ne trouvait plus de GPU depuis <code style="font-family:var(--mono);font-size:12px">ubuntu-dev</code>.</dd>
+          <dt>Ce qui a échoué</dt><dd>Le test <b>cuda-smoke</b> ne trouvait plus de GPU depuis <code style="font-family:var(--font-mono);font-size:12px">ubuntu-dev</code>.</dd>
           <dt>Ce que j'ai fait</dt><dd>Restauration du point pris à 20:12, pilote épinglé en <b>566.36</b> jusqu'au 1<sup>er</sup> septembre.</dd>
           <dt>Où vous en êtes</dt><dd>État identique à 20:12. <b>Rien à faire de votre côté.</b></dd>
         </dl>
@@ -723,8 +812,8 @@ posture = 0.40 × sécurité(96)<br>
             <div class="safety">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--s1)" stroke-width="1.8" style="flex:none;margin-top:2px"><path d="M12 3l7 3v6c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3z"/></svg>
               <div><b>Filet de sécurité avant la vague 1.</b> Point de restauration système,
-              <code style="font-family:var(--mono);font-size:12px">wsl --export ubuntu-dev</code> (2,1 Go),
-              point de contrôle Hyper-V sur <code style="font-family:var(--mono);font-size:12px">win11-test</code>.
+              <code style="font-family:var(--font-mono);font-size:12px">wsl --export ubuntu-dev</code> (2,1 Go),
+              point de contrôle Hyper-V sur <code style="font-family:var(--font-mono);font-size:12px">win11-test</code>.
               Retour arrière estimé à 3 min 20 s.</div>
             </div>
           </div>
@@ -853,7 +942,7 @@ posture = 0.40 × sécurité(96)<br>
           <!-- La phrase d'ouverture est la thèse du produit en une ligne. Ordre
                imposé par le brief §1.3 : ce qui s'est passé, ce que ça implique,
                ce qu'on peut faire. Sans reproche, sans superlatif, sans « ! ». -->
-          <p style="font:500 20px var(--tight);color:var(--ink-1);line-height:1.45;margin-bottom:6px">
+          <p style="font:500 20px var(--font-tight);color:var(--ink-1);line-height:1.45;margin-bottom:6px">
             J'ai lu votre machine. Rien n'a été modifié.
           </p>
           <p style="color:var(--ink-2);line-height:1.65;max-width:62ch">
@@ -899,7 +988,7 @@ posture = 0.40 × sécurité(96)<br>
           <span class="pill">1 interruption sur 2 utilisée aujourd'hui</span>
         </div>
         <div class="card-b">
-          <p style="font:500 20px var(--tight);color:var(--ink-1);line-height:1.45;margin-bottom:6px">
+          <p style="font:500 20px var(--font-tight);color:var(--ink-1);line-height:1.45;margin-bottom:6px">
             État identique à 20:12. Rien à faire de votre côté.
           </p>
           <p style="color:var(--ink-2);line-height:1.65;max-width:62ch">
@@ -934,7 +1023,7 @@ posture = 0.40 × sécurité(96)<br>
       <p class="sub">Cette section fait partie du périmètre P1 du cahier des charges, à maquetter après validation des sept écrans prioritaires.</p>
       <div class="card"><div class="card-b" style="color:var(--ink-2);line-height:1.7">
         WSL &amp; VM (domaine D9) · Sauvegarde et reconstruction (D6) · Journal forensique (D14).<br>
-        <span style="color:var(--ink-3)">Voir <code style="font-family:var(--mono);font-size:12.5px">docs/01-CAHIER-DES-CHARGES.md</code> §7 et <code style="font-family:var(--mono);font-size:12.5px">docs/02-BRIEF-DESIGN.md</code> §7. Ces trois sections n'ont pas de numéro d'écran : le brief s'arrête à E7, et ce texte en annonçait un huitième qui n'a jamais existé.</span>
+        <span style="color:var(--ink-3)">Voir <code style="font-family:var(--font-mono);font-size:12.5px">docs/01-CAHIER-DES-CHARGES.md</code> §7 et <code style="font-family:var(--font-mono);font-size:12.5px">docs/02-BRIEF-DESIGN.md</code> §7. Ces trois sections n'ont pas de numéro d'écran : le brief s'arrête à E7, et ce texte en annonçait un huitième qui n'a jamais existé.</span>
       </div></div>
     </section>
 
@@ -963,8 +1052,8 @@ posture = 0.40 × sécurité(96)<br>
     <div class="pitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="14" rx="2"/></svg>Basculer sur le profil Réunion<span class="cli">ks profile use Réunion</span></div>
     <div class="pitem"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 8v8m0 0-3-3m3 3 3-3"/><rect x="3" y="4" width="18" height="16" rx="2"/></svg>Vérifier une restauration de sauvegarde<span class="cli">ks backup verify</span></div>
     <div class="psec">Items</div>
-    <div class="pitem"><span style="font-family:var(--mono);font-size:12.5px">security.defender.exclusions[2]</span><span class="cli">source inconnue</span></div>
-    <div class="pitem"><span style="font-family:var(--mono);font-size:12.5px">ubuntu-dev</span><span class="cli">distro WSL · 41,2 Go</span></div>
+    <div class="pitem"><span style="font-family:var(--font-mono);font-size:12.5px">security.defender.exclusions[2]</span><span class="cli">source inconnue</span></div>
+    <div class="pitem"><span style="font-family:var(--font-mono);font-size:12.5px">ubuntu-dev</span><span class="cli">distro WSL · 41,2 Go</span></div>
     <div class="pfoot">Parité totale avec la CLI — chaque résultat affiche sa commande équivalente. On apprend son propre outil en s'en servant. <span class="kbd" style="margin-left:6px">Esc</span> pour fermer</div>
   </div>
 </div>
@@ -1167,6 +1256,38 @@ addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openPalette()}
   if(e.key==='Escape'){closePalette();hide()}
 });
+
+/* ── Rail repliable ──────────────────────────────────────────────────
+   Pourquoi un <button> et pas un div : il doit être atteignable au
+   clavier, annoncer son état par aria-expanded, et désigner ce qu'il
+   commande par aria-controls. Ctrl+B parce que c'est la convention là où
+   ce geste existe déjà, et qu'on ne réinvente pas un raccourci connu
+   (loi de Jakob).
+
+   L'état survit au rechargement. localStorage est un stockage LOCAL :
+   aucune requête, donc aucune entorse au principe P5. */
+function appliquerRail(replie){
+  document.documentElement.dataset.rail = replie ? 'replie' : 'deplie';
+  const b = document.querySelector('.fold');
+  b.setAttribute('aria-expanded', String(!replie));
+  const texte = replie ? 'Déplier le rail de navigation' : 'Replier le rail de navigation';
+  b.setAttribute('aria-label', texte);
+  b.title = (replie ? 'Déplier le rail' : 'Replier le rail') + ' (Ctrl+B)';
+  try{ localStorage.setItem('ks-rail', replie ? 'replie' : 'deplie'); }catch(e){}
+}
+function plierRail(){
+  appliquerRail(document.documentElement.dataset.rail !== 'replie');
+}
+try{ appliquerRail(localStorage.getItem('ks-rail') === 'replie'); }
+catch(e){ appliquerRail(false); }
+
+addEventListener('keydown', e => {
+  if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b'){
+    e.preventDefault();
+    plierRail();
+  }
+});
+
 </script>
 </body>
 </html>

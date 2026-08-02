@@ -443,6 +443,14 @@ jobs:
       # On ne supprime pas la duplication — un fichier qu'on peut envoyer tel
       # quel a de la valeur — on la vérifie. Toute variable définie des deux
       # côtés doit porter la même valeur.
+      #
+      # Les piles de polices sont comparées au même titre que les couleurs.
+      # La première version de ce contrôle ne regardait que les hexadécimaux,
+      # et n'a donc pas vu que la maquette nommait ses polices `--sans`,
+      # `--tight`, `--mono` quand tokens.css les nommait `--font-sans`,
+      # `--font-tight`, `--font-mono` : mêmes valeurs, deux noms, aucun des
+      # deux fichiers ne pouvant servir de référence à l'autre. Une barrière
+      # trop étroite laisse passer la variante du défaut qu'elle vise.
       - name: Les maquettes ne dérivent pas de design/tokens.css
         run: |
           divergences=0
@@ -454,11 +462,17 @@ jobs:
                     | head -1 | sed -E 's/.*:\s*//; s/\s*;$//')
               [ -z "$ref" ] && continue
               verifies=$((verifies + 1))
-              if [ "$(echo "$valeur" | tr 'A-Z' 'a-z')" != "$(echo "$ref" | tr 'A-Z' 'a-z')" ]; then
+              # Comparaison insensible à la casse ET aux espaces : `#EC5950`
+              # vaut `#ec5950`, et `'Inter', system-ui` vaut
+              # `'Inter',system-ui`. Ni l'un ni l'autre n'est une divergence,
+              # et les signaler en serait une, de fausse.
+              norme_a=$(echo "$valeur" | tr 'A-Z' 'a-z' | tr -d '[:space:]')
+              norme_b=$(echo "$ref"    | tr 'A-Z' 'a-z' | tr -d '[:space:]')
+              if [ "$norme_a" != "$norme_b" ]; then
                 echo "::error file=$maquette::$nom vaut $valeur ici et $ref dans design/tokens.css"
                 divergences=1
               fi
-            done <<< "$(grep -oE '^\s*--[a-z0-9-]+\s*:\s*#[0-9A-Fa-f]{3,8}\s*;' "$maquette" \
+            done <<< "$(grep -oE "^\s*--[a-z0-9-]+\s*:\s*(#[0-9A-Fa-f]{3,8}|'[^;]+)\s*;" "$maquette" \
                         | sed -E 's/^\s*//; s/\s*;$//; s/\s*:\s*/|/')"
           done
           if [ "$verifies" -eq 0 ]; then
