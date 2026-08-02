@@ -98,10 +98,21 @@ confirme qu'aucun octet n'a été modifié.
 
 ### 0.5 — Journal et rapport
 
-- [ ] **Remplacer le bouchon FNV-1a de `JournalEntry::digest()` par BLAKE3** — première tâche de sécurité réelle du projet
-- [ ] Persistance SQLite (WAL)
-- [ ] `ks journal` en lecture
-- [ ] Rapport HTML autonome, reprenant les tokens de `design/tokens.css`
+- [x] **BLAKE3 remplace le bouchon FNV-1a** (ADR-0004) — la portée exacte, et ses limites, y sont écrites
+- [x] Persistance SQLite (WAL), avec `ks scan --record`
+- [x] `ks journal` en lecture, avec vérification du chaînage
+- [x] Rapport HTML autonome, reprenant les tokens de `design/tokens.css`
+- [ ] Expédition du journal vers une ancre externe (`--seal`) — SEC-04, Phase 3
+
+> **Rien n'est consigné par défaut.** `ks scan` ne journalise pas ; il faut
+> `ks scan --record`. C'est le principe P2 appliqué à la lettre : puisqu'il
+> n'existe pas de `--dry-run` dans ce produit, il ne doit pas non plus exister
+> d'écriture par omission. Un scan qui journaliserait sans qu'on l'ait demandé
+> contredirait sa propre bannière, et le contredirait en silence.
+>
+> **La barrière a été éprouvée en la franchissant.** Une entrée réécrite en base,
+> puis une entrée effacée : les deux rompent le chaînage, et deux tests le
+> rejouent. Une vérification qu'on n'a jamais mise en défaut ne prouve rien.
 
 ---
 

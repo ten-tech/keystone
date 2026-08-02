@@ -54,6 +54,15 @@ pub enum Outcome {
         /// Trace technique, à replier derrière « Détails » dans l'interface.
         detail: String,
     },
+    /// **Rien n'a été tenté** : l'entrée consigne une observation.
+    ///
+    /// Ajoutée en Phase 0.5, quand `ks scan --record` a eu besoin de se
+    /// journaliser. Toutes les autres variantes décrivent le sort d'une
+    /// *action* ; un scan n'en est pas une. Écrire `Applied` aurait laissé
+    /// croire à une écriture, `Simulated` à une action envisagée puis retenue.
+    /// Aucune des deux n'est vraie, et un journal qui se trompe sur la nature de
+    /// ce qu'il consigne perd sa raison d'être.
+    Observed,
 }
 
 impl Actor {
@@ -88,6 +97,7 @@ impl Outcome {
             Self::Refused { .. } => "refused",
             Self::RolledBack { .. } => "rolled-back",
             Self::Failed { .. } => "failed",
+            Self::Observed => "observed",
         }
     }
 
@@ -98,7 +108,7 @@ impl Outcome {
     #[must_use]
     pub fn detail_stable(&self) -> &str {
         match self {
-            Self::Simulated | Self::Applied => "",
+            Self::Simulated | Self::Applied | Self::Observed => "",
             Self::Refused { reason } => reason,
             Self::RolledBack { failed_test } => failed_test,
             Self::Failed { detail } => detail,

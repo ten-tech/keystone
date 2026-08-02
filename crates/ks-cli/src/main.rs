@@ -22,6 +22,7 @@
 
 #![forbid(unsafe_code)]
 
+mod magasin;
 mod rapport;
 
 use std::path::PathBuf;
@@ -59,6 +60,14 @@ enum Command {
         /// Limiter à un domaine.
         #[arg(long)]
         domain: Option<String>,
+        /// Consigner ce scan dans le journal local de Keystone.
+        ///
+        /// Absent par défaut, et volontairement : un scan qui journaliserait
+        /// sans qu'on l'ait demandé contredirait sa propre bannière, et le
+        /// contredirait en silence. C'est le principe P2 — on n'écrit jamais
+        /// par omission.
+        #[arg(long)]
+        record: bool,
     },
 
     /// Écart entre le fichier d'état désiré et l'état réel. Lecture seule.
@@ -185,7 +194,8 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
 
     let issue = match &cli.command {
-        Command::Scan { domain } => cmd_scan(cli.json, domain.as_deref()),
+        Command::Scan { domain, record } => cmd_scan(cli.json, domain.as_deref(), *record),
+        Command::Journal { since, seal } => cmd_journal(cli.json, since.as_deref(), *seal),
         Command::Status => cmd_status(cli.json),
         Command::Explain { path } => cmd_explain(path),
         Command::Report { out } => cmd_report(out),
@@ -201,7 +211,6 @@ fn main() -> ExitCode {
         | Command::Space { .. }
         | Command::Quarantine { .. }
         | Command::Backup { .. }
-        | Command::Journal { .. }
         | Command::Isolate => return not_yet(),
     };
 
@@ -274,7 +283,7 @@ fn parse_domain(s: &str) -> Option<Domain> {
     DOMAINES.iter().find(|(nom, _)| *nom == s).map(|(_, d)| *d)
 }
 
-fn cmd_scan(json: bool, domain: Option<&str>) -> Result<()> {
+fn cmd_scan(json: bool, domain: Option<&str>, record: bool) -> Result<()> {
     // Un domaine non reconnu doit se dire. Auparavant, `and_then` faisait retomber
     // une faute de frappe sur « aucun filtre » : `ks scan --domain securty`
     // affichait TOUT en silence, ce qui est le pire des deux mondes — l'utilisateur
@@ -310,6 +319,106 @@ fn cmd_scan(json: bool, domain: Option<&str>) -> Result<()> {
         println!("  {:<44} {}", item.path, valeur_lisible(item));
     }
     println!("\n{} item(s) observé(s).", items.len());
+
+    if record {
+        let entree = consigner_scan(items.len())?;
+        println!(
+            "Consigné au journal, entrée {} — {}",
+            entree.seq,
+            entree.digest()
+        );
+    }
+    Ok(())
+}
+
+/// Chemin du journal local.
+fn chemin_journal() -> Result<PathBuf> {
+    magasin::dossier_donnees()
+        .map(|d| d.join("journal.sqlite"))
+        .context(
+            "impossible de situer le dossier de données : ni LOCALAPPDATA, ni XDG_DATA_HOME, ni HOME",
+        )
+}
+
+/// Ajoute une entrée décrivant le scan qui vient d'avoir lieu.
+fn consigner_scan(nombre: usize) -> Result<ks_core::JournalEntry> {
+    let magasin = magasin::Magasin::ouvrir(&chemin_journal()?)?;
+    magasin.ajouter(ks_core::JournalEntry {
+        seq: 0,
+        at: Utc::now(),
+        // `Keystone`, parce que c'est bien Keystone qui a produit cette ENTRÉE.
+        // Les items relevés, eux, restent `Provenance::Observed` : l'outil n'est
+        // l'auteur d'aucune des valeurs qu'il a lues.
+        actor: ks_core::Actor::System,
+        verb: "scan".to_owned(),
+        target: format!("{nombre} item(s)"),
+        diff: None,
+        outcome: ks_core::Outcome::Observed,
+        prev_digest: String::new(),
+    })
+}
+
+/// Relit le journal et vérifie son chaînage.
+fn cmd_journal(json: bool, since: Option<&str>, seal: bool) -> Result<()> {
+    if seal {
+        // Sceller exige d'expédier l'empreinte vers une ancre externe, hors de
+        // portée d'un attaquant local. C'est SEC-04, Phase 3. Prétendre sceller
+        // en écrivant l'empreinte à côté du journal ne protégerait de rien.
+        anyhow::bail!(
+            "Le scellement expédie l'empreinte vers une ancre externe, ce qui \
+             n'existe pas encore (SEC-04, Phase 3).\n\
+             \n\
+             `ks journal` seul relit et vérifie le chaînage local."
+        );
+    }
+
+    let chemin = chemin_journal()?;
+    if !chemin.exists() {
+        println!("Aucun journal : rien n'a encore été consigné.\n");
+        println!("  `ks scan --record` enregistre un scan.");
+        return Ok(());
+    }
+
+    let entrees = magasin::Magasin::ouvrir_en_lecture(&chemin)?.lire(since)?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&entrees)?);
+        return Ok(());
+    }
+
+    // La vérification porte sur ce qui est LU. Avec `--since`, la séquence
+    // commence au milieu de la chaîne : son ancrage est donc légitimement
+    // absent, et annoncer « chaînage rompu » serait un faux positif.
+    let complet = since.is_none();
+
+    println!("Journal — {} entrée(s).\n", entrees.len());
+    for e in &entrees {
+        println!(
+            "  {:>4}  {}  {:<10} {}",
+            e.seq,
+            e.at.to_rfc3339(),
+            e.verb,
+            e.target
+        );
+    }
+
+    if complet {
+        let intact = ks_core::JournalEntry::verify_chain(&entrees);
+        println!(
+            "\n  Chaînage : {}",
+            if intact {
+                "intact, ancré sur la genèse"
+            } else {
+                "ROMPU — une entrée a été retirée ou réécrite"
+            }
+        );
+        println!(
+            "  Portée   : détecte la corruption et l'altération non privilégiée, \n\
+             \x20            pas un attaquant SYSTEM (ADR-0004)."
+        );
+    } else {
+        println!("\n  Chaînage : non vérifié — un extrait n'a pas d'ancrage.");
+    }
     Ok(())
 }
 

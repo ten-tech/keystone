@@ -377,6 +377,7 @@ dependencies = [
  "clap",
  "ks-collectors",
  "ks-core",
+ "rusqlite",
  "serde_json",
 ]
 
