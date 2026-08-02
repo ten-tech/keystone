@@ -39,8 +39,10 @@ confirme qu'aucun octet n'a été modifié.
 - [ ] **Protection DMA** — hors registre, exige l'API Kernel DMA Protection
 - [ ] **TPM** : présence, version, état, propriétaire
 - [ ] **BitLocker par volume** : état, méthode, protecteurs, *présence de la clé de récupération*
-- [ ] Tâches planifiées
-- [ ] Règles de pare-feu
+- [x] **Pare-feu** : les trois profils, et les règles autorisant une connexion entrante *active* — 197 sur 649 relevées, le total ne se dépliant en rien
+- [x] **Firmware et microcode** : fabricant, version, date de publication, révision du microcode en hexadécimal brut
+- [x] **Horloge, la configuration** : source de temps et fuseau. La *cohérence* (D1-09) est une mesure, pas une lecture, et reste à faire
+- [ ] Tâches planifiées — `TaskCache\Tree` refuse la lecture sans élévation, donc pas avant le broker
 - [ ] **Usure NVMe / SMART**, santé et cycles de la batterie
 - [ ] Firmware UEFI, microcode
 - [ ] **Cohérence de l'horloge** (D1-09) — prérequis de toute la valeur forensique

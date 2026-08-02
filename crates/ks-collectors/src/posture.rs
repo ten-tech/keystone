@@ -156,6 +156,68 @@ pub fn liste(lecture: Lecture<Vec<String>>) -> ItemValue {
     }
 }
 
+/// Normalise une date de firmware quand, et seulement quand, elle est certaine.
+///
+/// Les firmwares écrivent leur date en `M/J/AAAA`, sauf ceux qui écrivent
+/// `J/M/AAAA`. Aucune spécification ne tranche, et la valeur relevée sur la
+/// machine de référence — `10/21/2024` — n'est lisible que parce que 21 dépasse
+/// le nombre de mois.
+///
+/// D'où la règle : on ne convertit que **l'ambiguïté levée**. `03/04/2024` reste
+/// tel quel, parce que le 3 avril et le 4 mars sont également plausibles et qu'un
+/// mois d'écart sur l'âge d'un firmware n'est pas une approximation, c'est une
+/// invention. Le champ brut est publié dans tous les cas.
+#[must_use]
+pub fn date_firmware_certaine(brut: &str) -> Option<String> {
+    let morceaux: Vec<&str> = brut.trim().split('/').collect();
+    let [a, b, annee] = morceaux[..] else {
+        return None;
+    };
+    let (a, b, annee) = (
+        a.parse::<u32>().ok()?,
+        b.parse::<u32>().ok()?,
+        annee.parse::<u32>().ok()?,
+    );
+    if !(1970..=2200).contains(&annee) {
+        return None;
+    }
+    // Un seul des deux nombres peut être un mois : l'ordre est alors déterminé.
+    let (mois, jour) = match (a <= 12, b <= 12) {
+        (true, false) => (a, b),
+        (false, true) => (b, a),
+        _ => return None,
+    };
+    if !(1..=31).contains(&jour) {
+        return None;
+    }
+    Some(format!("{annee:04}-{mois:02}-{jour:02}"))
+}
+
+/// Une règle de pare-feu est-elle une autorisation entrante active ?
+///
+/// Le format de la valeur n'est contractuel nulle part : on lit les champs qu'on
+/// reconnaît et on ignore le reste, plutôt que d'exiger une forme exacte qu'une
+/// mise à jour de Windows briserait en silence.
+///
+/// C'est le seul sous-ensemble qui porte un signal : sur les 649 règles de la
+/// machine de référence, l'écrasante majorité est sortante ou inactive. Publier
+/// « 649 règles » ne dirait rien à personne (principe P6).
+#[must_use]
+pub fn est_autorisation_entrante_active(regle: &str) -> bool {
+    let mut entrante = false;
+    let mut autorise = false;
+    let mut active = false;
+    for champ in regle.split('|') {
+        match champ.split_once('=') {
+            Some(("Dir", "In")) => entrante = true,
+            Some(("Action", "Allow")) => autorise = true,
+            Some(("Active", v)) => active = v.eq_ignore_ascii_case("true"),
+            _ => {}
+        }
+    }
+    entrante && autorise && active
+}
+
 /// Traduit le mode d'une règle de réduction de surface d'attaque.
 ///
 /// Les modes sont documentés : 0 éteinte, 1 bloque, 2 audit, 5 non configurée,
@@ -297,8 +359,9 @@ fn horodatage_vers_filetime(d: DateTime<Utc>) -> u64 {
 #[cfg(windows)]
 mod windows_impl {
     use super::{
-        demarrage_service, drapeau, filetime_vers_horodatage, item_posture, liste, mode_asr,
-        protection_verrouillable, texte, Lecture, SERVICES_SURVEILLES,
+        date_firmware_certaine, demarrage_service, drapeau, est_autorisation_entrante_active,
+        filetime_vers_horodatage, item_posture, liste, mode_asr, protection_verrouillable, texte,
+        Lecture, SERVICES_SURVEILLES,
     };
     use ks_core::{Item, ItemValue};
     use windows_registry::{Type, LOCAL_MACHINE};
@@ -581,6 +644,142 @@ mod windows_impl {
             ));
         }
 
+        // ─── Pare-feu ───────────────────────────────────────────────────────
+        const PARE_FEU: &str =
+            r"SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy";
+
+        for (profil, clef) in [
+            ("domain", "DomainProfile"),
+            ("private", "StandardProfile"),
+            ("public", "PublicProfile"),
+        ] {
+            items.push(item_posture(
+                &format!("security.firewall.{profil}.enabled"),
+                drapeau(&u32_registre(
+                    &format!(r"{PARE_FEU}\{clef}"),
+                    "EnableFirewall",
+                )),
+                "Pare-feu actif pour ce profil de réseau. Le profil public est celui \
+                 qui compte : c'est lui qui s'applique en déplacement.",
+                "Un profil éteint expose les services en écoute à tout le réseau joint.",
+                None,
+            ));
+        }
+
+        // On ne publie pas le total des règles, qui ne dirait rien : seules les
+        // autorisations entrantes actives ouvrent réellement la machine.
+        let regles = valeurs_de(&format!(r"{PARE_FEU}\FirewallRules"));
+        items.push(item_posture(
+            "security.firewall.inbound_allow_rules",
+            match regles {
+                Lecture::Trouvee(v) => ItemValue::Int(
+                    i64::try_from(
+                        v.iter()
+                            .filter(|(_, regle)| est_autorisation_entrante_active(regle))
+                            .count(),
+                    )
+                    .unwrap_or(-1),
+                ),
+                Lecture::Absente => ItemValue::Absent,
+                Lecture::Refusee => ItemValue::illisible("accès refusé sans élévation"),
+            },
+            "Règles autorisant une connexion entrante, et réellement actives. Le \
+             décompte total des règles n'est pas publié : il mélange l'entrant et le \
+             sortant, l'actif et l'inactif, et ne se déplie donc en rien.",
+            "Chaque autorisation entrante est une porte ouverte, souvent posée par un \
+             installeur et jamais refermée.",
+            None,
+        ));
+
+        // ─── Firmware et microcode ──────────────────────────────────────────
+        const BIOS: &str = r"HARDWARE\DESCRIPTION\System\BIOS";
+
+        for (suffixe, valeur, but) in [
+            ("vendor", "BIOSVendor", "Fabricant du firmware."),
+            ("version", "BIOSVersion", "Version du firmware installé."),
+        ] {
+            items.push(item_posture(
+                &format!("security.firmware.{suffixe}"),
+                texte(texte_registre(BIOS, valeur)),
+                but,
+                "Un firmware ancien porte des vulnérabilités corrigées depuis, en \
+                 dessous de tout ce que le système peut protéger.",
+                None,
+            ));
+        }
+
+        let date_brute = texte_registre(BIOS, "BIOSReleaseDate");
+        items.push(item_posture(
+            "security.firmware.release_date",
+            match &date_brute {
+                Lecture::Trouvee(brut) => {
+                    ItemValue::Text(date_firmware_certaine(brut).unwrap_or_else(|| brut.clone()))
+                }
+                Lecture::Absente => ItemValue::Absent,
+                Lecture::Refusee => ItemValue::illisible("accès refusé sans élévation"),
+            },
+            "Date de publication du firmware. Normalisée en AAAA-MM-JJ uniquement \
+             quand l'ordre jour/mois est certain ; sinon publiée telle quelle, car un \
+             mois d'écart sur l'âge d'un firmware serait une invention.",
+            "C'est l'âge, pas le numéro de version, qui dit si le firmware suit.",
+            None,
+        ));
+
+        // Aucune documentation Microsoft ne décrit cette valeur : on publie
+        // l'hexadécimal brut plutôt qu'une interprétation inventée.
+        items.push(item_posture(
+            "security.firmware.microcode_revision",
+            match LOCAL_MACHINE
+                .open(r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
+                .ok()
+                .and_then(|k| k.get_value("Update Revision").ok())
+            {
+                Some(v) => ItemValue::Text(
+                    v.as_ref()
+                        .iter()
+                        .map(|o| format!("{o:02x}"))
+                        .collect::<String>(),
+                ),
+                None => ItemValue::Absent,
+            },
+            "Révision du microcode du processeur, en hexadécimal brut. Aucune source \
+             officielle n'en documente le format : on ne l'interprète pas.",
+            "Un microcode ancien laisse ouvertes des vulnérabilités matérielles que \
+             seul le fabricant peut corriger.",
+            None,
+        ));
+
+        // ─── Horloge : la CONFIGURATION, pas la dérive ──────────────────────
+        //
+        // D1-09 demande la cohérence de l'horloge, qui est une mesure : elle se
+        // compare à une référence externe, elle ne se lit pas. Ces items disent
+        // seulement à qui la machine fait confiance pour l'heure. Les présenter
+        // comme une cohérence serait la garantie annoncée non tenue habituelle.
+        const W32TIME: &str = r"SYSTEM\CurrentControlSet\Services\W32Time\Parameters";
+
+        items.push(item_posture(
+            "security.clock.ntp_server",
+            texte(texte_registre(W32TIME, "NtpServer")),
+            "Source de temps configurée. Ce n'est PAS une mesure de dérive : la \
+             cohérence de l'horloge (D1-09) se compare à une référence externe.",
+            "Une source de temps détournée décale toute la valeur forensique du \
+             journal, sans rien casser de visible.",
+            Some("docs/01-CAHIER-DES-CHARGES.md § D1-09"),
+        ));
+
+        items.push(item_posture(
+            "security.clock.timezone",
+            texte(texte_registre(
+                r"SYSTEM\CurrentControlSet\Control\TimeZoneInformation",
+                "TimeZoneKeyName",
+            )),
+            "Fuseau horaire du poste, nécessaire pour corréler des journaux \
+             provenant de plusieurs machines.",
+            "Un fuseau erroné décale les corrélations sans qu'aucune horloge soit \
+             fausse.",
+            None,
+        ));
+
         // ─── Services de sécurité ───────────────────────────────────────────
         for (service, role) in SERVICES_SURVEILLES {
             let depart = u32_registre(
@@ -759,6 +958,62 @@ mod tests {
         let inconnu = protection_verrouillable(&Lecture::Trouvee(7));
         assert_ne!(inconnu, ItemValue::Text("désactivée".into()));
         assert!(inconnu.to_string().contains('7'));
+    }
+
+    #[test]
+    fn une_date_de_firmware_ambigue_nest_pas_devinee() {
+        // Le cas de la machine de référence : 21 dépasse le nombre de mois, donc
+        // l'ordre est déterminé.
+        assert_eq!(
+            date_firmware_certaine("10/21/2024").as_deref(),
+            Some("2024-10-21")
+        );
+        // L'ordre inverse se lit aussi bien.
+        assert_eq!(
+            date_firmware_certaine("21/10/2024").as_deref(),
+            Some("2024-10-21")
+        );
+        // Et voici tout l'intérêt : le 3 avril et le 4 mars sont également
+        // plausibles. Un mois d'écart sur l'âge d'un firmware n'est pas une
+        // approximation, c'est une invention — on renvoie donc None, et
+        // l'appelant publie la chaîne brute.
+        assert_eq!(date_firmware_certaine("03/04/2024"), None);
+        assert_eq!(date_firmware_certaine("12/12/2024"), None);
+        assert_eq!(date_firmware_certaine("pas une date"), None);
+        assert_eq!(date_firmware_certaine("10/21/1802"), None, "hors époque");
+        assert_eq!(
+            date_firmware_certaine("13/32/2024"),
+            None,
+            "jour impossible"
+        );
+    }
+
+    #[test]
+    fn seule_une_autorisation_entrante_active_compte() {
+        // 649 règles sur la machine de référence, dont la quasi-totalité est
+        // sortante ou inactive. Publier le total ne dirait rien à personne.
+        let ouvre = "v2.33|Action=Allow|Active=TRUE|Dir=In|Protocol=6|LPort=445|Name=X|";
+        assert!(est_autorisation_entrante_active(ouvre));
+
+        for fermee in [
+            "v2.33|Action=Allow|Active=FALSE|Dir=In|LPort=445|",
+            "v2.33|Action=Block|Active=TRUE|Dir=In|LPort=445|",
+            "v2.33|Action=Allow|Active=TRUE|Dir=Out|RPort=443|",
+            "v2.33|Action=Allow|Dir=In|",
+            "",
+        ] {
+            assert!(
+                !est_autorisation_entrante_active(fermee),
+                "« {fermee} » n'ouvre rien"
+            );
+        }
+
+        // Le format n'est contractuel nulle part : un champ inconnu se traverse
+        // sans faire échouer la lecture, sinon une mise à jour de Windows
+        // ferait tomber le décompte à zéro en silence.
+        assert!(est_autorisation_entrante_active(
+            "v9.99|ChampInedit=42|Action=Allow|Active=true|Dir=In|AutreNouveaute=x|"
+        ));
     }
 
     #[test]
