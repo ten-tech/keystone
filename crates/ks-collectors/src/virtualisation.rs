@@ -25,8 +25,20 @@
 //! L'âge des points de contrôle Hyper-V et les chaînes de disques différentiels
 //! demandent le module `Hyper-V`, donc PowerShell ou WMI. Ni l'un ni l'autre n'est
 //! une lecture de registre, et les deux attendent l'arbitrage sur les API natives.
+//!
+//! ## La règle que ce module partage avec la posture
+//!
+//! **Un refus de lecture n'est pas une liste vide.** Le premier jet renvoyait
+//! `Vec::new()` sur tout échec d'ouverture de `Lxss` ou d'énumération, et
+//! `virtualization.wsl.distro_count` publiait alors `0` en l'annonçant comme un
+//! constat. Zéro y recouvrait deux réponses opposées : « aucune distribution » et
+//! « je n'ai pas pu regarder ». C'est le défaut corrigé dans [`crate::posture`],
+//! réintroduit ici mot pour mot — d'où l'emploi du même type [`Lecture`], et du
+//! même classement, plutôt qu'une seconde version de la règle.
 
 use ks_core::{Domain, Item, ItemValue, Provenance};
+
+use crate::posture::Lecture;
 
 /// Une distribution WSL déclarée sur ce poste.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,48 +88,83 @@ impl VirtualisationCollector {
         "virtualisation"
     }
 
-    /// Les distributions WSL déclarées.
+    /// Les distributions WSL déclarées, ou l'aveu qu'on n'a pas su les lire.
+    ///
+    /// **Trois états, jamais deux.** Un `Vec` vide ne saurait pas dire lequel des
+    /// deux il décrit, et c'est précisément la confusion qui rendait
+    /// `distro_count = 0` mensonger sur une machine dont la clé est protégée.
     #[must_use]
-    pub fn distributions() -> Vec<Distribution> {
+    pub fn distributions() -> Lecture<Vec<Distribution>> {
         #[cfg(windows)]
         {
             windows_impl::distributions()
         }
         #[cfg(not(windows))]
         {
-            Vec::new()
+            // WSL n'existe pas hors de Windows : la clé n'est pas refusée, elle
+            // n'a aucune raison d'exister. C'est une absence, pas un aveu — et
+            // surtout pas un zéro, qui prétendrait qu'on a compté.
+            Lecture::Absente
         }
     }
 
     /// Les items du domaine D9.
     #[must_use]
     pub fn items() -> Vec<Item> {
-        let distros = Self::distributions();
-        let maintenant = chrono::Utc::now();
-        let mut items = Vec::new();
+        items_depuis(&Self::distributions())
+    }
+}
 
-        let mut item = |chemin: String, valeur: ItemValue, but: &str, risque: &str| {
-            items.push(Item {
-                path: chemin,
-                domain: Domain::Virtualization,
-                desired: None,
-                observed: valeur,
-                observed_at: maintenant,
-                provenance: Provenance::Observed,
-                purpose: but.to_owned(),
-                risk: risque.to_owned(),
-                reference: None,
-            });
-        };
+/// Ce qu'on dit à l'utilisateur quand la clé des distributions lui est refusée.
+///
+/// Pas d'élévation dans le message : `Lxss` vit sous la ruche de l'utilisateur,
+/// et un refus y vient d'une liste de contrôle d'accès posée sur la clé, pas du
+/// niveau d'intégrité du processus. Le brief interdit le code d'erreur nu ; il
+/// interdit tout autant l'explication fausse.
+const REFUS: &str = "accès refusé au registre des distributions WSL";
 
-        item(
-            "virtualization.wsl.distro_count".to_owned(),
-            ItemValue::Int(i64::try_from(distros.len()).unwrap_or(-1)),
-            "Nombre de distributions WSL déclarées sur ce poste.",
-            "Aucun — cet item est un constat.",
-        );
+/// Traduit une lecture en items. **Pure** : c'est ce qui la rend éprouvable.
+///
+/// Séparée de [`VirtualisationCollector::items`] pour que les deux cas qui
+/// comptent — l'absence réelle et le refus — s'éprouvent sur toute plateforme,
+/// sans dépendre d'une machine où WSL serait installé ou d'une clé qu'il
+/// faudrait protéger à la main.
+fn items_depuis(lecture: &Lecture<Vec<Distribution>>) -> Vec<Item> {
+    let maintenant = chrono::Utc::now();
+    let mut items = Vec::new();
 
-        for d in &distros {
+    let mut item = |chemin: String, valeur: ItemValue, but: &str, risque: &str| {
+        items.push(Item {
+            path: chemin,
+            domain: Domain::Virtualization,
+            desired: None,
+            observed: valeur,
+            observed_at: maintenant,
+            provenance: Provenance::Observed,
+            purpose: but.to_owned(),
+            risk: risque.to_owned(),
+            reference: None,
+        });
+    };
+
+    item(
+        "virtualization.wsl.distro_count".to_owned(),
+        match lecture {
+            Lecture::Trouvee(d) => ItemValue::Int(i64::try_from(d.len()).unwrap_or(-1)),
+            Lecture::Absente => ItemValue::Absent,
+            Lecture::Refusee => ItemValue::illisible(REFUS),
+        },
+        "Nombre de distributions WSL déclarées sur ce poste. Zéro veut dire \
+         « aucune », et rien d'autre : une clé qu'on n'a pas pu lire se dit \
+         « illisible », une clé qui n'existe pas se dit « absent ».",
+        "Aucun — cet item est un constat.",
+    );
+
+    // Un refus ou une absence ne fabrique aucun item par distribution : il n'y
+    // a rien à décrire, et inventer une liste vide serait le même mensonge d'un
+    // cran plus bas.
+    if let Lecture::Trouvee(distros) = lecture {
+        for d in distros {
             let clef = crate::software::Application::clef(&d.nom);
 
             item(
@@ -159,14 +206,15 @@ impl VirtualisationCollector {
                  distribution, avec les droits de l'utilisateur.",
             );
         }
-
-        items
     }
+
+    items
 }
 
 #[cfg(windows)]
 mod windows_impl {
-    use super::{Distribution, DRAPEAU_INTEROP, DRAPEAU_MONTAGE_LECTEURS};
+    use super::{Distribution, Lecture, DRAPEAU_INTEROP, DRAPEAU_MONTAGE_LECTEURS};
+    use crate::posture::{classer, ACCES_REFUSE};
     use std::path::{Path, PathBuf};
     use windows_registry::CURRENT_USER;
 
@@ -190,18 +238,33 @@ mod windows_impl {
         None
     }
 
-    pub(super) fn distributions() -> Vec<Distribution> {
-        let Ok(racine) = CURRENT_USER.open(LXSS) else {
-            return Vec::new();
+    pub(super) fn distributions() -> Lecture<Vec<Distribution>> {
+        // Le classement vient de `posture` : un refus d'accès et une clé absente
+        // sont deux réponses, et le premier jet les avalait toutes deux dans un
+        // `Vec::new()`.
+        let racine = match classer(CURRENT_USER.open(LXSS)) {
+            Lecture::Trouvee(k) => k,
+            Lecture::Absente => return Lecture::Absente,
+            Lecture::Refusee => return Lecture::Refusee,
         };
-        let Ok(sous_clefs) = racine.keys() else {
-            return Vec::new();
+        let sous_clefs = match classer(racine.keys()) {
+            Lecture::Trouvee(s) => s,
+            Lecture::Absente => return Lecture::Absente,
+            Lecture::Refusee => return Lecture::Refusee,
         };
 
         let mut trouvees = Vec::new();
         for identifiant in sous_clefs {
-            let Ok(clef) = racine.open(&identifiant) else {
-                continue;
+            let clef = match racine.open(&identifiant) {
+                Ok(c) => c,
+                // Une seule entrée protégée par une liste de contrôle d'accès
+                // suffit à fausser le décompte. On refuse l'ensemble plutôt que
+                // de publier un nombre dont on sait qu'il manque quelqu'un —
+                // c'est exactement le cas qu'un attaquant fabriquerait.
+                Err(e) if e.code().0 == ACCES_REFUSE => return Lecture::Refusee,
+                // Sous-clé disparue entre l'énumération et l'ouverture : une
+                // course bénigne, et non un aveu.
+                Err(_) => continue,
             };
             // Sans nom, l'entrée n'est montrable à personne (principe P6).
             let Ok(nom) = clef.get_string("DistributionName") else {
@@ -220,7 +283,7 @@ mod windows_impl {
                 montage_lecteurs: drapeaux.map(|f| f & DRAPEAU_MONTAGE_LECTEURS != 0),
             });
         }
-        trouvees
+        Lecture::Trouvee(trouvees)
     }
 }
 
@@ -269,16 +332,86 @@ mod tests {
         }
     }
 
-    #[test]
-    fn le_decompte_existe_meme_sans_distribution() {
-        // Une absence de mesure se dit, elle ne se tait pas : sur un poste sans
-        // WSL, l'item vaut zéro et l'utilisateur sait qu'on a regardé.
-        let chemins: Vec<String> = VirtualisationCollector::items()
+    /// L'item de décompte produit par une lecture donnée.
+    fn decompte(lecture: &Lecture<Vec<Distribution>>) -> Item {
+        items_depuis(lecture)
             .into_iter()
-            .map(|i| i.path)
-            .collect();
-        assert!(chemins
-            .iter()
-            .any(|c| c == "virtualization.wsl.distro_count"));
+            .find(|i| i.path == "virtualization.wsl.distro_count")
+            .expect("le décompte se dit toujours, quelle que soit la lecture")
+    }
+
+    #[test]
+    fn une_absence_de_distribution_se_compte_et_reste_un_constat() {
+        // Le cas nominal d'un poste où WSL est installé sans distribution : la
+        // clé s'ouvre, elle n'a aucune sous-clé. Zéro est alors une MESURE, et
+        // l'utilisateur sait qu'on a regardé. C'est la moitié de la nuance qu'il
+        // ne faut pas perdre en réparant l'autre.
+        let item = decompte(&Lecture::Trouvee(Vec::new()));
+
+        assert_eq!(item.observed, ItemValue::Int(0));
+        assert!(
+            item.observed.est_constat(),
+            "un décompte réel alimente les indicateurs"
+        );
+        assert!(item.verdict().est_concluant());
+
+        // Une distribution lue produit ses quatre items, et le décompte suit.
+        let peuple = Lecture::Trouvee(vec![distro("Debian", Some(56_043_241_472))]);
+        assert_eq!(decompte(&peuple).observed, ItemValue::Int(1));
+        assert_eq!(
+            items_depuis(&peuple).len(),
+            5,
+            "le décompte plus quatre items"
+        );
+    }
+
+    #[test]
+    fn un_refus_de_lecture_ne_se_publie_jamais_en_zero_distribution() {
+        // **Le défaut, et le test qui le verrouillait.** Tout échec d'ouverture
+        // de `Lxss` ou d'énumération renvoyait `Vec::new()` :
+        // `virtualization.wsl.distro_count` publiait `0` en l'annonçant « un
+        // constat », alors que zéro y recouvrait « aucune distribution » ET « je
+        // n'ai pas pu lire ». C'est le défaut réparé dans `posture.rs`,
+        // réintroduit ici — et l'ancien test, qui se contentait d'exiger la
+        // présence du chemin, le tenait en place.
+        let item = decompte(&Lecture::Refusee);
+
+        assert!(
+            !item.observed.est_constat(),
+            "un aveu ne doit jamais alimenter un décompte"
+        );
+        assert_ne!(item.observed, ItemValue::Int(0), "zéro serait un mensonge");
+        assert_ne!(item.observed, ItemValue::Absent, "ni une absence");
+        assert!(
+            item.observed.to_string().contains("refusé"),
+            "la raison doit remonter à l'utilisateur : {}",
+            item.observed
+        );
+
+        // Et rien n'est fabriqué par-dessus : une liste de distributions
+        // inventée à partir d'un refus serait le même mensonge, un cran plus bas.
+        assert_eq!(items_depuis(&Lecture::Refusee).len(), 1);
+
+        // Une clé qui n'existe pas est un troisième cas, distinct des deux
+        // autres : WSL n'est pas installé. Ce n'est ni un aveu, ni un zéro.
+        let jamais_installe = decompte(&Lecture::Absente);
+        assert_eq!(jamais_installe.observed, ItemValue::Absent);
+        assert_ne!(jamais_installe.observed, ItemValue::Int(0));
+    }
+
+    #[test]
+    fn le_decompte_se_dit_quelle_que_soit_la_lecture() {
+        // Une absence de mesure se dit, elle ne se tait pas. Le chemin est
+        // toujours produit ; ce qui change, c'est ce qu'il porte.
+        for lecture in [
+            Lecture::Trouvee(Vec::new()),
+            Lecture::Trouvee(vec![distro("Debian", None)]),
+            Lecture::Absente,
+            Lecture::Refusee,
+        ] {
+            let item = decompte(&lecture);
+            assert!(!item.purpose.is_empty(), "« {} » sans finalité", item.path);
+            assert_eq!(item.provenance, Provenance::Observed);
+        }
     }
 }

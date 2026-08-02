@@ -83,10 +83,43 @@ impl Provenance {
 }
 
 /// Valeur d'un item. Volontairement pauvre : on compare, on affiche, on ne calcule pas.
+///
+/// # La forme sérialisée d'`Absent`, et pourquoi elle n'est pas `null`
+///
+/// La sérialisation est `untagged`, et une variante **unité** y sérialise en
+/// `null` — exactement comme `Option::None`. Mesuré : `desired: Some(Absent)`,
+/// c'est-à-dire « cette clé ne doit pas exister », revenait en `None`, c'est-à-dire
+/// « je ne contrains pas cet item », après un simple aller-retour. Deux intentions
+/// opposées rendues indiscernables, et un [`Verdict::Ecart`] silencieusement
+/// dégradé en [`Verdict::NonContraint`].
+///
+/// [`Self::Absent`] porte donc une **forme objet**, `{"absent": true}`, comme
+/// [`Self::Illisible`] porte `{"raison": …}`. Le passage par
+/// `#[serde(with = …)]` plutôt que par une variante struct est délibéré : la
+/// variante reste **unité côté Rust**, donc `ItemValue::Absent` demeure
+/// constructible et filtrable tel quel dans tout le workspace, et le changement
+/// ne touche que le format d'échange, qui est le seul endroit où le défaut vivait.
+///
+/// # Le piège d'ordre, désamorcé plutôt que contourné
+///
+/// En `untagged`, serde essaie les variantes **dans l'ordre de déclaration**, et
+/// une variante struct dérivée **ignore les champs inconnus**. Une forme
+/// `Absent {}` déclarée avant `Illisible` avalerait donc `{"raison": "…"}`, et un
+/// aveu d'illisibilité deviendrait une absence — le défaut réparé, remis à
+/// l'envers. Ici les deux formes sont **mutuellement exclusives par leur
+/// contenu** : `absent_objet` exige la clé `absent` et refuse toute autre clé
+/// (`deny_unknown_fields`), tandis qu'`Illisible` exige `raison`. L'ordre de
+/// déclaration ne peut donc plus décider du résultat, et le test
+/// `aucune_valeur_ne_se_confond_avec_une_autre_apres_un_aller_retour` l'exige
+/// variante par variante.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ItemValue {
     /// Absence de valeur — l'item n'existe pas sur la machine.
+    ///
+    /// Sérialisée `{"absent": true}`, et **jamais** `null` : voir la note de
+    /// forme sur [`ItemValue`].
+    #[serde(with = "absent_objet")]
     Absent,
     /// Valeur booléenne (activé / désactivé).
     Bool(bool),
@@ -106,12 +139,51 @@ pub enum ItemValue {
     /// « je n'ai pas pu regarder ».
     ///
     /// Variante de forme **objet** à dessein : la sérialisation est `untagged`,
-    /// donc une variante unitaire se confondrait avec [`Self::Absent`] et une
-    /// variante à chaîne avec [`Self::Text`]. Un objet ne ressemble à aucune autre.
+    /// donc une variante à chaîne se confondrait avec [`Self::Text`]. Un objet
+    /// ne ressemble à aucune autre — et [`Self::Absent`] en porte un lui aussi
+    /// depuis qu'on a mesuré que sa forme `null` se confondait avec `None`.
     Illisible {
         /// Pourquoi la lecture a échoué, en clair pour l'utilisateur.
         raison: String,
     },
+}
+
+/// La forme sérialisée d'[`ItemValue::Absent`] : `{"absent": true}`.
+///
+/// Un module plutôt qu'une variante struct, pour que la variante reste unité
+/// côté Rust — voir la note de forme sur [`ItemValue`]. `deny_unknown_fields`
+/// n'est pas décoratif : c'est lui qui empêche cette forme d'avaler un
+/// `{"raison": "…"}` quel que soit l'ordre de déclaration des variantes.
+mod absent_objet {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    /// L'objet effectivement écrit et relu. Un seul champ, et aucun autre toléré.
+    #[derive(Serialize, Deserialize)]
+    #[serde(rename_all = "kebab-case", deny_unknown_fields)]
+    struct Forme {
+        /// Toujours `true`. Le champ porte le sens ; sa valeur ne fait que le confirmer.
+        absent: bool,
+    }
+
+    /// Écrit `{"absent": true}`.
+    pub(super) fn serialize<S: Serializer>(serialiseur: S) -> Result<S::Ok, S::Error> {
+        Forme { absent: true }.serialize(serialiseur)
+    }
+
+    /// Relit `{"absent": true}`, et refuse tout le reste.
+    ///
+    /// `absent: false` n'a pas de sens : ce serait une absence qui n'en est pas
+    /// une. On la refuse plutôt que de la traduire, faute de savoir en quoi.
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserialiseur: D) -> Result<(), D::Error> {
+        let forme = Forme::deserialize(deserialiseur)?;
+        if forme.absent {
+            Ok(())
+        } else {
+            Err(serde::de::Error::custom(
+                "« absent: false » ne décrit rien : une absence ne se nie pas",
+            ))
+        }
+    }
 }
 
 impl ItemValue {
@@ -341,6 +413,111 @@ mod tests {
         let v = item(Some(ItemValue::Bool(true)), ItemValue::Absent).verdict();
         assert_eq!(v, Verdict::Ecart);
         assert!(v.demande_convergence());
+    }
+
+    /// Toutes les valeurs du type, une par variante.
+    ///
+    /// Écrite à la main faute de mieux, mais **pas laissée à la vigilance** : le
+    /// `match` exhaustif sans bras `_` ci-dessous casse la compilation le jour où
+    /// une variante s'ajoute sans rejoindre cette liste. Une liste d'échantillons
+    /// ne détecte jamais ce qu'on a oublié d'y mettre ; le compilateur, si.
+    fn toutes_les_valeurs() -> Vec<ItemValue> {
+        let echantillons = vec![
+            ItemValue::Absent,
+            ItemValue::Bool(true),
+            ItemValue::Bool(false),
+            ItemValue::Int(0),
+            ItemValue::Int(-42),
+            ItemValue::Text(String::new()),
+            ItemValue::Text("absent".into()),
+            ItemValue::List(Vec::new()),
+            ItemValue::List(vec!["a".into(), "b".into()]),
+            ItemValue::illisible("accès refusé sans élévation"),
+        ];
+        for v in &echantillons {
+            match v {
+                ItemValue::Absent
+                | ItemValue::Bool(_)
+                | ItemValue::Int(_)
+                | ItemValue::Text(_)
+                | ItemValue::List(_)
+                | ItemValue::Illisible { .. } => {}
+            }
+        }
+        echantillons
+    }
+
+    #[test]
+    fn aucune_valeur_ne_se_confond_avec_une_autre_apres_un_aller_retour() {
+        // Le défaut mesuré : `Absent` était une variante unité, donc sérialisée
+        // `null` en `untagged` — indiscernable de `Option::None`. Ce test
+        // l'exige variante par variante plutôt que sur le seul cas fautif : c'est
+        // la famille du piège qu'on verrouille, pas son occurrence.
+        for valeur in toutes_les_valeurs() {
+            let json = serde_json::to_string(&valeur).expect("sérialisation");
+            let relue: ItemValue = serde_json::from_str(&json).expect(&json);
+            assert_eq!(relue, valeur, "aller-retour cassé : {json}");
+        }
+
+        // Et deux variantes distinctes ne produisent jamais la même écriture,
+        // sans quoi l'aller-retour ci-dessus tiendrait par accident d'ordre.
+        let mut vues: Vec<String> = toutes_les_valeurs()
+            .iter()
+            .map(|v| serde_json::to_string(v).expect("sérialisation"))
+            .collect();
+        let avant = vues.len();
+        vues.sort();
+        vues.dedup();
+        assert_eq!(
+            avant,
+            vues.len(),
+            "deux variantes s'écrivent pareil : {vues:?}"
+        );
+
+        // La forme d'`Absent` est un objet, nommément. Un `null` ici, et le
+        // défaut est revenu.
+        assert_eq!(
+            serde_json::to_string(&ItemValue::Absent).expect("sérialisation"),
+            r#"{"absent":true}"#
+        );
+
+        // Un aveu d'illisibilité ne se relit jamais en absence : c'est le piège
+        // d'ordre d'`untagged`, celui qu'on remettrait à l'envers en donnant à
+        // `Absent` une forme struct tolérante aux champs inconnus.
+        let aveu: ItemValue =
+            serde_json::from_str(r#"{"raison":"accès refusé"}"#).expect("forme connue");
+        assert!(
+            !aveu.est_constat(),
+            "{aveu:?} : un aveu est devenu un constat"
+        );
+    }
+
+    #[test]
+    fn un_desir_dabsence_ne_se_relit_pas_en_absence_de_desir() {
+        // Les deux intentions que la forme `null` confondait, et le verdict que
+        // cette confusion faisait basculer : « cette clé ne doit pas exister »
+        // (un écart, donc à converger) devenait « je ne contrains pas cet item »
+        // (rien à faire). Le silence est du bon côté de l'erreur, ce qui est
+        // exactement ce qui le rendait indétectable.
+        for desire in [None, Some(ItemValue::Absent)] {
+            let json = serde_json::to_string(&desire).expect("sérialisation");
+            let relu: Option<ItemValue> = serde_json::from_str(&json).expect(&json);
+            assert_eq!(relu, desire, "aller-retour cassé : {json}");
+        }
+
+        assert_ne!(
+            serde_json::to_string(&Some(ItemValue::Absent)).expect("sérialisation"),
+            serde_json::to_string(&Option::<ItemValue>::None).expect("sérialisation"),
+            "« ne doit pas exister » et « non déclaré » se réécrivent pareil"
+        );
+
+        // Le verdict, qui est ce que tout cela protège : l'item survit à un
+        // aller-retour complet sans changer de sens.
+        let i = item(Some(ItemValue::Absent), ItemValue::Bool(true));
+        let json = serde_json::to_string(&i).expect("sérialisation");
+        let relu: Item = serde_json::from_str(&json).expect(&json);
+        assert_eq!(relu.verdict(), Verdict::Ecart);
+        assert_eq!(i.verdict(), relu.verdict());
     }
 
     #[test]

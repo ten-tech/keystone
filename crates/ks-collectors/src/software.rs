@@ -144,12 +144,129 @@ impl Application {
     /// sources n'écrivent jamais un nom de la même façon — « Git » côté registre,
     /// « git » côté Scoop, « Git for Windows » côté éditeur. Une comparaison exacte
     /// ne rapprocherait rien, et c'est le rapprochement qui fait la valeur ici.
+    ///
+    /// # Grossière, mais pas au point d'effacer un nom entier
+    ///
+    /// Le filtre portait sur `is_ascii_alphanumeric`, ce qui réduisait à la
+    /// **chaîne vide** tout nom écrit hors de l'alphabet latin :
+    /// `clef("微信")` et `clef("Касп")` valaient tous deux `""`. Deux
+    /// conséquences mesurées, et la seconde est la plus grave :
+    ///
+    /// * le dédoublonnage par clé fusionnait des applications sans rapport —
+    ///   trois entrées distinctes en donnaient deux ;
+    /// * [`Item::path`](ks_core::Item::path), documenté « chemin canonique et
+    ///   **stable** », cessait d'être unique, deux applications se disputant
+    ///   `inventory.software[].version`.
+    ///
+    /// Le filtre est donc Unicode, et la clé vide est **refusée** : un nom qui ne
+    /// porte ni lettre ni chiffre dans aucun alphabet se replie sur une empreinte
+    /// courte de ce nom, de sorte que deux noms différents ne se rencontrent
+    /// jamais.
     #[must_use]
     pub fn clef(nom: &str) -> String {
-        nom.to_lowercase()
+        let filtree: String = nom
+            .to_lowercase()
             .chars()
-            .filter(char::is_ascii_alphanumeric)
-            .collect()
+            .filter(|c| c.is_alphanumeric())
+            .collect();
+        if filtree.is_empty() {
+            empreinte(nom)
+        } else {
+            filtree
+        }
+    }
+}
+
+/// Empreinte FNV-1a 64 bits d'un nom, en hexadécimal, préfixée pour se distinguer.
+///
+/// **Non cryptographique, et ce n'en est pas moins le bon outil ici** : cette
+/// empreinte ne résiste à aucun adversaire, elle *sépare*. Aucun secret n'en
+/// dépend, aucune décision de sécurité non plus — contrairement au chaînage du
+/// journal, qui a dû quitter ce même FNV-1a pour BLAKE3 (ADR-0004).
+///
+/// Elle ne sert qu'aux noms dont le filtrage ne laisse rien : des chaînes de
+/// symboles, sans une seule lettre ni un seul chiffre dans aucun alphabet. Le
+/// préfixe `empreinte-` contient un tiret, qu'aucune clé filtrée ne peut porter :
+/// un repli ne peut donc pas se faire passer pour un nom.
+fn empreinte(nom: &str) -> String {
+    /// Base de FNV-1a 64 bits.
+    const BASE: u64 = 0xcbf2_9ce4_8422_2325;
+    /// Multiplicateur de FNV-1a 64 bits.
+    const PREMIER: u64 = 0x0000_0100_0000_01b3;
+
+    let mut h = BASE;
+    for octet in nom.as_bytes() {
+        h ^= u64::from(*octet);
+        h = h.wrapping_mul(PREMIER);
+    }
+    format!("empreinte-{h:016x}")
+}
+
+/// Ce que l'inventaire doit conclure de winget.
+///
+/// Trois états, et le `match` sur ce type est **exhaustif sans bras `_`** : la
+/// nuance entre « pas installé » et « installé mais muet » décide de la
+/// publication du pourcentage, et la laisser tomber dans un fourre-tout serait
+/// exactement la confusion que ce fichier existe pour lever.
+///
+/// **Aucune des deux entrées de [`Self::deduire`] ne décrit un exécutable**, et
+/// c'est le point : le gardien est la donnée. Voir
+/// [`crate::winget::est_installe`] pour ce que la version précédente faisait, et
+/// ce qu'elle coûtait.
+// Sans Windows, seuls les tests l'emploient : le cfg évite un `dead_code` sur la
+// cible Linux, où le reste du collecteur logiciel ne s'exécute pas.
+#[cfg(any(windows, test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EtatWinget {
+    /// Aucun dossier d'état : winget n'est pas installé sur ce poste.
+    Absent,
+    /// Installé, et l'ensemble de son suivi a été lu.
+    Interrogeable,
+    /// Installé, mais tout ou partie de son suivi est resté illisible.
+    ///
+    /// Le décompte des non attribuées devient alors un **majorant**, et le
+    /// pourcentage se tait.
+    Muet,
+}
+
+#[cfg(any(windows, test))]
+impl EtatWinget {
+    /// Déduit l'état de winget de sa présence et de ce que ses bases ont donné.
+    fn deduire(installe: bool, suivi: &crate::winget::SuiviWinget) -> Self {
+        match (installe, suivi.est_complet()) {
+            (false, _) => Self::Absent,
+            (true, true) => Self::Interrogeable,
+            (true, false) => Self::Muet,
+        }
+    }
+}
+
+/// Attribue à winget les applications que ses bases de suivi revendiquent.
+///
+/// Ne décide de rien d'autre : la complétude appartient à
+/// [`crate::winget::SuiviWinget::est_complet`], la présence à
+/// [`crate::winget::est_installe`], et la conclusion à [`EtatWinget`].
+///
+/// Le suivi entre en **paramètre** plutôt que d'être lu ici, pour deux raisons.
+/// La fonction s'éprouve alors sans machine, cible Linux comprise ; et l'appelant
+/// ne peut plus sauter la lecture sans qu'on le voie, puisqu'il lui faut bien
+/// produire l'argument.
+#[cfg(any(windows, test))]
+fn attribuer_winget(applications: &mut [Application], suivi: &crate::winget::SuiviWinget) {
+    for app in applications.iter_mut() {
+        if app.gestionnaire.est_attribue() {
+            continue;
+        }
+        // Deux identités, un seul champ : un code produit pour une entrée du
+        // registre, un nom de famille pour un paquet MSIX. winget range les
+        // deux, dans deux tables distinctes.
+        let revendique = app
+            .clef_source
+            .as_deref()
+            .is_some_and(|c| suivi.revendique_code(c) || suivi.revendique_famille(c));
+        if revendique {
+            app.gestionnaire = Gestionnaire::Winget;
+        }
     }
 }
 
@@ -605,35 +722,6 @@ mod windows_impl {
         }
     }
 
-    fn winget_present() -> bool {
-        chemin_env("LOCALAPPDATA", r"Microsoft\WindowsApps\winget.exe").is_some_and(|p| p.exists())
-    }
-
-    /// Attribue à winget les applications que ses bases de suivi revendiquent.
-    ///
-    /// Renvoie `true` si l'interrogation a été complète. Dans le cas contraire, le
-    /// gestionnaire rejoint les non interrogeables et le pourcentage se tait —
-    /// une attribution partielle ne se laisse pas lire comme une mesure.
-    fn attribuer_winget(applications: &mut [Application]) -> bool {
-        let suivi = crate::winget::lire_suivi();
-        for app in applications.iter_mut() {
-            if app.gestionnaire.est_attribue() {
-                continue;
-            }
-            // Deux identités, un seul champ : un code produit pour une entrée du
-            // registre, un nom de famille pour un paquet MSIX. winget range les
-            // deux, dans deux tables distinctes.
-            let revendique = app
-                .clef_source
-                .as_deref()
-                .is_some_and(|c| suivi.revendique_code(c) || suivi.revendique_famille(c));
-            if revendique {
-                app.gestionnaire = Gestionnaire::Winget;
-            }
-        }
-        suivi.est_complet()
-    }
-
     pub(super) fn inventorier() -> Inventaire {
         let mut applications = applications_du_registre();
         applications.extend(applications_msix());
@@ -672,10 +760,23 @@ mod windows_impl {
         // doit pas écraser une revendication déjà faite — deux gestionnaires sur
         // la même application est un conflit qui mérite d'être vu, pas arbitré en
         // silence. C'est une question ouverte pour la Phase 1.
+        //
+        // **La lecture du suivi est inconditionnelle.** Elle était auparavant
+        // gardée par l'existence de `winget.exe` dans `WindowsApps`, c'est-à-dire
+        // par l'alias d'exécution d'application — un réglage que l'utilisateur
+        // éteint sans rien désinstaller. Alias éteint et bases pleines, aucune
+        // application n'était attribuée et l'inventaire annonçait pourtant une
+        // attribution « complète ». Le gardien est désormais la donnée : les
+        // bases attestent de winget, `est_complet` décide seul de la complétude.
+        let suivi = crate::winget::lire_suivi();
+        super::attribuer_winget(&mut applications, &suivi);
+
         let mut non_interrogeables = Vec::new();
-        if winget_present() {
-            gestionnaires.push(Gestionnaire::Winget);
-            if !attribuer_winget(&mut applications) {
+        match super::EtatWinget::deduire(crate::winget::est_installe(), &suivi) {
+            super::EtatWinget::Absent => {}
+            super::EtatWinget::Interrogeable => gestionnaires.push(Gestionnaire::Winget),
+            super::EtatWinget::Muet => {
+                gestionnaires.push(Gestionnaire::Winget);
                 non_interrogeables.push(Gestionnaire::Winget);
             }
         }
@@ -728,6 +829,66 @@ mod tests {
             Application::clef("visualstudiocode")
         );
         assert_ne!(Application::clef("git"), Application::clef("github"));
+    }
+
+    #[test]
+    fn un_nom_hors_alphabet_latin_garde_une_clef_qui_lui_est_propre() {
+        // Le filtre `is_ascii_alphanumeric` réduisait à la chaîne vide TOUT nom
+        // écrit hors alphabet latin. Mesuré : `clef("微信") == clef("Касп") == ""`.
+        // Trois applications distinctes entraient dans le dédoublonnage, deux en
+        // ressortaient — et `Item.path`, documenté « canonique et stable »,
+        // cessait d'être unique.
+        let noms = ["微信", "Касперский", "日本語エディタ", "Ελληνικά", "한글"];
+
+        for nom in noms {
+            assert!(
+                !Application::clef(nom).is_empty(),
+                "« {nom} » : un nom entier effacé par le filtrage"
+            );
+        }
+
+        // Le symptôme mesuré, reproduit tel quel : autant de clés que de noms.
+        let mut clefs: Vec<String> = noms.iter().map(|n| Application::clef(n)).collect();
+        let avant = clefs.len();
+        clefs.sort();
+        clefs.dedup();
+        assert_eq!(
+            clefs.len(),
+            avant,
+            "des applications sans rapport partagent une clé : {clefs:?}"
+        );
+
+        // Le rapprochement, lui, continue de faire son travail hors ASCII : c'est
+        // la raison d'être de la fonction, et elle ne doit pas être perdue en
+        // route.
+        assert_eq!(
+            Application::clef("Касперский"),
+            Application::clef("касперский")
+        );
+        assert_eq!(Application::clef("微信 6.0"), Application::clef("微信6.0"));
+        assert_ne!(Application::clef("微信"), Application::clef("微软"));
+    }
+
+    #[test]
+    fn une_clef_nest_jamais_vide_meme_sans_le_moindre_caractere_alphanumerique() {
+        // Un nom fait de symboles seuls ne porte ni lettre ni chiffre dans aucun
+        // alphabet. La clé vide serait le même défaut, simplement plus rare : deux
+        // noms sans rapport se rencontreraient dans le dédoublonnage et dans le
+        // chemin d'item.
+        let etoiles = Application::clef("★★★");
+        let cris = Application::clef("!!!");
+
+        assert!(!etoiles.is_empty());
+        assert!(!cris.is_empty());
+        assert_ne!(etoiles, cris, "deux noms distincts, deux clés");
+
+        // Stable d'un appel à l'autre : le chemin d'item en dépend.
+        assert_eq!(etoiles, Application::clef("★★★"));
+
+        // Et le repli ne peut pas se faire passer pour un nom filtré, qui est
+        // alphanumérique par construction, donc sans tiret.
+        assert!(etoiles.contains('-'), "« {etoiles} » : repli indiscernable");
+        assert!(!Application::clef("Git").contains('-'));
     }
 
     #[test]
@@ -808,6 +969,130 @@ mod tests {
         let vide = Inventaire::default();
         assert_eq!(vide.part_non_attribuees(), None);
         assert!(vide.non_attribuees().is_empty());
+    }
+
+    /// Une application dont on connaît la clé de désinstallation.
+    fn app_avec_source(nom: &str, source: &str) -> Application {
+        Application {
+            clef_source: Some(source.to_owned()),
+            ..app(nom, Gestionnaire::NonAttribue)
+        }
+    }
+
+    /// Un suivi winget lu de bout en bout, deux bases sur deux.
+    fn suivi_complet() -> crate::winget::SuiviWinget {
+        crate::winget::SuiviWinget {
+            bases_lues: 2,
+            codes_produits: ["git_is1".to_owned()].into_iter().collect(),
+            familles_msix: ["microsoft.powershell_8wekyb3d8bbwe".to_owned()]
+                .into_iter()
+                .collect(),
+            bases_illisibles: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn lattribution_winget_ne_depend_pas_de_son_alias_dexecution() {
+        // Le défaut mesuré : toute l'attribution était gardée par l'existence de
+        // `%LOCALAPPDATA%\Microsoft\WindowsApps\winget.exe`, c'est-à-dire par
+        // l'alias d'exécution d'application — un réglage que l'utilisateur éteint
+        // d'un interrupteur sans rien désinstaller. Alias éteint, bases pleines
+        // et à jour : `lire_suivi` n'était jamais appelé, les paquets tombaient
+        // tous en « non attribué », et `inventory.software.attribution` publiait
+        // « complète ».
+        //
+        // Ici aucun exécutable n'entre en jeu, et c'est tout le propos : la
+        // fonction ne reçoit que la donnée.
+        let suivi = suivi_complet();
+        let mut applications = vec![
+            app_avec_source("Git", "Git_is1"),
+            app_avec_source("PowerShell", "Microsoft.PowerShell_8wekyb3d8bbwe"),
+            app_avec_source("Vieux Logiciel", "vieuxlogiciel_is1"),
+        ];
+
+        attribuer_winget(&mut applications, &suivi);
+
+        assert_eq!(
+            applications[0].gestionnaire,
+            Gestionnaire::Winget,
+            "un code produit revendiqué attribue, alias ou pas"
+        );
+        assert_eq!(
+            applications[1].gestionnaire,
+            Gestionnaire::Winget,
+            "une famille MSIX revendiquée attribue aussi"
+        );
+        assert_eq!(
+            applications[2].gestionnaire,
+            Gestionnaire::NonAttribue,
+            "et ce que winget ne revendique pas reste orphelin"
+        );
+
+        // La complétude appartient au suivi, à lui seul.
+        assert_eq!(EtatWinget::deduire(true, &suivi), EtatWinget::Interrogeable);
+    }
+
+    #[test]
+    fn la_conclusion_sur_winget_ne_vient_que_de_ses_bases() {
+        // La table complète, parce que c'est elle qui décide si le pourcentage
+        // s'affiche. Un winget installé mais muet n'est PAS un winget absent :
+        // le premier rend le décompte des orphelines majorant, le second non.
+        assert_eq!(
+            EtatWinget::deduire(true, &suivi_complet()),
+            EtatWinget::Interrogeable
+        );
+
+        let muet = crate::winget::SuiviWinget {
+            bases_lues: 1,
+            bases_illisibles: vec!["StoreEdgeFD — ouverture refusée".to_owned()],
+            ..suivi_complet()
+        };
+        assert_eq!(EtatWinget::deduire(true, &muet), EtatWinget::Muet);
+
+        // Installé sans qu'aucune base ait été lue : muet également. Conclure
+        // « complète » ici reviendrait à affirmer que winget ne gère rien, alors
+        // qu'on n'a rien pu lire.
+        assert_eq!(
+            EtatWinget::deduire(true, &crate::winget::SuiviWinget::default()),
+            EtatWinget::Muet
+        );
+
+        // Et un poste sans winget ne le fait figurer nulle part : ni parmi les
+        // gestionnaires, ni parmi les non interrogeables. Sans quoi le
+        // pourcentage disparaîtrait sur toute machine où winget n'est pas
+        // installé, y compris hors Windows.
+        assert_eq!(
+            EtatWinget::deduire(false, &suivi_complet()),
+            EtatWinget::Absent
+        );
+        assert_eq!(
+            EtatWinget::deduire(false, &crate::winget::SuiviWinget::default()),
+            EtatWinget::Absent
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn un_winget_installe_est_toujours_interroge() {
+        // La barrière au niveau du câblage, et non plus des fonctions pures :
+        // ce que l'inventaire publie sur winget doit être exactement ce que ses
+        // bases disent. Sur la machine où l'alias d'exécution est éteint — celle
+        // qui a révélé le défaut — la version précédente échouait ici : winget
+        // ne figurait pas même parmi les gestionnaires détectés.
+        let inv = SoftwareCollector::inventorier();
+        if !crate::winget::est_installe() {
+            return;
+        }
+
+        assert!(
+            inv.gestionnaires.contains(&Gestionnaire::Winget),
+            "winget a un dossier d'état : il est installé, donc détecté"
+        );
+        assert_eq!(
+            inv.non_interrogeables.contains(&Gestionnaire::Winget),
+            !crate::winget::lire_suivi().est_complet(),
+            "la complétude publiée doit être celle des bases, et rien d'autre"
+        );
     }
 
     #[test]

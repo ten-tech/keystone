@@ -2,10 +2,13 @@
 //!
 //! ## Pourquoi ce module existe
 //!
-//! winget se détecte sans se laisser interroger. Sa présence est triviale à
-//! constater — un exécutable dans `WindowsApps` — mais savoir **quelles**
-//! applications il gère demande de lire son inventaire, et cet inventaire vit
-//! dans des bases SQLite dont le format n'est contractuel nulle part.
+//! winget se détecte sans se laisser interroger. Sa présence se constate par son
+//! dossier d'état — et **surtout pas** par `winget.exe` dans `WindowsApps`, qui
+//! n'est que son alias d'exécution d'application, donc un réglage que
+//! l'utilisateur éteint sans rien désinstaller ; voir [`est_installe`]. Mais
+//! savoir **quelles** applications il gère demande de lire son inventaire, et
+//! cet inventaire vit dans des bases SQLite dont le format n'est contractuel
+//! nulle part.
 //!
 //! Tant que ce module n'existait pas, l'inventaire logiciel affichait « 63
 //! applications, 63 non attribuées » : un décompte exact et une conclusion
@@ -123,11 +126,51 @@ pub fn lire_suivi() -> SuiviWinget {
     }
 }
 
+/// winget est-il installé sur ce poste ?
+///
+/// # Le témoin est la donnée, jamais l'alias d'exécution
+///
+/// La présence se constate par le **dossier d'état** de l'App Installer, et
+/// surtout pas par `%LOCALAPPDATA%\Microsoft\WindowsApps\winget.exe`. Ce
+/// dernier n'est pas l'exécutable de winget : c'est son *alias d'exécution
+/// d'application*, un réglage que l'utilisateur éteint d'un interrupteur dans
+/// Paramètres → Applications, et qui ne désinstalle rien.
+///
+/// Conditionner l'attribution à cet alias produisait le pire enchaînement
+/// possible : alias éteint et bases pleines, [`lire_suivi`] n'était jamais
+/// appelé, tous les paquets tombaient en « non attribué », et
+/// `inventory.software.attribution` publiait pourtant « complète ». Tout
+/// l'appareil d'honnêteté de [`SuiviWinget::est_complet`] était court-circuité
+/// par un réglage d'interface.
+#[must_use]
+pub fn est_installe() -> bool {
+    #[cfg(windows)]
+    {
+        racine_local_state().is_some()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
 /// Le dossier d'état de l'App Installer, où vit une base par source.
 #[cfg(windows)]
 fn racine_local_state() -> Option<PathBuf> {
     let base = std::env::var_os("LOCALAPPDATA")?;
-    let chemin = PathBuf::from(base)
+    racine_sous(&PathBuf::from(base))
+}
+
+/// Le dossier d'état sous une racine `LOCALAPPDATA` donnée.
+///
+/// Séparée de [`racine_local_state`] pour être éprouvable sans toucher au
+/// `LOCALAPPDATA` du processus. C'est ce qui permet à
+/// `winget_se_constate_par_ses_bases_jamais_par_son_alias` de vérifier que le
+/// témoin de présence est bien la donnée : le test fabrique une racine qui
+/// contient les bases et **pas** `winget.exe`, et exige un `Some`.
+#[cfg(windows)]
+fn racine_sous(base: &Path) -> Option<PathBuf> {
+    let chemin = base
         .join("Packages")
         .join("Microsoft.DesktopAppInstaller_8wekyb3d8bbwe")
         .join("LocalState");
@@ -331,6 +374,40 @@ mod tests {
             suivi.bases_illisibles
         );
         let _ = std::fs::remove_dir_all(&racine);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn winget_se_constate_par_ses_bases_jamais_par_son_alias_dexecution() {
+        // Le défaut mesuré : la présence de winget était constatée sur
+        // `%LOCALAPPDATA%\Microsoft\WindowsApps\winget.exe`, qui n'est pas son
+        // exécutable mais son **alias d'exécution d'application** — un réglage
+        // que l'utilisateur éteint sans rien désinstaller.
+        //
+        // La racine fabriquée ici porte les bases et ne porte PAS l'alias. Le
+        // jour où le témoin redeviendrait l'exécutable, ce test échouerait sur
+        // n'importe quelle machine, alias allumé ou non : c'est la raison d'être
+        // du paramètre de `racine_sous`.
+        let faux = std::env::temp_dir().join("ks-winget-sans-alias");
+        let _ = std::fs::remove_dir_all(&faux);
+        let etat = faux
+            .join("Packages")
+            .join("Microsoft.DesktopAppInstaller_8wekyb3d8bbwe")
+            .join("LocalState");
+        base_de_test(&etat.join("Source.Test"), "1");
+
+        let alias = faux
+            .join("Microsoft")
+            .join("WindowsApps")
+            .join("winget.exe");
+        assert!(!alias.exists(), "le décor doit être sans alias");
+
+        let racine = racine_sous(&faux).expect("les bases attestent de winget, pas l'alias");
+        let suivi = lire_depuis(&racine);
+        assert!(suivi.est_complet(), "{:?}", suivi.bases_illisibles);
+        assert!(suivi.revendique_code("git_is1"));
+
+        let _ = std::fs::remove_dir_all(&faux);
     }
 
     #[cfg(windows)]

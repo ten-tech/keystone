@@ -109,6 +109,30 @@ pub enum Lecture<T> {
 /// Ce qu'on dit à l'utilisateur quand une clé lui est refusée.
 const REFUS: &str = "accès refusé sans élévation";
 
+/// `HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED)`, soit `0x8007_0005`.
+///
+/// C'est le seul code qu'on distingue. Tous les autres échecs — clé absente en
+/// tête — se rangent en [`Lecture::Absente`], parce qu'ils décrivent
+/// effectivement une machine où la chose n'existe pas.
+#[cfg(windows)]
+pub(crate) const ACCES_REFUSE: i32 = -2_147_024_891;
+
+/// Range un résultat du registre dans l'un des trois états de [`Lecture`].
+///
+/// Remontée au niveau du module, et `pub(crate)`, parce que le collecteur de
+/// virtualisation en a besoin mot pour mot : il avalait lui aussi un refus dans
+/// un `Vec::new()`, et publiait « 0 distribution » là où il n'avait rien pu
+/// lire. Une seconde copie de ces trois lignes aurait fait diverger les deux
+/// classements au premier changement.
+#[cfg(windows)]
+pub(crate) fn classer<T>(resultat: windows_registry::Result<T>) -> Lecture<T> {
+    match resultat {
+        Ok(v) => Lecture::Trouvee(v),
+        Err(e) if e.code().0 == ACCES_REFUSE => Lecture::Refusee,
+        Err(_) => Lecture::Absente,
+    }
+}
+
 /// Traduit un drapeau du registre.
 ///
 /// L'absence ne devient **jamais** `false` : c'est la règle en tête de module, et
@@ -459,29 +483,13 @@ fn horodatage_vers_filetime(d: DateTime<Utc>) -> u64 {
 #[cfg(windows)]
 mod windows_impl {
     use super::{
-        application_integrite_code, date_firmware_certaine, demarrage_service, drapeau,
+        application_integrite_code, classer, date_firmware_certaine, demarrage_service, drapeau,
         est_autorisation_entrante_active, etat_vbs, filetime_vers_horodatage, item_posture, liste,
         mode_asr, protection_verrouillable, service_vbs, service_vbs_present, texte, Lecture,
-        SERVICES_SURVEILLES,
+        ACCES_REFUSE, SERVICES_SURVEILLES,
     };
     use ks_core::{Item, ItemValue};
     use windows_registry::{Type, LOCAL_MACHINE};
-
-    /// `HRESULT_FROM_WIN32(ERROR_ACCESS_DENIED)`, soit `0x8007_0005`.
-    ///
-    /// C'est le seul code qu'on distingue. Tous les autres échecs — clé absente
-    /// en tête — se rangent en [`Lecture::Absente`], parce qu'ils décrivent
-    /// effectivement une machine où la chose n'existe pas.
-    const ACCES_REFUSE: i32 = -2_147_024_891;
-
-    /// Range un résultat du registre dans l'un des trois états.
-    fn classer<T>(resultat: windows_registry::Result<T>) -> Lecture<T> {
-        match resultat {
-            Ok(v) => Lecture::Trouvee(v),
-            Err(e) if e.code().0 == ACCES_REFUSE => Lecture::Refusee,
-            Err(_) => Lecture::Absente,
-        }
-    }
 
     /// Lit un entier. Le refus d'accès ne se confond pas avec l'absence.
     fn u32_registre(chemin: &str, nom: &str) -> Lecture<u32> {
