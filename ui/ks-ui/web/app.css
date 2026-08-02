@@ -1,0 +1,244 @@
+/* Coque de `ks-ui`.
+ *
+ * Les valeurs ne sont pas choisies ici : elles sont RECOPIÉES de
+ * `design/tokens.css`, dont les contrastes sont vérifiés par calcul dans
+ * `design/palette-validation.md`. Substituer une teinte à l'œil dans ce fichier
+ * casserait cette vérification sans que personne le voie.
+ *
+ * Les seules paires employées ici sont celles que le document valide :
+ * ink-1 sur surface-0 (14,8:1), ink-2 sur surface-0 (7,9:1), ink-3 sur
+ * surface-1 (5,05:1), vital sur surface-1 (9,4:1).
+ *
+ * Aucune police distante : la pile de repli est celle des tokens, et elle se
+ * termine sur les polices du système. */
+:root {
+  --surface-0: #0b0f14;
+  --surface-1: #131a22;
+  --surface-2: #1b242f;
+  --hairline: rgba(255, 255, 255, 0.07);
+  --hairline-strong: rgba(255, 255, 255, 0.12);
+  --ink-1: #e6edf3;
+  --ink-2: #9fb0c0;
+  --ink-3: #798c9d;
+  --vital: #4fd1c5;
+  --attention: #e8a33d;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --r-ctl: 6px;
+  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-0);
+  color: var(--ink-1);
+  font: 14px/1.55 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  /* La coque n'est pas une page web : rien à sélectionner, rien à faire
+     glisser. Le rapport, lui, reste entièrement sélectionnable dans son cadre. */
+  user-select: none;
+}
+
+/* ── Bandeau ────────────────────────────────────────────────────────────── */
+
+.bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-5);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--hairline-strong);
+}
+
+.bar-state {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 13px;
+  /* Le nom de machine ne pousse jamais le bouton hors de la fenêtre. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
+  color: var(--ink-1);
+  font: 600 13px/1 var(--font-sans);
+  cursor: pointer;
+  transition: background 150ms ease-out, border-color 150ms ease-out;
+}
+
+.btn:hover:not([disabled]) {
+  background: #222e3b; /* --surface-3 des tokens */
+  border-color: var(--vital);
+}
+
+.btn:active:not([disabled]) {
+  background: var(--surface-1);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--vital);
+  outline-offset: 2px;
+}
+
+.btn[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Scène ──────────────────────────────────────────────────────────────── */
+
+.stage {
+  flex: 1 1 auto;
+  position: relative;
+  min-height: 0;
+}
+
+.panel {
+  display: none;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  padding: var(--sp-7) var(--sp-5);
+  text-align: center;
+}
+
+.panel h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.lede {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--ink-2);
+}
+
+.elapsed {
+  margin: 0;
+  color: var(--ink-1);
+  font: 13px/1.4 var(--font-mono);
+  /* Réservée d'avance : le compteur ne doit pas faire sauter la mise en page
+     quand il passe de « 9 s » à « 10 s ». */
+  min-width: 12ch;
+}
+
+.foot {
+  margin: var(--sp-4) 0 0;
+  max-width: 60ch;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.detail {
+  margin: var(--sp-2) 0 0;
+  max-width: 72ch;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-ctl);
+  background: var(--surface-1);
+  color: var(--ink-3);
+  font: 12px/1.5 var(--font-mono);
+  /* Le détail technique se copie : c'est ce qu'on colle dans un rapport. */
+  user-select: text;
+  word-break: break-word;
+}
+
+.detail:empty {
+  display: none;
+}
+
+#failure .glyph {
+  color: var(--attention);
+}
+
+/* L'anneau tourne à vitesse constante : il ne prétend mesurer aucune
+   progression, donc `linear` est ici la bonne courbe, et la seule. */
+.ring {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--hairline-strong);
+  border-top-color: var(--vital);
+  animation: tour 1200ms linear infinite;
+}
+
+@keyframes tour {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ring {
+    animation: none;
+    /* Sans rotation, l'anneau doit rester lisible comme un repère fixe plutôt
+       que passer pour un élément figé par une panne. */
+    border-color: var(--vital);
+    opacity: 0.6;
+  }
+  .btn {
+    transition: none;
+  }
+}
+
+/* ── Le rapport ─────────────────────────────────────────────────────────── */
+
+.report {
+  display: none;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--surface-0);
+}
+
+/* ── États ──────────────────────────────────────────────────────────────── */
+
+body[data-state="collecting"] #waiting,
+body[data-state="failed"] #failure {
+  display: flex;
+}
+
+body[data-state="ready"] .report {
+  display: block;
+}
+
+/* Contraste imposé par le système : on rend la main aux couleurs de l'OS
+   plutôt que d'imposer les nôtres. */
+@media (forced-colors: active) {
+  .btn {
+    border: 1px solid ButtonText;
+  }
+  #failure .glyph,
+  .ring {
+    color: CanvasText;
+    border-top-color: CanvasText;
+  }
+}

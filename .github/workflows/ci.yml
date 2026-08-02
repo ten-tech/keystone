@@ -304,6 +304,19 @@ jobs:
       - name: Le workspace compile sur la MSRV déclarée
         run: cargo +1.85.0 check --locked --workspace --all-targets
 
+      # La coque de bureau déclare la même MSRV, et il faut la mesurer pour la
+      # même raison. Elle en est même le cas le plus tendu : `tauri` annonce
+      # 1.77.2 alors que son arbre transitif exige 1.88 sans le résolveur 3
+      # (`darling_macro` 1.88, `icu_collections` 1.86). C'est la quatrième
+      # occurrence de ce piège sur ce projet ; celle-ci n'a pas mordu, et ce
+      # job est ce qui garantit qu'elle ne mordra pas demain non plus.
+      #
+      # Windows seulement : `tauri` ne compile pas sans WebView2.
+      - name: La coque de bureau compile sur la MSRV déclarée
+        if: runner.os == 'Windows'
+        working-directory: ui
+        run: cargo +1.85.0 check --locked --workspace --all-targets
+
   # ── Chaîne d'approvisionnement ─────────────────────────────────────────
   # Sur un composant privilégié, chaque crate ajoutée est une surface ajoutée
   # (voir docs/04-MODELE-DE-MENACE.md, adversaire A4).
@@ -336,6 +349,55 @@ jobs:
         with:
           command: check
           arguments: --all-features
+
+      # `ui/` est un workspace séparé (ADR-0012), donc un verrou séparé, donc
+      # invisible de la vérification ci-dessus. Sans cette étape, les ~465
+      # crates de l'arbre Tauri — plus de trois fois la surface du produit —
+      # ne passaient AUCUN contrôle. Ce n'est pas théorique : la première
+      # exécution a remonté trois vulnérabilités et cinq crates abandonnées,
+      # toutes transitives, aucune corrigeable depuis ce dépôt. Elles sont
+      # écartées une par une, datées et motivées, dans ui/deny.toml.
+      #
+      # Une politique qui ne couvre qu'un tiers de ce qu'on livre donne une
+      # assurance fausse — pire que pas de politique.
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          command: check
+          arguments: --all-features
+          manifest-path: ui/Cargo.toml
+
+  # ── La coque de bureau (ADR-0012) ──────────────────────────────────────
+  #
+  # Workspace séparé : il ne profite d'aucun des travaux ci-dessus, et doit
+  # donc porter les siens. Windows seulement — la coque ne se livre que là,
+  # et `tauri` ne compile pas sans WebView2.
+  ui:
+    name: Coque de bureau (Windows)
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@46511b1c83438f0dd37c02d843619ece5a4abb5b # branche 1.97.1
+        with:
+          components: rustfmt, clippy
+
+      - name: Format
+        working-directory: ui
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        working-directory: ui
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+      - name: Tests
+        working-directory: ui
+        run: cargo test --locked --workspace
+
+      # La coque n'affiche JAMAIS la maquette : c'est la décision centrale de
+      # l'ADR-0012, et un test la tient. Cette étape l'isole pour qu'un échec
+      # se lise sans fouiller la sortie du workspace.
+      - name: La coque n'affiche pas la maquette
+        working-directory: ui
+        run: cargo test --locked --workspace -- --nocapture maquette
 
   # ── Cohérence de la documentation ──────────────────────────────────────
   docs:
@@ -393,7 +455,7 @@ jobs:
           # intrusions », que docs/09-GLOSSAIRE.md désigne pourtant comme LA phrase
           # à proscrire. Un garde-fou qui ne peut pas attraper son propre cas canonique
           # est une étape verte de plus. Vérifié empiriquement sur les cinq tournures.
-          hits=$(grep -rniE "détecte( \S+){0,2} intrusions?|optimise votre (PC|système|machine)|accélérateur de (RAM|mémoire)|nettoyeur de registre|nettoie" \
+          hits=$(grep -rniE "détecte( \S+){0,2} intrusions?|optimise votre (PC|système|machine)|accélérateur de (RAM|mémoire)|nettoyeur de registre|\bnettoie\b" \
                    docs/ README.md 2>/dev/null \
                  | grep -viE "aucun|pas de|jamais|proscri|interdit|faux ami|refus|mensonge|dangereux" || true)
           # « » a été RETIRÉ de ce filtre inverse : les guillemets français sont la

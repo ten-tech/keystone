@@ -1,0 +1,52 @@
+# Workspace SÉPARÉ de celui de la racine, délibérément.
+#
+# La coque Tauri tire ~415 crates ; le workspace principal en compte 123. Les
+# réunir ferait payer cet arbre à chaque `cargo test --workspace` du noyau et à
+# chaque job de CI, et placerait le verrou du produit sous la dépendance de
+# `wry`, de `webkit2gtk` et de leur cortège. La racine porte donc
+# `exclude = ["ui"]`, et ce verrou-ci est le seul à connaître Tauri.
+#
+# La dépendance ne va que dans un sens : `ks-ui` consomme `crates/ks-cli` et
+# `crates/ks-collectors` par chemin. Aucun crate de la racine ne connaît `ui/`.
+[workspace]
+# Résolveur 3, pour la même raison qu'à la racine — et ici c'est ce qui rend la
+# compilation possible sous la MSRV du projet. L'arbre transitif de Tauri 2.11
+# contient `darling_macro` (rust-version 1.88) et `icu_collections` (1.86) ; en
+# résolveur 2 ils sont sélectionnés et la compilation échoue sous 1.85. Le
+# résolveur 3 lit leur `rust-version` et retient des versions antérieures.
+# Vérifié en compilant sous cargo 1.85.0, pas déduit.
+resolver = "3"
+members = ["ks-ui"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+# Alignée sur celle du workspace principal : `ks-ui` consomme ses crates, il ne
+# peut pas exiger moins. Elle se mesure ici aussi, elle ne s'estime pas.
+rust-version = "1.85"
+license = "Apache-2.0"
+authors = ["Projet Keystone"]
+repository = "https://github.com/ten-tech/keystone"
+
+[workspace.dependencies]
+# `version` en plus de `path`, comme à la racine : sans elle la dépendance est
+# un joker que `cargo deny check bans` refuse.
+ks-cli = { path = "../crates/ks-cli", version = "0.1.0" }
+ks-collectors = { path = "../crates/ks-collectors", version = "0.1.0" }
+
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+
+[profile.release]
+# Même politique que le workspace principal : pas de symboles bavards, pas de
+# panique silencieuse. `panic = "abort"` en moins — Tauri et son runtime
+# s'appuient sur le déroulement de pile pour rapporter la panique d'une commande
+# au lieu d'emporter la fenêtre avec elle.
+opt-level = 2
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+[profile.dev]
+opt-level = 0
+debug = 1

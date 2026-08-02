@@ -28,6 +28,19 @@ members = [
     "crates/ks-agent-linux",
 ]
 
+# `ui/` est un workspace SÉPARÉ, et cette ligne l'énonce plutôt que de compter
+# sur le hasard : la liste `members` étant explicite, cargo n'y toucherait pas
+# aujourd'hui, mais un futur `crates/*` en glob l'y ramènerait sans prévenir.
+#
+# La raison est mesurée : la coque Tauri tire ~415 crates, contre 123 pour ce
+# workspace. Les fusionner ferait payer à chaque `cargo test --workspace` et à
+# chaque job de CI la compilation d'un arbre qui ne les concerne pas, et
+# imposerait un verrou commun où la moindre mise à jour de `wry` déplacerait les
+# versions du noyau. `ui/ks-ui` dépend de `crates/ks-cli` par chemin ; la
+# dépendance va donc dans un seul sens, et le verrou de ce workspace-ci ne gagne
+# pas une seule entrée.
+exclude = ["ui"]
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"

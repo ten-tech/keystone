@@ -1,0 +1,120 @@
+# Configuration de cargo-deny pour le workspace `ui/`.
+#
+# ## Pourquoi un second fichier plutôt qu'une seule politique
+#
+# `ui/` est un workspace SÉPARÉ (cf. ADR-0012) : son verrou est distinct, donc
+# `cargo deny` de la racine ne le voit pas. Sans ce fichier, les 465 crates de
+# l'arbre Tauri ne passaient ni `cargo deny check` ni `cargo audit` — soit
+# **plus de trois fois** la surface du produit lui-même, entièrement hors
+# contrôle. Une politique qui ne couvre qu'un tiers de ce qu'on livre donne une
+# assurance fausse, ce qui est pire que pas de politique du tout.
+#
+# La politique est volontairement la MÊME que celle de la racine, aux
+# exceptions près écrites plus bas. Diverger sans raison créerait deux régimes
+# de sécurité pour un seul produit.
+#
+#   cd ui && cargo deny check && cargo audit
+#
+# ## Ce que ce fichier ne dispense PAS de faire
+#
+# `ks-ui` n'est pas privilégié, et c'est ce qui rend cette surface tolérable.
+# Le jour où un composant de `ui/` parlerait au broker, la question redeviendrait
+# celle du modèle de menace : chaque crate ajoutée est une surface ajoutée sur
+# le chemin d'un composant élevé, et il faudrait une ADR.
+
+[graph]
+# Une seule cible : la coque ne se livre que sur Windows. Vérifier musl ici
+# ferait apparaître des dépendances qui ne compilent jamais.
+targets = ["x86_64-pc-windows-msvc"]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+# ── Exceptions nommées et datées ──────────────────────────────────────────
+#
+# Posées le 2026-08-03, à revoir le 2026-11-03 au plus tard, et **avant** toute
+# livraison de `ks-ui` hors du poste de développement.
+#
+# Trois faits établis avant d'écrire une seule ligne ici :
+#
+# 1. Les cinq avis portent sur des dépendances **transitives de Tauri**. Aucune
+#    n'est déclarée par `ks-ui` ; aucune ne peut être corrigée depuis ce dépôt.
+# 2. `cargo tree -e normal` a été exécuté : ce code est bien **lié au binaire**,
+#    pas seulement au script de build. Prétendre l'inverse aurait été commode
+#    et faux.
+# 3. Les trois vulnérabilités sont des **dénis de service par entrée hostile**.
+#    `ks-ui` n'expose aucune de ces entrées : il ne fait aucune requête réseau
+#    (CSP `default-src 'none'`, aucun `connect-src` hors IPC local), n'analyse
+#    aucun XML ni aucun plist extérieur, et ne pose aucun cookie. L'attaquant
+#    qui pourrait fournir l'entrée hostile aurait déjà l'exécution de code sur
+#    le poste, donc bien mieux à faire.
+#
+# Ce qui rend chaque exception levable, et quand :
+ignore = [
+    # quick-xml < 0.41 — coût quadratique sur les attributs dupliqués, et
+    # allocation non bornée des déclarations d'espaces de noms.
+    # Atteint par `plist` 1.8, lui-même tiré par `tauri-utils`.
+    # **Levable dès que `plist` passera à quick-xml 0.41** : cette version
+    # exige Rust 1.79, donc SOUS notre MSRV. Rien ne nous bloque de notre côté,
+    # c'est un palier intermédiaire qui n'a pas encore bougé.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+
+    # time < 0.3.47 — épuisement de pile à l'analyse d'une date hostile.
+    # Atteint par `cookie` 0.18, tiré par `tauri` et `tauri-runtime`.
+    # **Non levable à MSRV 1.85** : toutes les versions corrigées, de 0.3.46 à
+    # 0.3.55, déclarent `rust-version = "1.88"`. Vérifié à la source sur
+    # crates.io, pas de mémoire. À reprendre le jour où la MSRV du projet
+    # atteindra 1.88 — et ce jour-là, cette ligne disparaît.
+    "RUSTSEC-2026-0009",
+
+    # La famille `unic-*` — non maintenue, sans successeur. Ce ne sont pas des
+    # vulnérabilités : l'avis signale l'abandon, et l'annonce indique
+    # elle-même qu'aucune mise à jour sûre n'existe. Les cinq crates sont
+    # listées une par une, et non écartées par un motif `unic-*` : une
+    # exception qui couvre une famille entière couvrira demain une crate qu'on
+    # n'a pas examinée.
+    "RUSTSEC-2025-0081", # unic-char-property
+    "RUSTSEC-2025-0075", # unic-char-range
+    "RUSTSEC-2025-0080", # unic-common
+    "RUSTSEC-2025-0100", # unic-ucd-ident
+    "RUSTSEC-2025-0098", # unic-ucd-version
+]
+
+[licenses]
+version = 2
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "MPL-2.0",
+]
+confidence-threshold = 0.93
+exceptions = []
+
+[bans]
+# L'arbre Tauri traverse plusieurs générations de `windows-sys` et de `syn` :
+# le refus bloquerait sur des transitions qui ne nous appartiennent pas.
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+highlight = "all"
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

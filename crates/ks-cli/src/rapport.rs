@@ -91,6 +91,78 @@ const fn classe_valeur(v: &ItemValue) -> &'static str {
     }
 }
 
+/// Nom de la machine, tel qu'il doit figurer en tête du rapport.
+///
+/// Il se lit dans l'inventaire lui-même, jamais par un appel séparé : un
+/// rapport qui titrerait sur une machine et listerait les items d'une autre
+/// serait indétectable à la lecture.
+///
+/// Quand l'item n'a pas pu être relevé, le rapport se titre « poste » plutôt
+/// que d'inventer un nom — un inventaire qui invente est pire qu'un inventaire
+/// incomplet.
+///
+/// Cette fonction a deux appelants — la commande `ks report` et la coque
+/// `ks-ui` — et c'est la raison de son existence : la même recherche écrite
+/// deux fois finit par diverger sur le nom du chemin.
+#[must_use]
+pub fn nom_machine(items: &[Item]) -> String {
+    items
+        .iter()
+        .find(|i| i.path == "inventory.host.name")
+        .map_or_else(|| "poste".to_owned(), |i| i.observed.to_string())
+}
+
+/// Rend un horodatage RFC 3339 lisible par un humain, à l'heure locale.
+///
+/// Le rapport affichait la forme brute — `2026-08-02T22:33:00.021721100+00:00`.
+/// Deux défauts dans une seule chaîne. D'abord la voix du projet veut que le
+/// détail technique vive dans un champ à part, jamais à l'écran. Ensuite, et
+/// c'est le pire, la coque de bureau affiche au-dessus la même date en heure
+/// locale : l'utilisateur lisait « 00:33 » et « 22:33 » à deux centimètres
+/// d'écart, pour le même instant. Une contradiction apparente sur un outil dont
+/// toute la thèse est qu'on peut le croire.
+///
+/// La valeur machine n'est pas perdue pour autant : elle reste dans
+/// l'attribut `datetime` de l'élément `<time>`, qui est fait pour ça.
+///
+/// Une entrée que l'on n'arrive pas à analyser est rendue telle quelle : mieux
+/// vaut afficher une date brute qu'inventer une date lisible.
+#[must_use]
+pub fn horodatage_lisible(rfc3339: &str) -> String {
+    /// Les mois en français. `chrono` ne les localise pas sans dépendance
+    /// supplémentaire, et douze chaînes ne justifient pas une crate de plus.
+    const MOIS: [&str; 12] = [
+        "janvier",
+        "février",
+        "mars",
+        "avril",
+        "mai",
+        "juin",
+        "juillet",
+        "août",
+        "septembre",
+        "octobre",
+        "novembre",
+        "décembre",
+    ];
+
+    let Ok(instant) = chrono::DateTime::parse_from_rfc3339(rfc3339) else {
+        return rfc3339.to_owned();
+    };
+    let local = instant.with_timezone(&chrono::Local);
+    let mois = MOIS
+        .get((chrono::Datelike::month(&local) as usize).saturating_sub(1))
+        .copied()
+        .unwrap_or("");
+    format!(
+        "{} {mois} {} à {:02}:{:02}",
+        chrono::Datelike::day(&local),
+        chrono::Datelike::year(&local),
+        chrono::Timelike::hour(&local),
+        chrono::Timelike::minute(&local),
+    )
+}
+
 /// Construit le rapport complet.
 ///
 /// `horodatage` est passé en paramètre plutôt que lu ici : une fonction qui
@@ -154,7 +226,7 @@ pub fn construire(items: &[Item], machine: &str, horodatage: &str) -> String {
          <style>\n{STYLE}</style>\n</head>\n<body>\n\
          <header class=\"bandeau\">\n<div class=\"bandeau-inner\">\n\
          <p class=\"marque\">Keystone</p>\n\
-         <p class=\"sous\">{machine} · {horodatage}</p>\n</div>\n</header>\n\
+         <p class=\"sous\">{machine} · <time datetime=\"{horodatage}\">{lisible}</time></p>\n</div>\n</header>\n\
          <main>\n<p class=\"chapeau\">{total} items relevés, en lecture seule. \
          Aucune écriture système n'a eu lieu pendant ce scan.</p>\n\
          {avertissement}{corps}\
@@ -166,6 +238,7 @@ pub fn construire(items: &[Item], machine: &str, horodatage: &str) -> String {
          </footer>\n</main>\n</body>\n</html>\n",
         machine = echapper(machine),
         horodatage = echapper(horodatage),
+        lisible = echapper(&horodatage_lisible(horodatage)),
         total = items.len(),
     )
 }
@@ -435,6 +508,21 @@ mod tests {
     }
 
     #[test]
+    fn le_nom_de_machine_se_lit_dans_linventaire_et_ne_sinvente_pas() {
+        // Deux clients lisent ce nom : `ks report` et la coque `ks-ui`. Ils
+        // doivent titrer sur la même machine, sinon l'un des deux ment.
+        let releve = item(
+            "inventory.host.name",
+            Domain::Inventory,
+            ItemValue::Text("PC-DE-BUREAU".to_owned()),
+        );
+        assert_eq!(nom_machine(std::slice::from_ref(&releve)), "PC-DE-BUREAU");
+
+        // À défaut de relevé, un repli neutre — jamais un nom fabriqué.
+        assert_eq!(nom_machine(&[]), "poste");
+    }
+
+    #[test]
     fn un_domaine_vide_ne_produit_pas_de_section() {
         let html = construire(
             &[item("security.a", Domain::Security, ItemValue::Bool(true))],
@@ -446,5 +534,31 @@ mod tests {
             !html.contains("Sauvegarde"),
             "une section sans item n'a rien à dire"
         );
+    }
+    #[test]
+    fn lhorodatage_saffiche_en_clair_et_reste_lisible_par_une_machine() {
+        // Le rapport montrait « 2026-08-02T22:33:00.021721100+00:00 », pendant
+        // que la coque affichait le même instant en « 00:33 » deux centimètres
+        // plus haut. Deux nombres différents pour un seul moment, sur un outil
+        // dont toute la thèse est qu'on peut le croire.
+        let html = construire(&[], "PC", "2026-08-02T22:33:00.021721100+00:00");
+
+        assert!(
+            html.contains("<time datetime=\"2026-08-02T22:33:00.021721100+00:00\">"),
+            "la valeur machine doit survivre dans l'attribut datetime"
+        );
+        assert!(
+            !html.contains(">2026-08-02T22:33:00.021721100+00:00<"),
+            "elle ne doit plus être le texte affiché"
+        );
+        assert!(
+            html.contains("août 2026 à "),
+            "le texte affiché est en clair : {html}"
+        );
+    }
+
+    #[test]
+    fn un_horodatage_illisible_saffiche_tel_quel_plutot_que_dinventer() {
+        assert_eq!(horodatage_lisible("pas une date"), "pas une date");
     }
 }

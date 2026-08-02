@@ -1,0 +1,38 @@
+[package]
+name = "ks-ui"
+description = "La coque de bureau de Keystone. Elle affiche le rapport réel de la machine, jamais une maquette."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "ks-ui"
+path = "src/main.rs"
+
+[build-dependencies]
+# Compile la configuration et embarque les fichiers du frontend dans le binaire.
+# C'est ce qui rend l'application autonome : rien à servir, rien à télécharger.
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# La coque ne réimplémente rien : elle appelle les mêmes fonctions que `ks`.
+# `ks-cli` pour le générateur de rapport, `ks-collectors` pour l'inventaire.
+ks-cli.workspace = true
+ks-collectors.workspace = true
+
+chrono.workspace = true
+serde.workspace = true
+tauri = { version = "2", features = [] }
+
+[dev-dependencies]
+# Uniquement pour vérifier la forme des structures rendues à la page. Le binaire
+# ne sérialise rien lui-même : Tauri s'en charge.
+serde_json = "1"
+
+[lints.rust]
+# La coque n'a aucune raison de toucher à une API brute : tout ce qui est
+# spécifique à Windows est déjà derrière les collecteurs.
+unsafe_code = "forbid"

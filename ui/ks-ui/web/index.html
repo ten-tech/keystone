@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Keystone — état de la machine</title>
+    <!--
+      Aucune ressource réseau : ni CDN, ni police distante, ni script tiers
+      (principe P5, « Local, point final »). Les deux fichiers ci-dessous sont
+      embarqués dans l'exécutable ; l'application s'ouvre hors ligne.
+    -->
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body data-state="collecting">
+    <!--
+      Le bandeau cadre la fenêtre depuis les bords ; le rapport, lui, garde sa
+      propre colonne centrée à l'intérieur du cadre. Les deux ne partagent
+      jamais le même conteneur.
+    -->
+    <header class="bar">
+      <p class="bar-state" id="state-line" role="status" aria-live="polite">
+        Collecte en cours
+      </p>
+      <button type="button" class="btn" id="recollect">Relancer la collecte</button>
+    </header>
+
+    <main class="stage">
+      <section class="panel" id="waiting" aria-labelledby="waiting-title">
+        <!--
+          L'anneau tourne, il ne mesure rien : il n'existe pas de pourcentage
+          honnête à afficher tant que les collecteurs n'annoncent pas leur
+          avancement. Le seul chiffre montré est le temps réellement écoulé.
+        -->
+        <div class="ring" aria-hidden="true"></div>
+        <h1 id="waiting-title">Lecture de l'état de la machine</h1>
+        <p class="lede">
+          Keystone interroge le registre, WMI et les bases de suivi de winget.
+          La lecture demande environ 3 secondes sur ce poste.
+        </p>
+        <p class="elapsed" id="elapsed">Temps écoulé : 0 s</p>
+        <p class="foot">
+          Lecture seule : aucune écriture système n'a lieu pendant la collecte.
+        </p>
+      </section>
+
+      <section class="panel" id="failure" aria-labelledby="failure-title">
+        <!--
+          Icône ET libellé : l'état ne passe jamais par la seule couleur, ni par
+          le seul pictogramme. Zéro émoji dans l'interface produit.
+        -->
+        <svg
+          class="glyph"
+          viewBox="0 0 24 24"
+          width="28"
+          height="28"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7.5v5.5" />
+          <path d="M12 16.4v.2" />
+        </svg>
+        <h1 id="failure-title">La lecture de l'état ne s'est pas terminée</h1>
+        <p class="lede" id="failure-message"></p>
+        <p class="foot">
+          Rien n'a été écrit sur la machine. « Relancer la collecte » reprend la
+          lecture depuis le début.
+        </p>
+        <p class="detail" id="failure-detail"></p>
+      </section>
+
+      <!--
+        Le rapport s'affiche dans un cadre `sandbox`, sans aucune permission
+        accordée : origine opaque, aucun script exécutable, aucun accès au pont
+        IPC de la coque. C'est la vraie barrière. L'échappement fait par
+        `ks_cli::rapport` reste la première ligne, ce cadre est la seconde.
+      -->
+      <iframe
+        id="report"
+        class="report"
+        title="Rapport d'état de la machine, en lecture seule"
+        sandbox=""
+      ></iframe>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

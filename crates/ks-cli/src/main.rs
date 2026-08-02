@@ -24,7 +24,6 @@
 #![forbid(unsafe_code)]
 
 mod magasin;
-mod rapport;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -34,6 +33,10 @@ use chrono::Utc;
 use clap::{Parser, Subcommand};
 use ks_collectors::Inventory;
 use ks_core::{Domain, DriftSummary};
+// Le générateur de rapport vit dans la bibliothèque du crate, pas dans ce
+// binaire : la coque graphique `ks-ui` en a besoin, et deux copies d'un
+// générateur de rapport divergent (voir `src/lib.rs`).
+use ks_cli::rapport;
 
 /// Plan de contrôle déclaratif pour poste de travail d'ingénieur.
 #[derive(Parser)]
@@ -453,11 +456,7 @@ fn cmd_journal(json: bool, since: Option<&str>, seal: bool) -> Result<()> {
 /// perde pas.
 fn cmd_report(destination: &std::path::Path, force: bool) -> Result<()> {
     let inv = Inventory::collect_all();
-    let machine = inv
-        .items
-        .iter()
-        .find(|i| i.path == "inventory.host.name")
-        .map_or_else(|| "poste".to_owned(), |i| i.observed.to_string());
+    let machine = rapport::nom_machine(&inv.items);
 
     let html = rapport::construire(&inv.items, &machine, &Utc::now().to_rfc3339());
 

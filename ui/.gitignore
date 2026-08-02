@@ -1,0 +1,7 @@
+# Le `.gitignore` de la racine couvre déjà `**/target`. Ce fichier-ci ne traite
+# que ce qui est propre à Tauri.
+
+# Schémas d'ACL régénérés par `tauri-build` à chaque compilation. Ils décrivent
+# les permissions disponibles, pas celles qu'on accorde : les versionner
+# ferait croire à une décision là où il n'y a qu'un artefact.
+/ks-ui/gen/schemas/
