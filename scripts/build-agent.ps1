@@ -1,4 +1,6 @@
-#Requires -Version 7.0
+﻿#Requires -Version 5.1
+# PowerShell 5.1 suffit : ce script n'emploie aucune syntaxe propre à la 7.
+# Exiger la 7 ajoutait un prérequis sans contrepartie.
 <#
 .SYNOPSIS
     Compile l'agent Linux depuis Windows, et le dépose dans une distro WSL.
@@ -47,17 +49,21 @@ try {
     $zigbuild = Get-Command cargo-zigbuild -ErrorAction SilentlyContinue
     $cross    = Get-Command cross -ErrorAction SilentlyContinue
 
+    # `$argsCargo` et non `$args` : ce dernier est une variable AUTOMATIQUE de
+    # PowerShell (les arguments non liés). L'écraser passe inaperçu dans un script
+    # au niveau racine, et devient un bug silencieux le jour où ce bloc est enrobé
+    # dans une fonction. Règle PSScriptAnalyzer : PSAvoidAssignmentToAutomaticVariable.
     if ($zigbuild) {
         Write-Host ('  → cargo zigbuild --target ' + $cible + ' (' + $profil + ')') -ForegroundColor Cyan
-        $args = @('zigbuild', '-p', 'ks-agent-linux', '--target', $cible)
-        if ($Release) { $args += '--release' }
-        & cargo @args
+        $argsCargo = @('zigbuild', '-p', 'ks-agent-linux', '--target', $cible)
+        if ($Release) { $argsCargo += '--release' }
+        & cargo @argsCargo
     }
     elseif ($cross) {
         Write-Host ('  → cross build --target ' + $cible + ' (' + $profil + ')') -ForegroundColor Cyan
-        $args = @('build', '-p', 'ks-agent-linux', '--target', $cible)
-        if ($Release) { $args += '--release' }
-        & cross @args
+        $argsCargo = @('build', '-p', 'ks-agent-linux', '--target', $cible)
+        if ($Release) { $argsCargo += '--release' }
+        & cross @argsCargo
     }
     else {
         throw @'

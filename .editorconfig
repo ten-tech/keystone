@@ -18,6 +18,11 @@ indent_size = 2
 [*.ps1]
 indent_size = 4
 end_of_line = crlf
+# UTF-8 AVEC BOM, et ce n'est pas un détail de goût : les scripts du dépôt
+# ciblent Windows PowerShell 5.1, qui lit un fichier sans BOM comme de l'ANSI.
+# Les accents et les tirets cadratin deviennent alors du charabia, et le script
+# ne compile même plus. Constaté sur dev-setup.ps1.
+charset = utf-8-bom
 
 [*.md]
 trim_trailing_whitespace = false

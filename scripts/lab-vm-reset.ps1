@@ -1,5 +1,9 @@
-#Requires -Version 7.0
+﻿#Requires -Version 5.1
 #Requires -RunAsAdministrator
+# PowerShell 5.1 et non 7 : le module Hyper-V est un module Windows PowerShell.
+# Sous PowerShell 7 il se charge via la couche de compatibilité, qui renvoie des
+# objets désérialisés — un objet de point de contrôle repassé à Restore-VMSnapshot
+# dépend alors d'un comportement indirect. Natif en 5.1, c'est prévisible.
 <#
 .SYNOPSIS
     Remet la VM de labo à son point de contrôle de référence.
