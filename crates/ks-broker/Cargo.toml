@@ -17,6 +17,10 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+# Pour borner une date d'expiration : une deroga­tion sans plafond est un angle
+# mort permanent (D11-02). Deja dans le workspace, aucune surface nouvelle.
+chrono.workspace = true
+
 # Pas de dépendance Windows ici, et c'est délibéré.
 #
 # `windows-service = "0.7"` y figurait sans être importée nulle part : cinq crates

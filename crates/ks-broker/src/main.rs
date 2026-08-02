@@ -62,10 +62,18 @@ pub enum Verb {
     Scan { domain: Option<String> },
 
     /// Prend un instantané avant une opération.
-    TakeSnapshot { kind: String, target: String },
+    ///
+    /// Le sujet est **désigné**, jamais décrit : `kind: "registry-export"` avec
+    /// `target: r"HKLM\SAM"` faisait extraire les empreintes de comptes par le
+    /// broker lui-même (ADR-0006, dette payée).
+    TakeSnapshot { subject: SnapshotSubject },
 
     /// Revient à un instantané.
-    RestoreSnapshot { snapshot_id: String },
+    ///
+    /// L'identifiant est validé à la construction et **jamais concaténé à un
+    /// chemin** : restaurer, c'est appliquer en SYSTEM un contenu que l'appelant
+    /// désigne.
+    RestoreSnapshot { snapshot_id: SnapshotId },
 
     /// Change le type de démarrage d'un service **de la liste gérée**.
     ///
@@ -96,9 +104,9 @@ pub enum Verb {
     /// Ajoute une exclusion Defender. **Ciblée et justifiée uniquement** (D11-02) :
     /// la raison et l'expiration sont des paramètres obligatoires, pas des options.
     AddDefenderExclusion {
-        path: String,
+        path: ExclusionPath,
         reason: String,
-        expires: String,
+        expires: Expiry,
     },
 
     /// Isolement d'urgence. Exige Windows Hello (SEC-08).
@@ -188,6 +196,241 @@ pub enum SettingValue {
     Enabled,
     /// Désactiver.
     Disabled,
+}
+
+/// Ce dont on prend un instantané.
+///
+/// Remplace le couple `kind: String, target: String`, qui était la dette la plus
+/// dangereuse de l'ADR-0006. `TakeSnapshot { kind: "registry-export", target:
+/// r"HKLM\SAM" }` faisait écrire par le broker, **en SYSTEM**, la ruche des
+/// comptes locaux dans un fichier : c'est `reg save HKLM\sam`, soit l'extraction
+/// hors ligne des empreintes de mots de passe (ATT&CK T1003.002). Un appelant non
+/// privilégié obtenait ainsi ce qu'il ne pouvait pas lire.
+///
+/// Sans champ, comme les autres énumérations de paramètres : le sujet désigne une
+/// intention, et le broker détient la cible concrète.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SnapshotSubject {
+    /// Point de restauration système.
+    SystemRestorePoint,
+    /// Point de contrôle de la machine virtuelle de laboratoire.
+    LabVirtualMachine,
+    /// Export des distributions WSL gérées.
+    WslDistributions,
+    /// Export des branches de registre que Keystone sait écrire — celles, et
+    /// **seulement celles**, que [`ManagedSetting`] référence.
+    ManagedRegistryBranches,
+}
+
+/// Identifiant d'instantané, refusé s'il n'a pas la forme attendue.
+///
+/// `snapshot_id: String` était le second danger de l'ADR-0006, et le plus
+/// insidieux : restaurer, c'est **appliquer en SYSTEM un contenu que l'appelant
+/// désigne**. Un instantané contient légitimement des exports de registre et de
+/// la configuration de service ; en faire pointer l'identifiant vers un
+/// instantané fabriqué donne l'écriture de `Services\<svc>\ImagePath`, donc du
+/// code SYSTEM au démarrage — ce qui contourne toutes les énumérations fermées
+/// que l'ADR-0006 a installées.
+///
+/// D'où un jeu de caractères clos et une longueur bornée : ni séparateur de
+/// chemin, ni `..`, ni caractère de contrôle. **Cette valeur n'est jamais
+/// concaténée à un chemin** ; elle se résout par l'index du journal.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "String")]
+pub struct SnapshotId(String);
+
+impl SnapshotId {
+    /// Longueur maximale acceptée. Large pour un ULID (26) ou un UUID (36).
+    const LONGUEUR_MAX: usize = 64;
+
+    /// L'identifiant, tel qu'il a été validé.
+    #[must_use]
+    pub fn tel_quel(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for SnapshotId {
+    type Error = String;
+
+    fn try_from(brut: String) -> Result<Self, Self::Error> {
+        if brut.is_empty() || brut.len() > Self::LONGUEUR_MAX {
+            return Err(format!(
+                "un identifiant d'instantané fait de 1 à {} caractères",
+                Self::LONGUEUR_MAX
+            ));
+        }
+        // Liste blanche. Une liste noire de séparateurs laisserait passer les
+        // formes exotiques — chemin UNC, flux alternatif, encodage pourcent.
+        if !brut
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            return Err(
+                "un identifiant d'instantané ne contient que des lettres, des chiffres, \
+                 « - » et « _ » : il ne doit jamais pouvoir désigner un chemin"
+                    .to_owned(),
+            );
+        }
+        Ok(Self(brut))
+    }
+}
+
+/// Date d'expiration d'une dérogation, **future et bornée**.
+///
+/// `expires: String` acceptait « hier », « » et « 2099-01-01 » sans broncher.
+/// D11-02 exige une expiration ; une chaîne ne garantissait que la présence d'un
+/// champ, jamais sa validité — et l'architecture rangeait pourtant ce verbe parmi
+/// les invariants « portés par le typage ».
+///
+/// L'horizon maximal n'est pas décoratif : une exclusion Defender sans plafond
+/// est un angle mort permanent, c'est-à-dire exactement ce que D11-02 refuse.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "String")]
+pub struct Expiry(String);
+
+impl Expiry {
+    /// Horizon maximal, en jours. Un an : au-delà, la dérogation se redemande.
+    const HORIZON_JOURS: i64 = 366;
+
+    /// La date, au format RFC 3339.
+    #[must_use]
+    pub fn tel_quel(&self) -> &str {
+        &self.0
+    }
+
+    /// Valide contre un instant de référence.
+    ///
+    /// L'horloge est **injectée** plutôt que lue ici : un contrôle qui appelle
+    /// `Utc::now()` ne se teste pas deux fois de la même façon.
+    ///
+    /// # Erreurs
+    ///
+    /// Renvoie le message destiné à l'utilisateur si la date est mal formée,
+    /// déjà passée, ou au-delà de l'horizon.
+    pub fn depuis(brut: &str, maintenant: chrono::DateTime<chrono::Utc>) -> Result<Self, String> {
+        let date = chrono::DateTime::parse_from_rfc3339(brut)
+            .map_err(|_| format!("« {brut} » n'est pas une date RFC 3339"))?
+            .with_timezone(&chrono::Utc);
+
+        if date <= maintenant {
+            return Err(format!(
+                "« {brut} » est déjà passée : une dérogation expirée à sa création \
+                 n'est pas une dérogation"
+            ));
+        }
+        if (date - maintenant).num_days() > Self::HORIZON_JOURS {
+            return Err(format!(
+                "« {brut} » dépasse l'horizon de {} jours : une dérogation sans \
+                 plafond est un angle mort permanent (D11-02)",
+                Self::HORIZON_JOURS
+            ));
+        }
+        Ok(Self(brut.to_owned()))
+    }
+}
+
+impl TryFrom<String> for Expiry {
+    type Error = String;
+
+    fn try_from(brut: String) -> Result<Self, Self::Error> {
+        Self::depuis(&brut, chrono::Utc::now())
+    }
+}
+
+/// Chemin d'une exclusion Defender, refusé s'il ouvre trop grand.
+///
+/// Le chemin reste libre — c'est le **sujet** de l'exclusion, choisi par
+/// l'utilisateur parmi tous les chemins possibles, et le typer en énumération
+/// n'aurait aucun sens. Mais l'argument opposé à `SetServiceStartup { service:
+/// "WinDefend" }` s'applique mot pour mot : une exclusion de dossier couvre tous
+/// ses sous-dossiers, les jokers sont acceptés, et les variables d'environnement
+/// sont développées. `C:\` et `%SystemDrive%\*` sont donc `DisableDefender` sous
+/// un autre nom, que le §7 refuse comme verbe atomique.
+///
+/// # Le détour qui casse P2, et que personne n'avait vu
+///
+/// Le service Defender tourne sous LocalSystem : `%TEMP%` s'y résout en
+/// `C:\Windows\TEMP`, pas dans le profil de l'utilisateur. Une chaîne transmise
+/// verbatim produirait donc un **diff qui ne désigne pas le dossier réellement
+/// exclu** — une simulation qui ment, ce qui est pire qu'une absence de
+/// simulation. D'où le refus des variables : le broker n'a pas à deviner dans
+/// quel contexte elles seront développées.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "String")]
+pub struct ExclusionPath(String);
+
+impl ExclusionPath {
+    /// Le chemin, tel qu'il a été validé.
+    #[must_use]
+    pub fn tel_quel(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for ExclusionPath {
+    type Error = String;
+
+    fn try_from(brut: String) -> Result<Self, Self::Error> {
+        let normalise = brut.replace('/', "\\");
+
+        if brut.contains('%') || brut.contains('$') {
+            return Err(
+                "un chemin d'exclusion ne contient pas de variable d'environnement : \
+                 Defender tourne sous LocalSystem et la résoudrait ailleurs que vous, \
+                 donc le diff montré ne désignerait pas le dossier réellement exclu"
+                    .to_owned(),
+            );
+        }
+        if brut.contains('*') || brut.contains('?') {
+            return Err(
+                "un chemin d'exclusion ne contient pas de joker : « C:\\*\\* » exclut \
+                 tout le disque, ce qui est « désactiver Defender » sous un autre nom"
+                    .to_owned(),
+            );
+        }
+        if normalise.contains("..") {
+            return Err("un chemin d'exclusion ne remonte pas l'arborescence".to_owned());
+        }
+
+        // Absolu, avec une lettre de lecteur. Un chemin relatif se résoudrait
+        // contre un répertoire courant que le broker ne contrôle pas.
+        let mut caracteres = normalise.chars();
+        let lettre = caracteres.next().filter(char::is_ascii_alphabetic);
+        if lettre.is_none() || !normalise[1..].starts_with(":\\") {
+            return Err(
+                "un chemin d'exclusion est absolu et commence par une lettre de lecteur".to_owned(),
+            );
+        }
+
+        // Une racine de volume exclut tout le disque.
+        let apres_racine = normalise[3..].trim_end_matches('\\');
+        if apres_racine.is_empty() {
+            return Err(
+                "une racine de volume ne s'exclut pas : cela revient à éteindre \
+                 Defender, ce que le §7 refuse comme verbe atomique"
+                    .to_owned(),
+            );
+        }
+
+        // Les répertoires système, dont l'exclusion est le geste d'attaque
+        // documenté le plus courant.
+        const INTERDITS: &[&str] = &["windows", "program files", "program files (x86)", "users"];
+        let premier = apres_racine
+            .split('\\')
+            .next()
+            .unwrap_or_default()
+            .to_lowercase();
+        if INTERDITS.contains(&premier.as_str()) && !apres_racine.contains('\\') {
+            return Err(format!(
+                "« {brut} » est un répertoire système entier : l'exclure ouvre un angle \
+                 mort que rien ne referme"
+            ));
+        }
+
+        Ok(Self(brut))
+    }
 }
 
 /// Résultat de l'exécution d'un verbe.
@@ -559,6 +802,18 @@ mod tests {
     ///
     /// Une revue adverse l'a fait passer, vert et conforme à `rustfmt`. Ajouter
     /// un couple est désormais un geste visible, donc la revue qu'on veut.
+    /// **Il n'en reste que deux, et c'était tout l'enjeu.**
+    ///
+    /// La liste en comptait sept, dont quatre marquées DETTE. Les quatre sont
+    /// payées : `kind` et `target` sont devenus un [`SnapshotSubject`] fermé,
+    /// `snapshot_id` un [`SnapshotId`] validé, `expires` un [`Expiry`] borné.
+    ///
+    /// Ce qui change n'est pas seulement le compte. Une liste d'exemptions qu'on
+    /// relit en deux lignes est une liste qu'on relit ; à sept, on la parcourt.
+    /// Et surtout, un `String` nu dans `Verb` est désormais une **anomalie
+    /// visuelle** au milieu de types dédiés, repérée à l'œil avant tout test.
+    /// Une barrière alignée sur la pente naturelle du code survit ; une barrière
+    /// qui la remonte s'érode.
     const CHAMPS_TEXTE_ADMIS: &[(&str, &str, &str)] = &[
         (
             "Scan",
@@ -567,37 +822,39 @@ mod tests {
         ),
         (
             "AddDefenderExclusion",
-            "path",
-            "sujet de l'exclusion, choisi par l'utilisateur parmi tous les \
-             chemins possibles (D11-02). Le typer n'aurait aucun sens.",
-        ),
-        (
-            "AddDefenderExclusion",
             "reason",
-            "motif destiné à un humain, libre par nature",
+            "motif destiné à un humain, libre par nature. C'est le seul champ du \
+             broker qui n'a aucune raison d'être contraint : il ne désigne rien.",
+        ),
+    ];
+
+    /// Types validés **à la construction**, admis comme paramètres de verbe.
+    ///
+    /// Un paramètre qui n'est ni une énumération fermée ni un texte admis doit
+    /// figurer ici, et le test vérifie trois choses sur chacun : qu'il est un
+    /// newtype, que son champ interne est **privé** — sans quoi la validation se
+    /// contourne par construction directe — et qu'il porte `serde(try_from)`,
+    /// sans quoi la désérialisation l'ignorerait complètement.
+    ///
+    /// C'est la différence de nature avec les deux autres catégories : une
+    /// énumération rend l'état illégal **inconstructible**, un type validé le
+    /// rend **refusé à la porte**. Le second est plus faible et suffit quand
+    /// l'ensemble des valeurs légitimes est infini — un chemin, une date.
+    const TYPES_VALIDES_ADMIS: &[(&str, &str)] = &[
+        (
+            "SnapshotId",
+            "jeu de caractères clos et longueur bornée : ne peut désigner aucun \
+             chemin, et n'est jamais concaténé à un",
         ),
         (
-            "AddDefenderExclusion",
-            "expires",
-            "DETTE, ADR-0006 : devrait être un horodatage typé. « hier » et « » \
-             compilent aujourd'hui.",
+            "Expiry",
+            "date RFC 3339, future, et bornée à un horizon d'un an : une \
+             dérogation sans plafond est un angle mort permanent (D11-02)",
         ),
         (
-            "RestoreSnapshot",
-            "snapshot_id",
-            "DETTE, ADR-0006 : restaurer, c'est appliquer en SYSTEM un contenu \
-             que l'appelant désigne.",
-        ),
-        (
-            "TakeSnapshot",
-            "kind",
-            "DETTE, ADR-0006 : devrait être un genre d'instantané fermé.",
-        ),
-        (
-            "TakeSnapshot",
-            "target",
-            "DETTE, ADR-0006 : « registry-export » sur HKLM\\SAM fait extraire \
-             les empreintes de comptes par le broker.",
+            "ExclusionPath",
+            "absolu, sans joker, sans variable d'environnement, ni racine de \
+             volume ni répertoire système entier",
         ),
     ];
 
@@ -700,11 +957,27 @@ mod tests {
 
     /// Les seules clefs d'attribut `serde` tolérées dans ce fichier.
     ///
-    /// Liste blanche, et volontairement minuscule : deux clefs, qui décrivent la
-    /// forme du protocole et rien d'autre. Tout le reste — `skip`, `rename`,
-    /// `alias`, `flatten`, `other`, `from` — **règle une projection**, c'est-à-dire
-    /// découple ce que le client peut envoyer de ce que le source montre.
-    const CLEFS_SERDE_ADMISES: &[&str] = &["rename_all", "tag"];
+    /// Liste blanche, et volontairement minuscule. Tout le reste — `skip`,
+    /// `rename`, `alias`, `flatten`, `other`, `from` — **règle une projection**,
+    /// c'est-à-dire découple ce que le client peut envoyer de ce que le source
+    /// montre, et parfois de ce que le journal enregistre.
+    ///
+    /// `rename_all` et `tag` décrivent la forme du protocole, rien d'autre.
+    ///
+    /// # Pourquoi `try_from` est ici, et pourquoi ce n'est pas un assouplissement
+    ///
+    /// C'est la **seule clef de serde qui ajoute un contrôle au lieu d'en
+    /// retirer un**. `skip_serializing` retire un champ de la sortie ;
+    /// `try_from` impose que toute valeur reçue passe par un validateur avant
+    /// d'exister. Le sens est exactement inverse.
+    ///
+    /// Sans elle, les types validés seraient une fiction : le client parle au
+    /// broker par le réseau, pas par le constructeur, et serde construirait
+    /// `SnapshotId` sans jamais appeler `TryFrom`. Le test
+    /// `un_type_valide_ne_se_contourne_pas` **exige** d'ailleurs sa présence sur
+    /// chacun des trois types — elle n'est donc pas seulement tolérée, elle est
+    /// obligatoire là où elle sert.
+    const CLEFS_SERDE_ADMISES: &[&str] = &["rename_all", "tag", "try_from"];
 
     /// **Personne ne règle la projection.**
     ///
@@ -844,6 +1117,61 @@ mod tests {
         }
     }
 
+    /// **Un type validé ne se contourne ni par construction ni par le réseau.**
+    ///
+    /// « Type validé » serait une affirmation creuse sans ces trois contrôles.
+    /// Chacun ferme une porte réelle :
+    ///
+    /// 1. **Newtype** — un type à plusieurs champs se construirait champ par
+    ///    champ, sans passer par le validateur.
+    /// 2. **Champ interne privé** — `pub struct SnapshotId(pub String)` laisse
+    ///    fabriquer n'importe quelle valeur directement, et la validation
+    ///    devient décorative.
+    /// 3. **`serde(try_from)`** — sans lui, la désérialisation construit le type
+    ///    sans jamais appeler le validateur. C'est la porte qui compte le plus :
+    ///    le client parle au broker **par le réseau**, pas par le constructeur.
+    #[test]
+    fn un_type_valide_ne_se_contourne_pas() {
+        let epure = sans_commentaires_ni_chaines(SOURCE);
+
+        for (nom, _) in TYPES_VALIDES_ADMIS {
+            let declaration = format!("pub struct {nom}(");
+            assert!(
+                epure.contains(&declaration),
+                "SEC-02 / ADR-0006 : « {nom} » est admis comme type validé mais n'est \
+                 pas un newtype. Un type à plusieurs champs se construit champ par \
+                 champ, donc sans passer par le validateur."
+            );
+
+            let position = epure
+                .find(&declaration)
+                .expect("la déclaration vient d'être trouvée");
+            let apres = &epure[position + declaration.len()..];
+            let interieur = apres
+                .find(')')
+                .map(|fin| &apres[..fin])
+                .expect("un newtype se referme");
+            assert!(
+                !interieur.contains("pub"),
+                "SEC-02 / ADR-0006 : le champ interne de « {nom} » est public. \
+                 N'importe qui peut alors fabriquer la valeur sans validation, et \
+                 le type ne garantit plus rien."
+            );
+
+            // La porte du réseau. Le client ne construit jamais le type : il
+            // envoie du JSON, et serde le désérialise.
+            let attendu = format!("pub struct {nom}");
+            let debut_bloc = epure.find(&attendu).expect("déclaration présente");
+            let entete = &epure[debut_bloc.saturating_sub(400)..debut_bloc];
+            assert!(
+                entete.contains("try_from"),
+                "SEC-02 / ADR-0006 : « {nom} » ne porte pas `serde(try_from)`. La \
+                 désérialisation le construirait donc sans appeler le validateur — \
+                 et c'est par là que le client parle au broker."
+            );
+        }
+    }
+
     /// Aucune variante ne cache sa charge utile dans un type enveloppé.
     ///
     /// `SetTuning(Tuning)` n'a aucun `nom: Type`, donc échappait à l'inspection
@@ -898,7 +1226,13 @@ mod tests {
                 continue;
             }
 
-            // Le type doit être une énumération déclarée ICI. Si elle vit
+            // Un type validé à la construction est admis, à trois conditions
+            // vérifiées ci-dessous par `un_type_valide_ne_se_contourne_pas`.
+            if TYPES_VALIDES_ADMIS.iter().any(|(t, _)| *t == type_champ) {
+                continue;
+            }
+
+            // Sinon, le type doit être une énumération déclarée ICI. Si elle vit
             // ailleurs, l'extraction panique en le disant : c'est le seul
             // comportement acceptable, la barrière ne lisant qu'un fichier.
             for ligne in bloc_apres(SOURCE, &format!("pub enum {type_champ}"))
@@ -1027,11 +1361,11 @@ mod tests {
         vec![
             Verb::Scan { domain: None },
             Verb::TakeSnapshot {
-                kind: "hyperv-checkpoint".into(),
-                target: "ks-lab".into(),
+                subject: SnapshotSubject::LabVirtualMachine,
             },
             Verb::RestoreSnapshot {
-                snapshot_id: "snap-1".into(),
+                snapshot_id: SnapshotId::try_from("snap-1".to_owned())
+                    .expect("un identifiant d'échantillon doit être valide"),
             },
             // Les cibles ne sont plus des chaînes : `service` ne peut désigner
             // que l'un des trois services de `ManagedService`, et l'échantillon
@@ -1045,9 +1379,18 @@ mod tests {
                 value: SettingValue::Enabled,
             },
             Verb::AddDefenderExclusion {
-                path: r"D:\src\target".into(),
+                path: ExclusionPath::try_from(r"D:\src\target".to_owned())
+                    .expect("un chemin d'échantillon doit être valide"),
                 reason: "artefacts de build".into(),
-                expires: "2027-01-01".into(),
+                // L'horloge est injectée : un échantillon dont la validité
+                // dépendrait de la date du jour deviendrait rouge tout seul.
+                expires: Expiry::depuis(
+                    "2026-12-01T00:00:00Z",
+                    chrono::DateTime::parse_from_rfc3339("2026-08-02T00:00:00Z")
+                        .expect("date de référence valide")
+                        .with_timezone(&chrono::Utc),
+                )
+                .expect("une expiration d'échantillon doit être valide"),
             },
             Verb::Isolate,
         ]
@@ -1120,17 +1463,157 @@ mod tests {
         }
     }
 
+    /// Instant de référence des tests. **Jamais `Utc::now()`** : un test dont
+    /// la validité dépend du jour où il tourne devient rouge tout seul.
+    fn maintenant() -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::parse_from_rfc3339("2026-08-02T00:00:00Z")
+            .expect("date de référence valide")
+            .with_timezone(&chrono::Utc)
+    }
+
     #[test]
     fn une_exclusion_defender_exige_raison_et_expiration() {
         // Exigence D11-02 : pas de champ optionnel ici. Le typage impose la
         // justification — on ne peut pas construire l'appel sans elle.
+        //
+        // Ce test était tautologique : il vérifiait que le JSON porte deux
+        // clefs, ce que la définition de la structure garantissait déjà, et
+        // restait vert avec `reason: ""` et `expires: "hier"`. Il porte
+        // désormais sur ce qui compte, la VALIDITÉ des valeurs.
         let v = Verb::AddDefenderExclusion {
-            path: r"D:\src\target".into(),
-            reason: "400k fichiers, +6 min par build".into(),
-            expires: "2027-01-01".into(),
+            path: ExclusionPath::try_from(r"D:\src\target".to_owned()).expect("chemin valide"),
+            reason: "400k fichiers, +6 min par build".to_owned(),
+            expires: Expiry::depuis("2026-12-01T00:00:00Z", maintenant()).expect("date valide"),
         };
-        let json = serde_json::to_string(&v).unwrap();
+        let json = serde_json::to_string(&v).expect("un verbe est sérialisable");
         assert!(json.contains("reason"));
         assert!(json.contains("expires"));
+    }
+
+    #[test]
+    fn une_expiration_passee_ou_sans_plafond_est_refusee() {
+        // « hier », « » et « 2099-01-01 » compilaient tous les trois quand le
+        // champ était une chaîne. D11-02 exige une expiration ; le type garantit
+        // désormais sa validité, pas seulement sa présence.
+        for (brut, pourquoi) in [
+            ("2026-07-01T00:00:00Z", "déjà passée"),
+            (
+                "2026-08-02T00:00:00Z",
+                "l'instant même, donc expirée à sa création",
+            ),
+            ("2030-01-01T00:00:00Z", "au-delà de l'horizon d'un an"),
+            ("hier", "pas une date"),
+            ("", "vide"),
+            ("2026-12-01", "sans fuseau, donc ambiguë"),
+        ] {
+            assert!(
+                Expiry::depuis(brut, maintenant()).is_err(),
+                "« {brut} » devrait être refusée : {pourquoi}"
+            );
+        }
+
+        // Et la borne haute, éprouvée des deux côtés.
+        assert!(Expiry::depuis("2027-08-02T00:00:00Z", maintenant()).is_ok());
+        assert!(Expiry::depuis("2027-08-04T00:00:00Z", maintenant()).is_err());
+    }
+
+    #[test]
+    fn un_chemin_dexclusion_nouvre_jamais_tout_le_disque() {
+        // Une exclusion de dossier couvre tous ses sous-dossiers, les jokers
+        // sont acceptés, et les variables sont développées. « C:\ » et
+        // « %SystemDrive%\* » sont donc « désactiver Defender » sous un autre
+        // nom, que le §7 refuse comme verbe atomique.
+        for (brut, pourquoi) in [
+            (r"C:\", "racine de volume"),
+            (r"C:\\", "racine de volume, écrite autrement"),
+            (r"C:\*\*", "joker sur tout le disque"),
+            (r"C:\Windows", "répertoire système entier"),
+            (r"C:\Users", "tous les profils"),
+            (
+                r"%TEMP%\build",
+                "variable développée en contexte LocalSystem",
+            ),
+            (r"$env:TEMP\build", "variable, autre syntaxe"),
+            (r"D:\src\..\..\Windows", "remontée d'arborescence"),
+            (
+                r"src\target",
+                "relatif : résolu contre un dossier courant inconnu",
+            ),
+            ("", "vide"),
+        ] {
+            assert!(
+                ExclusionPath::try_from(brut.to_owned()).is_err(),
+                "« {brut} » devrait être refusé : {pourquoi}"
+            );
+        }
+
+        // Ce qui reste légitime doit passer : une barrière qui refuse le cas
+        // d'usage réel se fait désarmer par le premier contributeur pressé.
+        for legitime in [
+            r"D:\src\target",
+            r"C:\Windows\Temp\ks-build",
+            r"C:\Users\pc\projets\keystone\target",
+        ] {
+            assert!(
+                ExclusionPath::try_from(legitime.to_owned()).is_ok(),
+                "« {legitime} » est une exclusion parfaitement normale"
+            );
+        }
+    }
+
+    #[test]
+    fn un_identifiant_dinstantane_ne_peut_pas_designer_un_chemin() {
+        // Restaurer, c'est appliquer en SYSTEM un contenu que l'appelant
+        // désigne. L'identifiant ne doit donc jamais pouvoir sortir de l'index.
+        for brut in [
+            r"..\..\evil",
+            "snap/../../etc",
+            r"C:\evil",
+            "snap\0null",
+            "snap id",
+            "",
+            "a:b",
+            "\\\\serveur\\partage",
+        ] {
+            assert!(
+                SnapshotId::try_from(brut.to_owned()).is_err(),
+                "« {brut} » devrait être refusé"
+            );
+        }
+
+        for legitime in [
+            "snap-1",
+            "01J8ZQ4K7XY2M3N4P5Q6R7S8T9",
+            "instantane_2026_08_02",
+        ] {
+            assert!(SnapshotId::try_from(legitime.to_owned()).is_ok());
+        }
+
+        // La borne de longueur, des deux côtés.
+        assert!(SnapshotId::try_from("a".repeat(64)).is_ok());
+        assert!(SnapshotId::try_from("a".repeat(65)).is_err());
+    }
+
+    #[test]
+    fn la_validation_sapplique_aussi_a_la_deserialisation() {
+        // **La porte qui compte.** Le client parle au broker par le réseau, pas
+        // par le constructeur : une validation que serde contourne ne protège
+        // de rien. C'est ce que `serde(try_from)` garantit, et ce test l'éprouve
+        // plutôt que de le croire.
+        let attaque = r#"{"verb":"restore-snapshot","snapshot_id":"..\\..\\evil"}"#;
+        assert!(
+            serde_json::from_str::<Verb>(attaque).is_err(),
+            "un identifiant invalide doit être refusé À LA DÉSÉRIALISATION"
+        );
+
+        let exclusion = r#"{"verb":"add-defender-exclusion","path":"C:\\","reason":"x","expires":"2027-01-01T00:00:00Z"}"#;
+        assert!(
+            serde_json::from_str::<Verb>(exclusion).is_err(),
+            "une racine de volume doit être refusée à la désérialisation"
+        );
+
+        // Et le cas légitime passe bien la même porte.
+        let valide = r#"{"verb":"restore-snapshot","snapshot_id":"snap-1"}"#;
+        assert!(serde_json::from_str::<Verb>(valide).is_ok());
     }
 }

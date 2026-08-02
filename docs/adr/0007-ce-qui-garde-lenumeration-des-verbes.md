@@ -138,3 +138,34 @@ d'analyse lexicale.
 
 **La barrière textuelle a atteint ce qu'elle peut atteindre. Ce qui protégera le
 broker ensuite, ce sont les quatre types qui restent à écrire.**
+
+---
+
+## Suite donnée, le 2026-08-02
+
+Les quatre types **sont écrits**, en Phase 0 et non « avant la première écriture
+de la Phase 2 » comme l'échéance le permettait. `SnapshotSubject`, `SnapshotId`,
+`Expiry` et `ExclusionPath` remplacent les quatre chaînes libres ; le détail est
+dans l'[ADR-0006](0006-fermer-les-verbes-a-parametres-libres.md), section « La
+dette — payée ».
+
+Trois observations qui n'étaient pas prévisibles au moment d'écrire cette ADR :
+
+**La liste d'exemptions est passée de sept à deux.** C'est la différence entre
+une liste qu'on relit et une liste qu'on parcourt. Et un `String` nu dans `Verb`
+est désormais une anomalie visuelle au milieu de types dédiés — la barrière est
+alignée sur la pente naturelle du code, ce qui la rend durable.
+
+**Une clef serde a dû être admise, et la décision méritait d'être posée plutôt
+que contournée.** Un type validé à la construction ne protège de rien si serde
+le construit sans appeler le validateur : le client parle au broker **par le
+réseau**, pas par le constructeur. `try_from` est donc obligatoire sur les trois
+types, et c'est la seule clef de serde qui **ajoute** un contrôle au lieu d'en
+retirer un — ce qui la distingue nettement de `skip`, `rename` ou `flatten`.
+Un test l'exige sur chacun, et un autre envoie `..\..\evil` en JSON pour vérifier
+que le refus a bien lieu à la désérialisation.
+
+**La décision d'outillage reste ouverte.** `syn` n'est toujours pas adopté, et
+l'argument n'a pas changé : il améliorerait l'auto-inspection, pas le produit.
+Mais son intérêt a **baissé** — il y a moins à inspecter maintenant que la
+sécurité vit dans les types.

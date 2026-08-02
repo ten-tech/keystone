@@ -181,12 +181,36 @@ La liste des réglages gérés est **volontairement minimale** en Phase 0 : elle
 sera peuplée en Phase 2, au fil des besoins réels de la convergence. Chaque
 ajout se relit ici. Ce que cette ADR fige, c'est la **forme**, pas le contenu.
 
-## La dette, nommée plutôt que tue
+## La dette — **payée**, et ce qu'elle a coûté
 
-Trois verbes gardent des paramètres libres. Ils ne sont **pas** couverts par
-cette décision, et chacun mérite son ADR — les inscrire en note de bas de page
-serait exactement la minimisation que ce document reproche à son propre premier
-jet. Échéance : **avant la première écriture de la Phase 2.**
+> **Mise à jour du 2026-08-02.** Les trois verbes décrits ci-dessous gardaient
+> des paramètres libres, avec pour échéance « avant la première écriture de la
+> Phase 2 ». Elle est payée **en Phase 0**, pendant que le contexte était chaud
+> plutôt que six mois après.
+>
+> * `kind: String, target: String` → un [`SnapshotSubject`] fermé, sans champ ;
+> * `snapshot_id: String` → un `SnapshotId` validé, jeu de caractères clos,
+>   incapable de désigner un chemin ;
+> * `expires: String` → un `Expiry` qui refuse une date passée et borne
+>   l'horizon à un an ;
+> * `path: String` → un `ExclusionPath` qui refuse les racines de volume, les
+>   répertoires système entiers, les jokers et les variables d'environnement.
+>
+> **Il ne reste que deux chaînes libres dans `Verb`** : `domain`, qui filtre un
+> affichage, et `reason`, qui est un motif destiné à un humain. Ni l'une ni
+> l'autre ne désigne quoi que ce soit.
+>
+> Ce qui a changé de nature : la validation ne vit plus dans un test qui lit le
+> source, mais dans le **type**, à la construction *et* à la désérialisation —
+> `serde(try_from)`, éprouvé par un test qui envoie `..\..\evil` en JSON et
+> vérifie que le broker refuse. Le texte détectait une régression ; le type
+> empêche l'attaque.
+>
+> Ce que ça ne règle pas, et qu'il faut continuer de lire ci-dessous : la
+> **sémantique**. Aucun type ne dira jamais qu'un instantané légitime restauré
+> au mauvais moment est une mauvaise idée.
+
+Le texte d'origine, conservé parce qu'il décrit les dangers réels :
 
 ### `TakeSnapshot { kind: String, target: String }`
 

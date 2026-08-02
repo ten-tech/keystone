@@ -1,0 +1,118 @@
+
+anstream v1.0.0
+anstyle v1.0.14
+anstyle-parse v1.0.0
+anstyle-query v1.1.5
+anstyle-wincon v3.0.11
+anyhow v1.0.104
+arrayref v0.3.9
+arrayvec v0.7.8
+autocfg v1.5.1
+bitflags v2.13.1
+blake3 v1.8.5
+cc v1.4.0
+cc v1.4.0 (*)
+cfg-if v1.0.4
+chrono v0.4.45
+chrono v0.4.45 (*)
+clap v4.6.4
+clap_builder v4.6.2
+clap_derive v4.6.4 (proc-macro)
+clap_lex v1.1.0
+colorchoice v1.0.5
+constant_time_eq v0.4.2
+cpufeatures v0.3.0
+crossbeam-deque v0.8.7
+crossbeam-epoch v0.9.20
+crossbeam-utils v0.8.22
+either v1.17.0
+fallible-iterator v0.3.0
+fallible-streaming-iterator v0.1.9
+find-msvc-tools v0.1.9
+futures v0.3.33
+futures-channel v0.3.33
+futures-channel v0.3.33 (*)
+futures-core v0.3.33
+futures-executor v0.3.33
+futures-io v0.3.33
+futures-macro v0.3.33 (proc-macro)
+futures-sink v0.3.33
+futures-task v0.3.33
+futures-util v0.3.33
+futures-util v0.3.33 (*)
+heck v0.5.0
+is_terminal_polyfill v1.70.2
+itoa v1.0.18
+ks-agent-linux v0.1.0 (C:\Users\pc\Documents\work_station\keystone\crates\ks-agent-linux)
+ks-broker v0.1.0 (C:\Users\pc\Documents\work_station\keystone\crates\ks-broker)
+ks-cli v0.1.0 (C:\Users\pc\Documents\work_station\keystone\crates\ks-cli)
+ks-collectors v0.1.0 (C:\Users\pc\Documents\work_station\keystone\crates\ks-collectors)
+ks-collectors v0.1.0 (C:\Users\pc\Documents\work_station\keystone\crates\ks-collectors) (*)
+ks-core v0.1.0 (C:\Users\pc\Documents\work_station\keystone\crates\ks-core)
+ks-core v0.1.0 (C:\Users\pc\Documents\work_station\keystone\crates\ks-core) (*)
+libc v0.2.189
+libsqlite3-sys v0.37.0
+log v0.4.33
+memchr v2.8.3
+ntapi v0.4.3
+num-traits v0.2.19
+once_cell_polyfill v1.70.2
+pin-project-lite v0.2.17
+pkg-config v0.3.33
+proc-macro2 v1.0.107
+proc-macro2 v1.0.107 (*)
+quote v1.0.47
+quote v1.0.47 (*)
+rayon v1.12.0
+rayon-core v1.13.0
+rusqlite v0.39.0
+rusqlite v0.39.0 (*)
+serde v1.0.229
+serde v1.0.229 (*)
+serde_core v1.0.229
+serde_derive v1.0.229 (proc-macro)
+serde_json v1.0.151
+serde_json v1.0.151 (*)
+shlex v2.0.1
+slab v0.4.12
+smallvec v1.15.2
+strsim v0.11.1
+syn v2.0.119
+syn v2.0.119 (*)
+syn v3.0.3
+syn v3.0.3 (*)
+sysinfo v0.32.1
+thiserror v2.0.19
+thiserror v2.0.19 (*)
+thiserror-impl v2.0.19 (proc-macro)
+unicode-ident v1.0.24
+utf8parse v0.2.2
+vcpkg v0.2.15
+winapi v0.3.9
+windows v0.57.0
+windows v0.62.2
+windows-collections v0.3.2
+windows-core v0.57.0
+windows-core v0.62.2
+windows-core v0.62.2 (*)
+windows-future v0.3.2
+windows-implement v0.57.0 (proc-macro)
+windows-implement v0.60.2 (proc-macro)
+windows-interface v0.57.0 (proc-macro)
+windows-interface v0.59.3 (proc-macro)
+windows-link v0.2.1
+windows-numerics v0.3.1
+windows-registry v0.6.1
+windows-result v0.1.2
+windows-result v0.4.1
+windows-result v0.4.1 (*)
+windows-strings v0.5.1
+windows-strings v0.5.1 (*)
+windows-sys v0.61.2
+windows-sys v0.61.2 (*)
+windows-targets v0.52.6
+windows-targets v0.52.6 (*)
+windows-threading v0.2.1
+windows_x86_64_msvc v0.52.6
+wmi v0.17.3
+zmij v1.0.23
