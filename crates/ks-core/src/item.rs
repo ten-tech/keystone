@@ -275,10 +275,18 @@ impl Item {
         let Some(voulu) = &self.desired else {
             return Verdict::NonContraint;
         };
-        if !self.observed.est_constat() {
-            return Verdict::Incomparable {
-                raison: self.observed.to_string(),
-            };
+        // Les DEUX côtés doivent être des constats, pas seulement le côté
+        // observé. L'ADR-0008 l'écrit ainsi, et le code n'en posait qu'un.
+        // Un désir `Illisible` n'a certes aucun sens — c'est même pourquoi
+        // l'ADR-0010 décide qu'à terme le côté désiré ne réutilisera pas
+        // `ItemValue` — mais tant qu'il est représentable, il est constructible,
+        // et la comparaison par égalité le traiterait comme une valeur voulue.
+        for (cote, valeur) in [("constatée", &self.observed), ("voulue", voulu)] {
+            if !valeur.est_constat() {
+                return Verdict::Incomparable {
+                    raison: format!("valeur {cote} : {valeur}"),
+                };
+            }
         }
         if voulu == &self.observed {
             Verdict::Conforme
@@ -368,6 +376,36 @@ mod tests {
         let v = item(Some(ItemValue::Bool(true)), ItemValue::Bool(true)).verdict();
         assert_eq!(v, Verdict::Conforme);
         assert!(!v.demande_convergence());
+    }
+
+    /// L'ADR-0008 pose la règle sur les DEUX côtés ; le code n'en gardait qu'un.
+    ///
+    /// Un désir illisible n'a aucun sens — c'est même la raison pour laquelle
+    /// l'ADR-0010 décide qu'à terme le côté désiré ne réutilisera pas
+    /// `ItemValue`. Mais tant qu'il est représentable, il est constructible :
+    /// sans ce garde, la comparaison par égalité traitait un aveu écrit du côté
+    /// voulu comme une valeur voulue, et pouvait déclarer « conforme » deux
+    /// aveux de même raison.
+    #[test]
+    fn un_desir_qui_nest_pas_un_constat_rend_la_comparaison_impossible() {
+        let raison = "accès refusé sans élévation";
+
+        let i = item(Some(ItemValue::illisible(raison)), ItemValue::Bool(true));
+        let v = i.verdict();
+        assert!(matches!(v, Verdict::Incomparable { .. }), "{v:?}");
+        assert!(!v.demande_convergence());
+
+        // Le cas qui mordait le plus fort : deux aveux identiques des deux
+        // côtés se seraient déclarés conformes par simple égalité.
+        let deux_aveux = item(
+            Some(ItemValue::illisible(raison)),
+            ItemValue::illisible(raison),
+        );
+        assert_ne!(
+            deux_aveux.verdict(),
+            Verdict::Conforme,
+            "deux « je n'ai pas su lire » ne font pas une conformité"
+        );
     }
 
     #[test]

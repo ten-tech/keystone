@@ -44,10 +44,10 @@ de correspondance chemin ↔ champ, écrite et maintenue à la main. Ce serait u
 règle du projet interdit, et pour la raison exacte qu'on observe ici : les deux
 premières ont déjà divergé sans que rien ne le signale.
 
-### Un piège de sérialisation mesuré
+### Un piège de sérialisation mesuré — **corrigé depuis**
 
-`ItemValue` est `#[serde(untagged)]`, et `Absent` en est une variante unité.
-Mesuré le 2026-08-02 :
+`ItemValue` est `#[serde(untagged)]`, et `Absent` en **était** une variante
+unité. Mesuré le 2026-08-02, avant correction :
 
 ```
 Some(ItemValue::Absent)  →  {"desired":null}
@@ -56,9 +56,23 @@ aller-retour de Some(Absent)  →  None
 ```
 
 Autrement dit, « **cet item ne doit pas exister** » et « je ne contrains pas cet
-item » sont indiscernables après un aller-retour. Ce sont deux intentions
+item » étaient indiscernables après un aller-retour. Ce sont deux intentions
 opposées. Le commentaire de `Illisible` avait déjà identifié la famille du piège
-et choisi une variante de forme objet pour l'éviter ; `Absent` y est resté exposé.
+et choisi une variante de forme objet pour l'éviter ; `Absent` y était resté
+exposé.
+
+**Le même jour, `Absent` a reçu une forme objet sur le fil** — `{"absent":true}`,
+champ obligatoire et `deny_unknown_fields`, la variante restant unité côté Rust
+pour ne toucher aucun site d'appel. Le piège d'ordre d'`untagged` est désamorcé
+par le contenu et non par la déclaration : `Absent` exige la clé `absent`,
+`Illisible` exige `raison`, aucun ordre ne peut plus décider. Un test d'aller-
+retour couvre toutes les variantes, gardé par un `match` exhaustif sans bras
+`_` — ajouter une variante à `ItemValue` casse la compilation avant le test.
+
+Cette section reste ici, au passé, parce que le raisonnement qui suit s'appuie
+dessus : **la décision n° 3 ne change pas**. Son motif principal tient toujours
+sans ce piège — `Illisible` n'a aucun sens dans un désir, et un type de désir
+qui pourrait l'exprimer serait un type mal fait.
 
 ## Décision
 
