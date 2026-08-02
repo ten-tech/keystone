@@ -22,9 +22,13 @@
 
 #![forbid(unsafe_code)]
 
+mod rapport;
+
+use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use chrono::Utc;
 use clap::{Parser, Subcommand};
 use ks_collectors::Inventory;
 use ks_core::{Domain, DriftSummary};
@@ -138,6 +142,16 @@ enum Command {
         /// Chemin de l'item, ex. `security.defender.realtime`.
         path: String,
     },
+
+    /// Écrit un rapport HTML autonome de l'état observé.
+    ///
+    /// Le fichier ne contacte aucun serveur pour s'afficher : ni police
+    /// distante, ni script, ni image externe (principe P5).
+    Report {
+        /// Où écrire le fichier.
+        #[arg(long, short = 'o', default_value = "keystone-rapport.html")]
+        out: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]
@@ -174,6 +188,7 @@ fn main() -> ExitCode {
         Command::Scan { domain } => cmd_scan(cli.json, domain.as_deref()),
         Command::Status => cmd_status(cli.json),
         Command::Explain { path } => cmd_explain(path),
+        Command::Report { out } => cmd_report(out),
 
         // Toutes les commandes qui écriront un jour sont déclarées mais inertes en
         // Phase 0. C'est volontaire : le contrat de la CLI est figé, l'implémentation
@@ -295,6 +310,31 @@ fn cmd_scan(json: bool, domain: Option<&str>) -> Result<()> {
         println!("  {:<44} {}", item.path, valeur_lisible(item));
     }
     println!("\n{} item(s) observé(s).", items.len());
+    Ok(())
+}
+
+/// Écrit le rapport HTML autonome.
+///
+/// La seule commande de la Phase 0 qui produise un fichier. Elle écrit **où
+/// l'utilisateur le demande**, jamais dans un dossier système : la règle « aucune
+/// écriture » vise la configuration de la machine, pas un rapport que l'on
+/// réclame explicitement. La distinction est écrite ici pour qu'elle ne se
+/// perde pas.
+fn cmd_report(destination: &std::path::Path) -> Result<()> {
+    let inv = Inventory::collect_all();
+    let machine = inv
+        .items
+        .iter()
+        .find(|i| i.path == "inventory.host.name")
+        .map_or_else(|| "poste".to_owned(), |i| i.observed.to_string());
+
+    let html = rapport::construire(&inv.items, &machine, &Utc::now().to_rfc3339());
+    std::fs::write(destination, html)
+        .with_context(|| format!("écriture de « {} »", destination.display()))?;
+
+    println!("Rapport écrit : {}", destination.display());
+    println!("  {} items, sur {machine}.", inv.items.len());
+    println!("  Aucune ressource réseau : le fichier s'ouvre hors ligne.");
     Ok(())
 }
 
