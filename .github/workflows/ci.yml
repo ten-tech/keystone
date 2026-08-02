@@ -118,32 +118,53 @@ jobs:
       - name: Tests
         run: cargo test --locked --workspace
 
-      # Cette étape n'est pas décorative : le test
-      # `aucun_verbe_ne_transporte_dexecution_arbitraire` est une BARRIÈRE DE
-      # CONCEPTION (SEC-02, critère A11). Il casse si quelqu'un ajoute un verbe
-      # transportant une commande, un script ou un chemin d'exécutable — pour
-      # que la discussion ait lieu avant la fusion, pas après l'incident.
-      - name: Barrière SEC-02 — aucune exécution arbitraire dans l'API du broker
+      # Cette étape n'est pas décorative : elle isole les BARRIÈRES DE CONCEPTION
+      # du broker (SEC-02 et SEC-03, critère A11) pour qu'un échec se lise d'un
+      # coup d'œil, sans fouiller la sortie de tout le workspace.
+      #
+      # Elles sont **huit**, et elles ne se comptent pas au doigt mouillé : une
+      # revue adverse a produit dix-neuf tentatives de contournement, dont douze
+      # qu'elle a trouvées seule (voir docs/adr/0007). Chaque barrière ferme une
+      # famille — délimitation, ancre, extraction, projection.
+      #
+      # L'étape ne citait qu'un seul de ces tests pendant toute la Phase 0, ce
+      # qui est très exactement le défaut que ces barrières traquent : un
+      # garde-fou qui garde moins que ce qu'il annonce.
+      - name: Barrières SEC-02 et SEC-03 — l'API du broker reste fermée
         shell: bash
         run: |
           # Le chemin de module `tests::` est obligatoire avec `--exact`. Sans lui,
           # le filtre n'appariait AUCUN test : l'étape sortait en succès avec
           # « 0 passed; 2 filtered out ». Un garde-fou vert qui ne s'exécute pas
           # est pire qu'une absence de garde-fou — on lui fait confiance.
-          # `|| true` : `shell: bash` implique `set -e`, donc un échec de cargo
-          # interrompait l'étape AVANT le `echo`. Le jour où la barrière casse —
-          # le seul jour où cette étape sert — le contributeur voyait une étape
-          # rouge sans le message d'assertion qui lui dit quoi lire.
-          sortie=$(cargo test --locked -p ks-broker \
-            tests::aucun_verbe_ne_transporte_dexecution_arbitraire \
-            -- --exact --nocapture 2>&1) || true
-          echo "$sortie"
-          # Et on vérifie que la barrière a bel et bien tourné : c'est ce contrôle
-          # qui empêche de retomber dans le succès à vide.
-          echo "$sortie" | grep -q "^test result: ok\. 1 passed" || {
-            echo "::error::la barrière SEC-02 n'a pas été exécutée — filtre de test invalide"
-            exit 1
-          }
+          barrieres=(
+            aucun_verbe_ne_transporte_dexecution_arbitraire
+            lenumeration_des_verbes_est_lisible_telle_quelle
+            la_lecture_textuelle_voit_tous_les_verbes
+            le_source_lu_porte_les_champs_du_type_compile
+            aucune_variante_nenveloppe_sa_charge_utile
+            tout_parametre_de_verbe_designe_un_ensemble_fini
+            aucun_attribut_serde_ne_regle_la_projection
+            une_exclusion_defender_exige_raison_et_expiration
+          )
+          echec=0
+          for barriere in "${barrieres[@]}"; do
+            # `|| true` : `shell: bash` implique `set -e`, donc un échec de cargo
+            # interromprait la boucle AVANT le `echo`. Le jour où une barrière
+            # casse — le seul jour où cette étape sert — le contributeur verrait
+            # une étape rouge sans le message d'assertion qui lui dit quoi lire.
+            sortie=$(cargo test --locked -p ks-broker \
+              "tests::$barriere" -- --exact --nocapture 2>&1) || true
+            echo "$sortie"
+            # Et on vérifie que la barrière a bel et bien TOURNÉ : c'est ce
+            # contrôle qui empêche de retomber dans le succès à vide, celui
+            # qu'un nom de test mal orthographié produirait.
+            if ! echo "$sortie" | grep -q "^test result: ok\. 1 passed"; then
+              echo "::error::barrière « $barriere » : non exécutée, ou en échec"
+              echec=1
+            fi
+          done
+          exit "$echec"
 
   # ── L'agent Linux, tel qu'il est livré ─────────────────────────────────
   agent-musl:
