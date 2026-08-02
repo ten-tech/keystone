@@ -17,20 +17,45 @@ Rapports de contraste calculés selon la formule de luminance relative WCAG.
 |---|---|---|---|---|---|
 | `--ink-1` | `#E6EDF3` | 16,27 | 14,83 | 13,26 | ✅ AAA partout |
 | `--ink-2` | `#9FB0C0` | 8,64 | 7,88 | 7,05 | ✅ AAA partout |
-| `--ink-3` | `#6E8091` | 4,72 | 4,30 | 3,85 | ⚠️ voir note |
+| `--ink-3` | `#798C9D` | 5,54 | 5,05 | 4,52 | ✅ AA partout — voir note |
 | `--vital` | `#4FD1C5` | 10,30 | 9,39 | 8,40 | ✅ |
 | `--attention` | `#E8A33D` | 8,91 | 8,12 | 7,27 | ✅ |
 | `--grave` | `#E5534B` | 5,19 | 4,73 | 4,23 | ✅ AA texte normal |
 | `--good` | `#4BC97D` | 9,11 | 8,30 | 7,43 | ✅ |
 | `--grid` | `#1F2A36` | 1,32 | 1,20 | 1,08 | ✅ attendu — récessif par conception |
 
-**Note sur `--ink-3`.** À 3,85:1 sur `--surface-2`, il passe sous le seuil AA de
-4,5:1 pour du texte normal. Règle d'usage : **`--ink-3` ne s'emploie que sur
-`--surface-0` et `--surface-1`**, où il tient (4,72 et 4,30). Sur une ligne
-survolée qui passe en `--surface-2`, le texte atténué remonte à `--ink-2`.
+**Note sur `--ink-3` — corrigé le 30/07/2026.**
+
+La valeur d'origine, `#6E8091`, donnait 4,72 / 4,30 / 3,85. La note affirmait
+alors qu'elle « tenait » sur `--surface-0` et `--surface-1` : **c'était faux pour
+`--surface-1`**, puisque 4,30 est sous le seuil AA de 4,5:1 que ce document pose
+lui-même plus bas. Le calcul était juste, la conclusion ne l'était pas — et
+`--ink-3` est employé à 11 px et 12,5 px, tailles qui ne relèvent pas du « texte
+large » et n'ouvrent donc aucun droit au seuil de 3:1.
+
+Plutôt que de restreindre encore la règle d'usage, la teinte a été **recalculée** :
+
+| | ancien `#6E8091` | nouveau `#798C9D` |
+|---|---|---|
+| contraste `/ surface-0` | 4,72 | **5,54** |
+| contraste `/ surface-1` | 4,30 ❌ | **5,05** |
+| contraste `/ surface-2` | 3,85 ❌ | **4,52** |
+| L (OKLCH) | 0,5914 | 0,6309 |
+| C (OKLCH) | 0,0336 | 0,0338 |
+| H (OKLCH) | −113,1° | −114,6° |
+
+La correction est une montée de luminosité de 0,04 en OKLCH : **chroma conservé**
+(+0,0002) et **dérive de teinte de 1,5°**, donc invisible. L'écart de luminosité
+avec `--ink-2` reste franc (0,63 contre 0,75) : la hiérarchie à trois niveaux
+d'encre n'est pas aplatie.
+
+**Conséquence sur les règles d'usage :** `--ink-3` est désormais employable sur
+les trois surfaces, y compris sur une ligne survolée qui passe en `--surface-2`.
+La règle « le texte atténué remonte à `--ink-2` au survol » devient facultative,
+et relève du goût plutôt que de la conformité.
 
 C'est le genre de contrainte qu'on découvre par le calcul et jamais à l'œil — sur
-un fond sombre, `#6E8091` *paraît* parfaitement lisible partout.
+un fond sombre, `#6E8091` *paraissait* parfaitement lisible partout.
 
 ---
 

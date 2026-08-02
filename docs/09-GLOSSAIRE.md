@@ -59,7 +59,7 @@ parce que son coût est réel.
 | **Moment de vérité** | instant d'usage explicitement conçu, où le produit gagne ou perd la confiance de son utilisateur. Les huit sont au §5 du brief. |
 | **Oscillation** | item repoussé par la MDM à chaque cycle. Identifié comme tel plutôt que reconverti en boucle. |
 | **Plan** | ensemble ordonné de vagues, montré intégralement avant d'être appliqué. |
-| **Provenance** | qui a produit la valeur constatée. `Unknown` est **le** signal du produit. |
+| **Provenance** | qui a produit la valeur constatée. `Observed` dit « relevé, sans prétention sur l'auteur » ; `Unknown` dit « un changement a eu lieu et personne n'en est l'auteur » — c'est **le** signal du produit, et confondre les deux le rend muet. |
 | **Quarantaine** | zone de rétention temporaire remplaçant la suppression. |
 | **Réconciliation d'inventaire** | croiser toutes les sources d'installation pour produire la liste des applications gérées par **aucun** gestionnaire. Le livrable le plus sous-estimé. |
 | **Test de fumée** | vérification définie par l'utilisateur qui juge si un changement est acceptable. Seul juge du résultat. |

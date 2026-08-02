@@ -40,8 +40,22 @@ pub enum Domain {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "kind", content = "who")]
 pub enum Provenance {
-    /// Keystone lui-même, lors d'une convergence.
+    /// Keystone lui-même, lors d'une convergence — il a **écrit** cette valeur.
     Keystone,
+    /// Simplement **relevé** par un collecteur, sans prétention sur l'auteur.
+    ///
+    /// À distinguer soigneusement des deux voisines :
+    ///
+    /// * [`Provenance::Keystone`] affirme que Keystone a *produit* la valeur ;
+    /// * [`Provenance::Unknown`] affirme qu'un *changement* a eu lieu sans auteur
+    ///   identifiable — c'est un signal de sécurité.
+    ///
+    /// Un relevé n'est ni l'un ni l'autre : il ne dit rien de l'origine, et ne doit
+    /// donc rien déclencher. Sans cette variante, les collecteurs marquaient tout en
+    /// `Keystone`, ce qui rendait `Unknown` inatteignable en Phase 0 — donc
+    /// `is_security_signal` toujours faux, et le mécanisme le plus valorisé du
+    /// modèle structurellement mort.
+    Observed,
     /// Une décision humaine explicite, horodatée.
     Human(String),
     /// Windows Update.

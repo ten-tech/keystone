@@ -21,12 +21,46 @@ L'exemple versionné est `schema/examples/workstation.yaml`, et il est fictif.
 ### Branches
 
 ```
-main                    toujours vert : cargo test + clippy -D warnings passent
+main                    protégée · toujours verte · ce qu'un tiers clone
+  ↑ fusion par PR, après revue
+dev                     intégration · cible par défaut des PR
+  ↑ fusion par PR
 feat/<domaine>-<sujet>  ex. feat/d5-magasin-certificats
 fix/<sujet>
 docs/<sujet>
 adr/<numero>-<sujet>    une ADR seule, pour qu'elle soit discutée sans code
 ```
+
+**Pourquoi deux branches longues et pas une.** Le critère de sortie de la Phase 6
+est qu'un tiers installe Keystone à partir de la seule documentation : `main` est
+donc ce qu'il clone, et elle ne doit jamais être un état de passage. `dev` reçoit
+l'intégration ; `main` ne reçoit que ce qui est fini.
+
+Les branches courtes partent de `dev` et y retournent. Elles sont **éphémères** :
+une branche qui vit plus d'une semaine est un lot mal découpé.
+
+**Ce que `main` refuse, et c'est appliqué par la protection de branche :** le push
+direct, la fusion sans revue, la fusion sans que les portes de qualité passent, et
+la réécriture d'historique. Les zones sensibles — `crates/ks-broker/`, `docs/adr/`,
+le modèle de menace, la CI, la palette — exigent en plus la revue de leur
+propriétaire ([`../.github/CODEOWNERS`](../.github/CODEOWNERS)).
+
+### Hooks
+
+Les conventions ci-dessous ne valent que si quelque chose les applique. Trois hooks
+versionnés dans [`../.githooks/`](../.githooks/), à activer une fois par clone :
+
+```powershell
+.\scripts\dev-hooks.ps1
+```
+
+| Hook | Ce qu'il vérifie | Coût |
+|---|---|---|
+| `commit-msg` | Conventional Commits, portée connue, sujet ≤ 72 car., référence d'exigence | instantané |
+| `pre-commit` | format, secrets évidents, fichiers interdits, marqueurs de conflit | ~1 s |
+| `pre-push` | `fmt` + `clippy -D warnings` + `test` + barrière SEC-02 rejouée | 2 à 4 min |
+
+`--no-verify` existe et se justifie en revue. Un contournement silencieux, non.
 
 ### Messages de commit
 

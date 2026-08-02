@@ -1,0 +1,42 @@
+{
+  // Réglages de poste recommandés pour Keystone.
+  //
+  // Copier ce fichier en `.vscode/settings.json` — qui, lui, est ignoré par git :
+  // les réglages d'un poste ne sont pas une décision de projet.
+  //
+  // Le raisonnement complet est dans docs/05-ENVIRONNEMENT-DE-DEV.md.
+
+  // Valide workstation.yaml contre le JSON Schema du dépôt, en direct dans l'éditeur.
+  // C'est ce qui rend l'erreur visible à l'écriture plutôt qu'au chargement.
+  "yaml.schemas": {
+    "./schema/workstation.schema.json": [
+      "workstation.yaml",
+      "base.yaml",
+      "schema/examples/*.yaml"
+    ]
+  },
+
+  // clippy plutôt que `cargo check` : la CI refuse le moindre avertissement
+  // (docs/08-CONVENTIONS.md § « Non négociable »). Autant les voir tout de suite.
+  "rust-analyzer.check.command": "clippy",
+
+  // Les fins de ligne sont tranchées par .gitattributes ; l'éditeur suit.
+  "files.eol": "\n",
+  "[powershell]": {
+    "files.eol": "\r\n"
+  },
+
+  "editor.formatOnSave": true,
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+
+  // `target/` contient des centaines de milliers de fichiers. Les indexer
+  // ralentit la recherche sans rien apporter.
+  "files.watcherExclude": {
+    "**/target/**": true
+  },
+  "search.exclude": {
+    "**/target/**": true,
+    "**/Cargo.lock": true
+  }
+}

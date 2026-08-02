@@ -1,0 +1,43 @@
+version: 2
+
+updates:
+  # ── Actions GitHub ────────────────────────────────────────────────────
+  # Complément indispensable de l'épinglage par SHA : une action figée sur un
+  # commit ne reçoit plus aucun correctif. Sans ce canal, l'épinglage échange
+  # un risque de chaîne d'approvisionnement (A4) contre un gel sur des versions
+  # vulnérables. Dependabot rouvre le canal, avec revue humaine à chaque fois.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    labels: ["dépendances", "ci"]
+
+  # ── Crates Rust ───────────────────────────────────────────────────────
+  # Groupées : une PR par lot plutôt qu'une par crate, sinon le bruit finit
+  # par faire fusionner sans lire — ce qui annule le bénéfice.
+  #
+  # SEC-11 interdit l'auto-mise-à-jour silencieuse du produit ; cela ne
+  # s'applique pas à ses dépendances de développement, qui restent revues et
+  # fusionnées à la main.
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    labels: ["dépendances"]
+    groups:
+      mineures-et-correctifs:
+        update-types: ["minor", "patch"]
+    ignore:
+      # Toute dépendance de `ks-broker` passe par une ADR : une PR automatique
+      # ne peut pas en produire une. Les montées de ce crate se décident, elles
+      # ne se fusionnent pas.
+      - dependency-name: "windows-service"
+      - dependency-name: "windows"

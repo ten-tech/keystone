@@ -8,13 +8,27 @@
 //!
 //! Les types correspondent un pour un au §9.2 du cahier des charges.
 //!
-//! ## Les deux invariants portés par le typage
+//! ## Comment les règles du produit sont tenues
 //!
-//! Ils viennent des principes P2 et P3 du projet, et le compilateur doit les faire
-//! respecter plutôt que la relecture humaine :
+//! Deux mécanismes, et il faut les distinguer — la confusion entre les deux est
+//! précisément ce qui fait croire à une garantie qu'on n'a pas.
+//!
+//! **Rendu impossible par le typage.** Ces états ne compilent pas : un [`Item`]
+//! sans provenance ni horodatage est inconstructible, une acceptation d'écart
+//! sans motif ni expiration n'existe pas ([`DriftStatus::Accepted`]), un
+//! [`Snapshot`] ne peut pas être passé là où un [`BackupSet`] est attendu.
+//!
+//! **Vérifié à l'exécution.** Les principes P2 et P3 vivent dans
+//! [`Action::ensure_appliable`] et [`Action::ensure_schedulable`], qui renvoient
+//! un [`Result`] :
 //!
 //! * une [`Action`] qui ne sait pas se simuler ne peut pas être appliquée ;
 //! * une [`Action`] qui ne sait pas s'annuler ne peut pas être planifiée automatiquement.
+//!
+//! Ce sont des contrôles d'admission, pas des invariants de typage : rien
+//! n'oblige un futur exécuteur à les appeler. Les rendre inévitables demanderait
+//! un typestate — décision à prendre en Phase 2, quand le premier exécuteur
+//! existera. D'ici là, la garantie repose sur les tests, et il faut le dire.
 
 #![forbid(unsafe_code)]
 

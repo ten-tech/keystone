@@ -14,15 +14,12 @@ serde.workspace = true
 sysinfo.workspace = true
 
 # Les collecteurs spécifiques à Windows (TPM, BitLocker, Defender, WMI, registre)
-# arrivent en Phase 0.2. Ils sont déclarés ici pour que la cible soit explicite,
-# et absents de la compilation Linux — ce qui permet de tester ks-core et la CLI
-# n'importe où, y compris en intégration continue sur un agent Linux.
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = [
-    "Win32_Foundation",
-    "Win32_System_SystemInformation",
-    "Win32_System_Registry",
-] }
+# arrivent en Phase 0.2. Le crate `windows` était déjà déclaré ici « pour que la
+# cible soit explicite » — mais jamais importé, ce qui compilait neuf crates
+# transitives pour rien et figeait une version d'API qu'on n'a pas encore essayée.
+#
+# Il sera ajouté au moment du premier appel Win32 réel, avec la version stable
+# vérifiée à la source ce jour-là. Rien à déclarer avant d'en avoir besoin.
 
 [lints.rust]
 unsafe_code = "warn"   # inévitable côté Win32, mais chaque bloc doit être justifié.

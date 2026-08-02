@@ -24,7 +24,7 @@ confirme qu'aucun octet n'a été modifié.
 
 - [x] Workspace cargo, 5 crates, CI
 - [x] `ks-core` : `Item`, `Drift`, `Plan`, `Action`, `Snapshot`, `JournalEntry`
-- [x] Invariants P2/P3 portés par le typage, avec 19 tests
+- [x] Règles P2/P3 tenues par contrôle d'admission testé — pas par le typage, voir `03-ARCHITECTURE.md` § « invariants portés par le modèle »
 - [x] `ks-collectors` : trait `Collector`, `Inventory`, collecteur matériel portable
 - [x] `ks-cli` : contrat complet des commandes ; `scan`, `status`, `explain` opérationnels
 - [x] `ks-broker` : énumération des verbes + barrière de test SEC-02

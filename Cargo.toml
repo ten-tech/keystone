@@ -11,14 +11,22 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.80"
+# Version minimale mesurée, pas estimée : `cargo +1.80 check` échoue, parce que
+# `clap_lex` exige la fonctionnalité `edition2024`, stabilisée en Rust 1.85.
+# La valeur 1.80 déclarée initialement n'avait jamais été éprouvée — aucun job
+# de CI ne la vérifiait. Il en existe un maintenant (« MSRV » dans ci.yml).
+# Relever ce nombre est une décision : il ferme la porte à des postes plus anciens.
+rust-version = "1.85"
 license = "Apache-2.0"
 authors = ["Projet Keystone"]
-repository = "https://example.invalid/keystone"
+repository = "https://github.com/ten-tech/keystone"
 
 [workspace.dependencies]
-ks-core = { path = "crates/ks-core" }
-ks-collectors = { path = "crates/ks-collectors" }
+# `version` en plus de `path` : sans elle, la dépendance interne est un
+# joker (`*`) que `cargo deny check bans` refuse à juste titre — et le crate
+# serait impubliable, crates.io rejetant les dépendances par chemin seul.
+ks-core = { path = "crates/ks-core", version = "0.1.0" }
+ks-collectors = { path = "crates/ks-collectors", version = "0.1.0" }
 
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
