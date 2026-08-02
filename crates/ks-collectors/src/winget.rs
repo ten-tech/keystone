@@ -46,6 +46,13 @@
 //! (`SQLITE_READONLY_ROLLBACK`) et un aveu d'illisibilité.
 
 use std::collections::BTreeSet;
+
+// La lecture SQLite est **entièrement** sous `cfg(windows)`, imports compris.
+// `rusqlite` n'est déclarée que pour cette cible dans `Cargo.toml` : l'importer
+// sans condition compilait sur le poste de développement et cassait les trois
+// travaux Linux de l'intégration continue, y compris l'agent musl. La leçon est
+// celle de tout ce module — la cible de développement n'est pas la seule cible.
+#[cfg(windows)]
 use std::path::{Path, PathBuf};
 
 /// Ce que winget revendique, tel que ses bases de suivi le déclarent.
@@ -93,6 +100,7 @@ impl SuiviWinget {
 /// Au-delà, on refuse de lire plutôt que de deviner : un format qu'on croit
 /// comprendre produirait une attribution fausse, et une attribution fausse est
 /// pire qu'une attribution absente — elle rassure.
+#[cfg(windows)]
 const SCHEMA_MAJEUR_CONNU: &str = "1";
 
 /// Lit les bases de suivi de winget.
@@ -132,6 +140,7 @@ fn racine_local_state() -> Option<PathBuf> {
 /// (`Microsoft.Winget.Source_…` et `StoreEdgeFD`) : une source ajoutée par
 /// l'utilisateur crée son propre dossier, et l'ignorer produirait exactement le
 /// faux « orphelin » que ce module existe pour supprimer.
+#[cfg(windows)]
 fn lire_depuis(racine: &Path) -> SuiviWinget {
     let mut suivi = SuiviWinget::default();
 
@@ -165,6 +174,7 @@ fn lire_depuis(racine: &Path) -> SuiviWinget {
 ///
 /// L'erreur est une chaîne destinée à l'utilisateur, pas un type : à ce stade,
 /// l'appelant n'a qu'une décision à prendre — déclarer l'attribution incomplète.
+#[cfg(windows)]
 fn lire_une_base(chemin: &Path) -> Result<(Vec<String>, Vec<String>), String> {
     use rusqlite::{Connection, OpenFlags};
 
@@ -195,6 +205,7 @@ fn lire_une_base(chemin: &Path) -> Result<(Vec<String>, Vec<String>), String> {
 }
 
 /// Ramène une colonne de texte, normalisée en minuscules.
+#[cfg(windows)]
 fn colonne_texte(connexion: &rusqlite::Connection, requete: &str) -> Result<Vec<String>, String> {
     let mut preparee = connexion
         .prepare(requete)

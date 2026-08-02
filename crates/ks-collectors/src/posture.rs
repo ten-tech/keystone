@@ -46,7 +46,13 @@
 //! [`ItemValue::Illisible`], qui n'est ni une valeur ni une absence.
 
 use chrono::{DateTime, Utc};
-use ks_core::{Domain, Item, ItemValue, Provenance};
+use ks_core::{Item, ItemValue};
+
+// `Domain` et `Provenance` ne servent qu'à fabriquer un item, ce que seule la
+// branche Windows fait : hors Windows, ce collecteur ne produit rien plutôt que
+// d'inventer des protections qui n'existent pas ailleurs.
+#[cfg(windows)]
+use ks_core::{Domain, Provenance};
 
 /// Type de démarrage d'un service Windows, tel que le registre l'encode.
 ///
@@ -241,6 +247,7 @@ pub fn mode_asr(valeur: &str) -> &'static str {
 /// Liste volontairement courte : chacun est cité au §6 du modèle de menace ou
 /// couvre une brique de posture. Un service désactivé ici n'est pas une curiosité,
 /// c'est le premier maillon de la plupart des chaînes d'attaque.
+#[cfg(windows)]
 const SERVICES_SURVEILLES: &[(&str, &str)] = &[
     ("WinDefend", "Antivirus Microsoft Defender"),
     ("MpsSvc", "Pare-feu Windows Defender"),
@@ -289,6 +296,7 @@ impl PostureCollector {
 }
 
 /// Fabrique un item de posture, avec sa finalité et son risque (principe P6).
+#[cfg(windows)]
 pub(crate) fn item_posture(
     chemin: &str,
     valeur: ItemValue,
@@ -809,6 +817,10 @@ mod windows_impl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Importé ici plutôt que remonté au module : hors Windows, la fabrique
+    // d'items n'existe pas, mais les tests portent quand même sur la forme des
+    // items — et vérifient au passage qu'elle reste vide sur ces plateformes.
+    use ks_core::Provenance;
 
     #[test]
     fn le_type_de_demarrage_se_lit_en_francais() {

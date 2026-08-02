@@ -47,7 +47,9 @@ pub struct Distribution {
 ///
 /// Seuls ces deux-là sont interprétés. Le bit 3, observé à 1 sur cette machine,
 /// n'est documenté nulle part : le traduire serait inventer.
+#[cfg(windows)]
 const DRAPEAU_INTEROP: u32 = 0x1;
+#[cfg(windows)]
 const DRAPEAU_MONTAGE_LECTEURS: u32 = 0x4;
 
 impl Distribution {
