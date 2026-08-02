@@ -491,7 +491,16 @@ fn cmd_status(json: bool) -> Result<()> {
     // En Phase 0 il n'y a pas encore de fichier d'état désiré chargé : donc aucun
     // écart possible, par construction. Le résumé le dit honnêtement plutôt que
     // d'afficher un « 100 / 100 » qui ne voudrait rien dire.
-    let summary = DriftSummary::build(inv.len(), &[], chrono::Utc::now());
+    // Les illisibles se comptent, ils ne se déduisent pas. En Phase 0 aucun état
+    // désiré n'existe, donc aucun écart — mais trois items ne sont pas lisibles
+    // sans élévation, et les laisser tomber dans `compliant` afficherait vert
+    // sur ce qu'on n'a pas regardé.
+    let illisibles = inv
+        .items
+        .iter()
+        .filter(|i| !i.observed.est_constat())
+        .count();
+    let summary = DriftSummary::build(inv.len(), illisibles, &[], chrono::Utc::now());
 
     if json {
         println!("{}", serde_json::to_string_pretty(&summary)?);

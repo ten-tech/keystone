@@ -131,14 +131,33 @@ pub struct DriftSummary {
     pub conflicts: usize,
     /// Écarts actifs sans auteur identifié.
     pub unattributed: usize,
+    /// **Items qu'on n'a pas pu lire.**
+    ///
+    /// Ni conformes, ni en écart. Sans ce compteur, `compliant` les absorbait :
+    /// il se calculait par soustraction, donc tout ce qui n'était pas un écart
+    /// déclaré comptait pour conforme — y compris une exclusion Defender posée
+    /// sous une clé qu'on ne sait pas lire. L'outil affichait vert sur ce qu'il
+    /// n'avait pas regardé, ce qui est le pire des trois états possibles.
+    pub unreadable: usize,
 }
 
 impl DriftSummary {
     /// Construit le résumé depuis une liste d'écarts et un total d'items observés.
+    ///
+    /// `items_unreadable` est **obligatoire**, et non un `Option` avec une
+    /// valeur par défaut : un appelant qui l'oublie doit être arrêté par le
+    /// compilateur, parce que l'oublier revient à recompter les illisibles
+    /// comme conformes — le défaut précis que ce paramètre corrige.
     #[must_use]
-    pub fn build(items_observed: usize, drifts: &[Drift], now: Timestamp) -> Self {
+    pub fn build(
+        items_observed: usize,
+        items_unreadable: usize,
+        drifts: &[Drift],
+        now: Timestamp,
+    ) -> Self {
         let mut s = Self {
             observed: items_observed,
+            unreadable: items_unreadable,
             ..Self::default()
         };
         for d in drifts {
@@ -157,7 +176,11 @@ impl DriftSummary {
                 s.unattributed += 1;
             }
         }
-        s.compliant = items_observed.saturating_sub(s.active + s.accepted + s.conflicts);
+        // Les illisibles sortent du décompte des conformes. Le calcul reste une
+        // soustraction, mais il ne peut plus absorber ce qu'on n'a pas lu.
+        s.compliant = items_observed
+            .saturating_sub(s.active + s.accepted + s.conflicts)
+            .saturating_sub(s.unreadable);
         s
     }
 }
@@ -265,10 +288,31 @@ mod tests {
                 Provenance::Human("tene".into()),
             ),
         ];
-        let s = DriftSummary::build(312, &drifts, now);
+        let s = DriftSummary::build(312, 0, &drifts, now);
         assert_eq!(s.active, 2, "l'acceptation expirée doit redevenir active");
         assert_eq!(s.accepted, 1);
         assert_eq!(s.unattributed, 1);
         assert_eq!(s.compliant, 309);
+    }
+
+    #[test]
+    fn un_item_illisible_ne_compte_jamais_pour_conforme() {
+        // `compliant` se calculait par soustraction, donc absorbait tout ce qui
+        // n'était pas un écart déclaré — y compris une exclusion Defender posée
+        // sous une clé qu'on ne sait pas lire. L'outil affichait vert sur ce
+        // qu'il n'avait pas regardé, ce qui est le pire des trois états.
+        let now = Utc::now();
+        let s = DriftSummary::build(115, 3, &[], now);
+
+        assert_eq!(s.unreadable, 3);
+        assert_eq!(
+            s.compliant, 112,
+            "les trois illisibles sortent du décompte des conformes"
+        );
+        assert_eq!(
+            s.compliant + s.unreadable + s.active + s.accepted + s.conflicts,
+            s.observed,
+            "les cinq catégories doivent couvrir exactement les items observés"
+        );
     }
 }

@@ -175,16 +175,87 @@ pub struct Item {
 }
 
 impl Item {
-    /// L'item est-il en écart avec ce qui est désiré ?
+    /// Ce que vaut la comparaison entre le désiré et le constaté.
     ///
-    /// Un item non déclaré n'est jamais en écart : Keystone ne contraint que ce
-    /// qui est écrit dans le fichier d'état désiré.
+    /// # Pourquoi ce n'est pas un booléen
+    ///
+    /// `is_drifted()` renvoyait une égalité stricte, et traitait donc un item
+    /// **illisible** comme un écart. Ce n'est pas une nuance : sur la machine de
+    /// référence, trois items sont illisibles en permanence — les exclusions
+    /// Defender, dont la clé est protégée par ACL et que la CLI, non élevée
+    /// (SEC-01), ne peut pas lire.
+    ///
+    /// Dès qu'une politique d'exclusions serait déclarée (D11-02), Keystone
+    /// publierait **trois écarts par jour, indéfiniment**, sur une machine
+    /// parfaitement saine. Et ces écarts ne diraient pas ce qui est faux : ils
+    /// diraient qu'on n'a pas su regarder. Le critère de sortie de la Phase 1 —
+    /// « la dérive suivie pendant sept jours sans faux positif inexpliqué » —
+    /// en devenait **inatteignable**, pas difficile.
+    ///
+    /// La règle est donc simple et vaut dans les deux sens : **un côté qui n'est
+    /// pas un constat rend la comparaison impossible**, jamais un écart, et
+    /// jamais une conformité.
+    ///
+    /// [`ItemValue::Absent`] reste un constat : « cette clé n'existe pas » est
+    /// une mesure, et son écart avec un état désiré est légitime.
     #[must_use]
-    pub fn is_drifted(&self) -> bool {
-        match &self.desired {
-            None => false,
-            Some(want) => want != &self.observed,
+    pub fn verdict(&self) -> Verdict {
+        let Some(voulu) = &self.desired else {
+            return Verdict::NonContraint;
+        };
+        if !self.observed.est_constat() {
+            return Verdict::Incomparable {
+                raison: self.observed.to_string(),
+            };
         }
+        if voulu == &self.observed {
+            Verdict::Conforme
+        } else {
+            Verdict::Ecart
+        }
+    }
+}
+
+/// Ce que donne la confrontation d'un état désiré et d'un état constaté.
+///
+/// Quatre valeurs, et le `match` sur ce type est **exhaustif sans bras `_`** :
+/// ajouter un cas obligera à décider ce qu'on en fait partout, plutôt que de le
+/// laisser tomber silencieusement dans un fourre-tout.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "verdict")]
+pub enum Verdict {
+    /// Aucun état désiré : Keystone ne contraint que ce qui est écrit.
+    NonContraint,
+    /// Le constaté correspond au désiré.
+    Conforme,
+    /// Le constaté diffère du désiré.
+    Ecart,
+    /// **La comparaison n'a pas de sens** : la lecture a échoué.
+    ///
+    /// Ni un écart — on ne sait pas si la machine est conforme — ni une
+    /// conformité — on ne sait pas non plus qu'elle l'est. C'est un troisième
+    /// état, et le taire serait le mensonge que ce type existe pour empêcher.
+    Incomparable {
+        /// Ce que la lecture a répondu, en clair.
+        raison: String,
+    },
+}
+
+impl Verdict {
+    /// Cet item demande-t-il une action de convergence ?
+    ///
+    /// `Incomparable` répond **non**, et c'est le cœur de la décision : on ne
+    /// converge pas vers un état qu'on n'a pas su lire. L'item réclame une
+    /// élévation ou un diagnostic, pas une écriture.
+    #[must_use]
+    pub const fn demande_convergence(&self) -> bool {
+        matches!(self, Self::Ecart)
+    }
+
+    /// Peut-on conclure quoi que ce soit sur cet item ?
+    #[must_use]
+    pub const fn est_concluant(&self) -> bool {
+        !matches!(self, Self::Incomparable { .. })
     }
 }
 
@@ -208,19 +279,68 @@ mod tests {
 
     #[test]
     fn un_item_non_declare_nest_jamais_en_ecart() {
-        assert!(!item(None, ItemValue::Bool(false)).is_drifted());
+        let v = item(None, ItemValue::Bool(false)).verdict();
+        assert_eq!(v, Verdict::NonContraint);
+        assert!(!v.demande_convergence());
     }
 
     #[test]
     fn un_item_declare_et_different_est_en_ecart() {
-        let i = item(Some(ItemValue::Bool(true)), ItemValue::Bool(false));
-        assert!(i.is_drifted());
+        let v = item(Some(ItemValue::Bool(true)), ItemValue::Bool(false)).verdict();
+        assert_eq!(v, Verdict::Ecart);
+        assert!(v.demande_convergence());
     }
 
     #[test]
     fn un_item_conforme_nest_pas_en_ecart() {
-        let i = item(Some(ItemValue::Bool(true)), ItemValue::Bool(true));
-        assert!(!i.is_drifted());
+        let v = item(Some(ItemValue::Bool(true)), ItemValue::Bool(true)).verdict();
+        assert_eq!(v, Verdict::Conforme);
+        assert!(!v.demande_convergence());
+    }
+
+    #[test]
+    fn un_item_illisible_nest_ni_conforme_ni_en_ecart() {
+        // **Le défaut qui rendait le critère de sortie de la Phase 1
+        // inatteignable.** Trois items sont illisibles en permanence sur la
+        // machine de référence : les exclusions Defender, dont la clé est
+        // protégée par ACL et que la CLI, non élevée, ne peut pas lire.
+        //
+        // L'égalité stricte les comptait en écart. Déclarer une politique
+        // d'exclusions aurait donc produit trois écarts par jour, indéfiniment,
+        // sur une machine saine — et ces écarts n'auraient pas dit ce qui est
+        // faux, seulement qu'on n'avait pas su regarder.
+        let i = item(
+            Some(ItemValue::Bool(true)),
+            ItemValue::illisible("accès refusé sans élévation"),
+        );
+        let v = i.verdict();
+
+        assert!(matches!(v, Verdict::Incomparable { .. }), "{v:?}");
+        assert_ne!(v, Verdict::Ecart, "un aveu n'est pas un écart");
+        assert_ne!(v, Verdict::Conforme, "et surtout pas une conformité");
+        assert!(
+            !v.demande_convergence(),
+            "on ne converge pas vers un état qu'on n'a pas su lire"
+        );
+        assert!(!v.est_concluant());
+
+        // La raison remonte jusqu'à l'utilisateur : un item incomparable sans
+        // explication serait exactement l'indicateur que le principe P6 refuse.
+        let Verdict::Incomparable { raison } = v else {
+            unreachable!("le verdict vient d'être vérifié")
+        };
+        assert!(raison.contains("accès refusé"), "raison perdue : {raison}");
+    }
+
+    #[test]
+    fn une_absence_reste_un_constat_donc_comparable() {
+        // La nuance qui empêche la correction d'aller trop loin. « Cette clé
+        // n'existe pas » est une MESURE : son écart avec un état désiré est
+        // légitime, et le ranger en incomparable désarmerait la moitié du
+        // produit.
+        let v = item(Some(ItemValue::Bool(true)), ItemValue::Absent).verdict();
+        assert_eq!(v, Verdict::Ecart);
+        assert!(v.demande_convergence());
     }
 
     #[test]

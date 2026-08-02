@@ -307,7 +307,7 @@ mod tests {
                 item.path
             );
             assert!(
-                !item.is_drifted(),
+                !item.verdict().demande_convergence(),
                 "et il ne peut donc pas produire d'écart"
             );
         }
