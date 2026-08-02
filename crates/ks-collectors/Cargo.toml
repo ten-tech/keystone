@@ -39,8 +39,22 @@ windows-registry = "0.6"
 # inventaire de sécurité incohérent affiché comme un fait est pire qu'un échec.
 rusqlite.workspace = true
 
+# Lecture de l'etat EFFECTIF des protections, que le registre ne porte pas
+# (ADR-0005). API sure de bout en bout : se connecter, requeter, deserialiser.
+# Aucun bloc `unsafe` n'entre dans ce crate — verifie sur le code source de la
+# dependance, pas sur sa documentation.
+wmi.workspace = true
+
 [lints.rust]
-# Aucun bloc `unsafe` à ce jour : `windows-registry` est une API sûre. Le `warn`
-# reste posé pour la 0.2, où les appels TPM et WMI l'imposeront — et chaque bloc
-# devra alors porter son commentaire `// SAFETY:`.
+# **Zéro bloc `unsafe` dans ce crate, et ce n'est plus une situation transitoire.**
+#
+# Le commentaire précédent annonçait que « les appels TPM et WMI l'imposeront ».
+# Les deux affirmations sont tombées : `wmi` expose une API sûre de bout en bout
+# pour ce qu'on en fait — vérifié sur son code source, pas sur sa documentation —
+# et le TPM s'est révélé inaccessible sans élévation, donc reporté au broker.
+#
+# Le `warn` reste néanmoins, plutôt qu'un `forbid` : la lecture SMART passera un
+# jour par `DeviceIoControl`, et ce jour-là chaque bloc devra porter son
+# commentaire `// SAFETY:`. Passer à `forbid` maintenant obligerait à le lever
+# ensuite, ce qui est un signal plus faible qu'un `warn` jamais déclenché.
 unsafe_code = "warn"

@@ -38,6 +38,7 @@
 //! Defender en temps réel, tâches planifiées, pare-feu, NVMe/SMART, batterie,
 //! firmware et microcode, cohérence de l'horloge — voir Phase 0.2.
 
+pub mod etat_effectif;
 pub mod posture;
 pub mod software;
 pub mod virtualisation;
