@@ -462,7 +462,11 @@ tr:last-child td{border-bottom:none}
     </button>
 
     <div class="rail-label">Systèmes</div>
-    <button class="nav" data-view="soon">
+    <button class="nav" data-view="first">
+            <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3.5v3.6M12 16.9v3.6M3.5 12h3.6M16.9 12h3.6"/><circle cx="12" cy="12" r="3.4"/></svg>
+            Premier lancement
+          </button>
+          <button class="nav" data-view="soon">
       <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 20h8"/></svg>
       WSL &amp; VM
     </button>
@@ -835,13 +839,102 @@ posture = 0.40 × sécurité(96)<br>
       </div>
     </section>
 
+    <!-- ─────────── E7 · LES DEUX MOMENTS FONDATEURS ─────────── -->
+    <section class="view" id="view-first">
+      <h1>Premier lancement, et rapport matinal</h1>
+      <p class="sub">Les deux moments qui décident de l'adoption — M1 et M2 du brief. Écran E7.</p>
+
+      <div class="card">
+        <div class="card-h">
+          <h2>M1 · Premier lancement</h2><span class="spacer"></span>
+          <span class="pill">aucune écriture</span>
+        </div>
+        <div class="card-b">
+          <!-- La phrase d'ouverture est la thèse du produit en une ligne. Ordre
+               imposé par le brief §1.3 : ce qui s'est passé, ce que ça implique,
+               ce qu'on peut faire. Sans reproche, sans superlatif, sans « ! ». -->
+          <p style="font:500 20px var(--tight);color:var(--ink-1);line-height:1.45;margin-bottom:6px">
+            J'ai lu votre machine. Rien n'a été modifié.
+          </p>
+          <p style="color:var(--ink-2);line-height:1.65;max-width:62ch">
+            115 items relevés en 2,7 secondes. Aucune valeur de registre écrite,
+            aucun service touché, aucun fichier de la machine modifié. Ce que
+            vous voyez est un relevé, pas une proposition.
+          </p>
+
+          <!-- Aucun formulaire : l'état est IMPORTÉ, il ne se saisit pas (D2-02). -->
+          <table style="margin-top:18px">
+            <caption style="text-align:left;color:var(--ink-3);font-size:12.5px;padding-bottom:10px">
+              Ce qui a été importé — équivalent textuel intégral, aucune valeur réservée au survol
+            </caption>
+            <thead><tr><th>Domaine</th><th style="text-align:right">Items</th><th>Ce qu'on en fait</th></tr></thead>
+            <tbody>
+              <tr><td>Inventaire</td><td style="text-align:right">54</td><td>constat — rien à déclarer</td></tr>
+              <tr><td>Posture de sécurité</td><td style="text-align:right">38</td><td>candidats à la déclaration</td></tr>
+              <tr><td>Virtualisation</td><td style="text-align:right">12</td><td>constat</td></tr>
+              <tr><td>Configuration</td><td style="text-align:right">8</td><td>candidats à la déclaration</td></tr>
+              <tr><td>Illisibles</td><td style="text-align:right">3</td><td>lecture refusée — voir la note</td></tr>
+            </tbody>
+          </table>
+
+          <p class="note" style="margin-top:16px">
+            3 items n'ont pas pu être lus : la clé correspondante exige des
+            privilèges élevés. Ils sont marqués « illisible » et non « absent » —
+            l'outil ne sait pas ce qu'ils valent, et ne le suppose pas.
+          </p>
+        </div>
+        <div class="foot">
+          <button class="btn pri">Adopter cet état comme référence</button>
+          <button class="btn">Voir les 115 items</button>
+          <span class="spacer"></span>
+          <!-- Parité CLI affichée (P4) : tout ce que l'interface sait faire est
+               atteignable à la commande, et la commande est montrée. -->
+          <span class="kbd">ks scan</span>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:20px">
+        <div class="card-h">
+          <h2>M2 · Rapport matinal</h2><span class="spacer"></span>
+          <span class="pill">1 interruption sur 2 utilisée aujourd'hui</span>
+        </div>
+        <div class="card-b">
+          <p style="font:500 20px var(--tight);color:var(--ink-1);line-height:1.45;margin-bottom:6px">
+            État identique à 20:12. Rien à faire de votre côté.
+          </p>
+          <p style="color:var(--ink-2);line-height:1.65;max-width:62ch">
+            Le rapport qui ne dit rien est le plus fréquent, et c'est voulu. Le
+            budget est de 2 interruptions par jour au maximum (D16-06) ; tout le
+            reste attend ici. Un outil qui parle chaque matin pour ne rien dire
+            finit en règle de filtrage.
+          </p>
+
+          <table style="margin-top:18px">
+            <caption style="text-align:left;color:var(--ink-3);font-size:12.5px;padding-bottom:10px">
+              Dernières 24 heures
+            </caption>
+            <thead><tr><th>Heure</th><th>Événement</th><th>Source</th></tr></thead>
+            <tbody>
+              <tr><td>03:56</td><td>Signatures Defender appliquées — 1.455.469.0</td><td>Windows Update</td></tr>
+              <tr><td>20:12</td><td>Relevé de référence — 115 items, aucun écart</td><td>Keystone</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="foot">
+          <button class="btn">Voir le récit complet</button>
+          <span class="spacer"></span>
+          <span class="kbd">ks journal</span>
+        </div>
+      </div>
+    </section>
+
     <!-- ─────────── À VENIR ─────────── -->
     <section class="view" id="view-soon">
       <h1>Écran à cadrer</h1>
       <p class="sub">Cette section fait partie du périmètre P1 du cahier des charges, à maquetter après validation des sept écrans prioritaires.</p>
       <div class="card"><div class="card-b" style="color:var(--ink-2);line-height:1.7">
         WSL &amp; VM (domaine D9) · Sauvegarde et reconstruction (D6) · Journal forensique (D14).<br>
-        <span style="color:var(--ink-3)">Voir <code style="font-family:var(--mono);font-size:12.5px">KEYSTONE-CDC.md</code> §7 et <code style="font-family:var(--mono);font-size:12.5px">KEYSTONE-BRIEF-DESIGN.md</code> §7 (écran E8).</span>
+        <span style="color:var(--ink-3)">Voir <code style="font-family:var(--mono);font-size:12.5px">docs/01-CAHIER-DES-CHARGES.md</code> §7 et <code style="font-family:var(--mono);font-size:12.5px">docs/02-BRIEF-DESIGN.md</code> §7. Ces trois sections n'ont pas de numéro d'écran : le brief s'arrête à E7, et ce texte en annonçait un huitième qui n'a jamais existé.</span>
       </div></div>
     </section>
 
