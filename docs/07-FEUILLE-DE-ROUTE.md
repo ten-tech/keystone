@@ -32,11 +32,15 @@ confirme qu'aucun octet n'a été modifié.
 
 ### 0.2 — Collecteurs Windows
 
+- [x] **Secure Boot**, VBS/HVCI, Credential Guard, protection LSA — lus par le registre
+- [x] **Defender** : exclusions, règles ASR, date des signatures, versions du moteur et des signatures
+- [x] Démarrage de six services de sécurité — WinDefend, MpsSvc, EventLog, Sense, wscsvc, BITS. Une liste choisie, pas un inventaire général
+- [ ] **Defender en temps réel** — l'état effectif, distinct de la configuration
+- [ ] **Protection DMA** — hors registre, exige l'API Kernel DMA Protection
 - [ ] **TPM** : présence, version, état, propriétaire
-- [ ] **Secure Boot**, VBS/HVCI, Credential Guard, LSA protection, protection DMA
 - [ ] **BitLocker par volume** : état, méthode, protecteurs, *présence de la clé de récupération*
-- [ ] **Defender** : temps réel, exclusions, règles ASR, date des signatures
-- [ ] Services, tâches planifiées, règles de pare-feu
+- [ ] Tâches planifiées
+- [ ] Règles de pare-feu
 - [ ] **Usure NVMe / SMART**, santé et cycles de la batterie
 - [ ] Firmware UEFI, microcode
 - [ ] **Cohérence de l'horloge** (D1-09) — prérequis de toute la valeur forensique

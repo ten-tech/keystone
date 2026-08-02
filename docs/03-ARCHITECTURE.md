@@ -103,12 +103,12 @@ mécanismes répondent à cela, et aucun ne dépend de l'intégrité de la machi
 | Crate | Rôle | Plateforme | Privilège | État |
 |---|---|---|---|---|
 | `ks-core` | vocabulaire : `Item`, `Drift`, `Plan`, `Action`, `Snapshot`, `JournalEntry` | portable | aucun | ✅ 23 tests, exécutés |
-| `ks-collectors` | collecte **lecture seule** | portable ; extensions Windows *à écrire* (Phase 0.2) | aucun | ✅ 5 tests, socle portable |
+| `ks-collectors` | collecte **lecture seule** | portable ; matériel, inventaire logiciel et posture Windows partielle — TPM, BitLocker, pare-feu, SMART et horloge restent à écrire (Phase 0.2) | aucun | ✅ 17 tests, 3 collecteurs |
 | `ks-cli` | la CLI `ks`, surface de référence | Windows (et Linux pour le dev) | aucun | ✅ `scan`/`status`/`explain`, 4 tests |
-| `ks-broker` | service privilégié | Windows visé ; compile aussi ailleurs, sans effet | élevé | 🔨 verbes énumérés + barrière SEC-02, 2 tests — aucun verbe implémenté |
+| `ks-broker` | service privilégié | Windows visé ; compile aussi ailleurs, sans effet | élevé | 🔨 verbes énumérés + barrière SEC-02, 3 tests — aucun verbe implémenté |
 | `ks-agent-linux` | agent satellite | Linux musl | aucun | 🔨 scan local, 0 test |
 
-**34 tests au total**, tous portables et tous exécutés — `cargo test --workspace`,
+**47 tests au total**, tous portables et tous exécutés — `cargo test --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings` et `cargo fmt --all --check`
 passent. Ce n'était pas le cas au premier commit : rien n'avait alors jamais été
 compilé, et les comptes annoncés étaient des déclarations.
