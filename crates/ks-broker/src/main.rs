@@ -67,15 +67,30 @@ pub enum Verb {
     /// Revient à un instantané.
     RestoreSnapshot { snapshot_id: String },
 
-    /// Change le type de démarrage d'un service. Simulable, annulable, idempotent.
-    SetServiceStartup { service: String, startup: String },
+    /// Change le type de démarrage d'un service **de la liste gérée**.
+    ///
+    /// Le nom du service n'est pas une chaîne : `SetServiceStartup { service:
+    /// "WinDefend", startup: "disabled" }` aurait été `DisableDefender` écrit
+    /// autrement, alors que le §7 exige que celui-ci passe par la convergence,
+    /// avec diff, instantané et Windows Hello (ADR-0006).
+    SetServiceStartup {
+        service: ManagedService,
+        startup: StartupType,
+    },
 
-    /// Écrit une valeur de registre. Simulable, annulable via export préalable.
-    SetRegistryValue {
-        hive: String,
-        path: String,
-        name: String,
-        value: String,
+    /// Applique un réglage **désigné**, jamais un chemin de registre.
+    ///
+    /// La variante précédente, `SetRegistryValue { hive, path, name, value }`,
+    /// était le verbe que le §7 interdit nommément : « SetRegistryValue sans ACL
+    /// → équivaut à RunCommand via IFEO ». Quatre chaînes libres suffisaient à
+    /// faire exécuter du code — `…\Image File Execution Options\<exe>\Debugger`
+    /// détourne tout lancement, `Services\<svc>\ImagePath` donne SYSTEM.
+    ///
+    /// Le client dit ce qu'il veut obtenir ; c'est le broker qui détient la
+    /// correspondance vers la clé (ADR-0006).
+    SetManagedSetting {
+        setting: ManagedSetting,
+        value: SettingValue,
     },
 
     /// Ajoute une exclusion Defender. **Ciblée et justifiée uniquement** (D11-02) :
@@ -102,6 +117,77 @@ pub enum Verb {
     // Si un besoin semble exiger l'un de ces verbes, le besoin est mal formulé.
     // Ouvrir une ADR plutôt qu'un raccourci.
     // ─────────────────────────────────────────────────────────────────────────
+}
+
+/// Les services dont le broker sait changer le démarrage.
+///
+/// **Sans champ, et c'est la barrière.** Une variante unitaire ne peut pas
+/// transporter un nom de service : l'ensemble des cibles atteignables est fini,
+/// énuméré ici, et lisible par un relecteur en un écran. Un test le vérifie sur
+/// le texte du source, parce qu'une garantie qu'on ne peut pas relire n'en est
+/// pas une.
+///
+/// La liste ne contient que des services dont l'arrêt est un signal au sens du
+/// §6 du modèle de menace. Il n'y a donc pas de cas « de confort » : chacun
+/// exige une présence humaine (SEC-08).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ManagedService {
+    /// Antivirus Microsoft Defender.
+    WindowsDefender,
+    /// Pare-feu Windows Defender.
+    WindowsFirewall,
+    /// Journal des événements — sa perte efface la piste d'audit.
+    EventLog,
+}
+
+/// Types de démarrage acceptés.
+///
+/// Volontairement plus pauvre que le registre, qui en encode cinq : le broker
+/// n'a aucune raison de placer un service en démarrage noyau, et l'y autoriser
+/// ouvrirait une capacité dont personne n'a besoin.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StartupType {
+    /// Démarre avec le système.
+    Automatic,
+    /// Démarre à la demande.
+    Manual,
+    /// Ne démarre pas.
+    Disabled,
+}
+
+/// Les réglages que le broker sait écrire.
+///
+/// **Sans champ, même raison que [`ManagedService`].** Le client désigne un
+/// réglage ; la correspondance vers la clé de registre vit dans le broker, où
+/// elle se relit. Ajouter un réglage est un changement du broker, donc une
+/// revue — c'est précisément le coût qu'on veut payer.
+///
+/// La liste est volontairement minimale en Phase 0. Elle se peuplera en Phase 2,
+/// au fil des besoins réels de la convergence : l'ADR-0006 fige la **forme**,
+/// pas le contenu.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ManagedSetting {
+    /// Protection en temps réel de Defender.
+    DefenderRealtimeProtection,
+    /// Pare-feu actif sur le profil public.
+    FirewallPublicProfile,
+}
+
+/// Valeurs qu'un réglage géré peut prendre.
+///
+/// Un booléen suffit aujourd'hui, et le type le dit plutôt que d'accepter une
+/// chaîne « pour plus tard ». Le jour où un réglage entier existera, ajouter une
+/// variante sera un changement visible, pas un élargissement silencieux.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SettingValue {
+    /// Activer.
+    Enabled,
+    /// Désactiver.
+    Disabled,
 }
 
 /// Résultat de l'exécution d'un verbe.
@@ -261,6 +347,88 @@ mod tests {
         }
     }
 
+    /// Les énumérations de paramètres n'ont **aucun champ**.
+    ///
+    /// C'est la barrière que l'ADR-0006 installe, et elle porte sur le texte du
+    /// source parce qu'elle doit rester lisible par un relecteur humain.
+    ///
+    /// Le raisonnement : un verbe est sûr tant qu'il ne peut désigner qu'une
+    /// cible d'un ensemble fini. Dès qu'une variante de paramètre porte un
+    /// champ — `ManagedSetting::Custom { path: String }` — l'ensemble redevient
+    /// infini, et le verbe redevient `SetRegistryValue` sans ACL, c'est-à-dire
+    /// une exécution de code arbitraire par IFEO.
+    ///
+    /// La barrière SEC-02 voisine ne l'aurait pas vu : elle refuse les verbes
+    /// *nommés* comme une primitive d'exécution, pas ceux qui en sont une sans
+    /// le dire. Les deux sont nécessaires.
+    #[test]
+    fn les_parametres_de_verbe_ne_designent_quun_ensemble_fini() {
+        for enumeration in ["pub enum ManagedService", "pub enum ManagedSetting"] {
+            let bloc = bloc_apres(SOURCE, enumeration);
+            for ligne in bloc.lines().map(str::trim) {
+                if ligne.starts_with("//") || ligne.starts_with('#') || ligne.is_empty() {
+                    continue;
+                }
+                assert!(
+                    !ligne.contains('{') && !ligne.contains('('),
+                    "SEC-02 / ADR-0006 : « {ligne} » porte un champ. Un paramètre de \
+                     verbe qui transporte une donnée libre rend l'ensemble des cibles \
+                     infini — le verbe redevient une écriture de registre arbitraire, \
+                     donc une exécution de code par IFEO. Ajoute une variante unitaire, \
+                     et la correspondance dans le broker."
+                );
+            }
+        }
+    }
+
+    /// Aucun verbe ne reçoit en chaîne la **désignation d'un réglage système**.
+    ///
+    /// Complément du test précédent : celui-ci regarde les champs des variantes
+    /// de `Verb`, l'autre les énumérations qu'elles référencent.
+    /// `SetRegistryValue { hive, path, name, value }` a vécu ici toute la
+    /// Phase 0 sans que rien ne bronche, alors que le §7 le nomme.
+    ///
+    /// # La frontière, et pourquoi ce n'est pas « aucun chemin »
+    ///
+    /// Ce test a d'abord interdit `path: String` partout, et il avait tort : il
+    /// refusait `AddDefenderExclusion { path }`, dont le chemin est le **sujet**
+    /// de l'opération, choisi par l'utilisateur parmi tous les chemins possibles.
+    /// Le typer n'aurait aucun sens.
+    ///
+    /// Ce qui est interdit, c'est que le client **désigne un réglage du
+    /// système** : une ruche, une clé, un service. Là, l'ensemble des cibles doit
+    /// rester fini et détenu par le broker, sans quoi le verbe redevient une
+    /// écriture de registre arbitraire, donc une exécution de code par IFEO.
+    ///
+    /// Une exclusion Defender ouvre un angle mort — grave, et encadré par D11-02
+    /// qui impose raison et expiration — mais n'exécute rien. Les deux dangers
+    /// sont réels et de nature différente ; les confondre aurait affaibli ce test
+    /// au lieu de le renforcer.
+    #[test]
+    fn aucun_verbe_ne_recoit_la_designation_dun_reglage_systeme() {
+        let bloc = bloc_apres(SOURCE, "pub enum Verb");
+        for ligne in bloc.lines().map(str::trim) {
+            if ligne.starts_with("//") {
+                continue;
+            }
+            for interdit in [
+                "hive: String",
+                "key: String",
+                "service: String",
+                "setting: String",
+                "registry_path: String",
+                "value_name: String",
+            ] {
+                assert!(
+                    !ligne.contains(interdit),
+                    "SEC-02 / ADR-0006 : « {ligne} » laisse le client désigner un \
+                     réglage du système. Le broker doit détenir la correspondance, \
+                     pas la recevoir — sinon l'ensemble des cibles est infini."
+                );
+            }
+        }
+    }
+
     /// « RunCommand » → [« run », « command »].
     fn mots_de_pascal_case(ident: &str) -> Vec<String> {
         let mut mots = Vec::new();
@@ -340,7 +508,7 @@ mod tests {
             Verb::TakeSnapshot { .. } => "take-snapshot",
             Verb::RestoreSnapshot { .. } => "restore-snapshot",
             Verb::SetServiceStartup { .. } => "set-service-startup",
-            Verb::SetRegistryValue { .. } => "set-registry-value",
+            Verb::SetManagedSetting { .. } => "set-managed-setting",
             Verb::AddDefenderExclusion { .. } => "add-defender-exclusion",
             Verb::Isolate => "isolate",
         }
@@ -372,15 +540,16 @@ mod tests {
             Verb::RestoreSnapshot {
                 snapshot_id: "snap-1".into(),
             },
+            // Les cibles ne sont plus des chaînes : `service` ne peut désigner
+            // que l'un des trois services de `ManagedService`, et l'échantillon
+            // ne peut donc plus inventer « Fax » ni quoi que ce soit d'autre.
             Verb::SetServiceStartup {
-                service: "Fax".into(),
-                startup: "Disabled".into(),
+                service: ManagedService::WindowsDefender,
+                startup: StartupType::Disabled,
             },
-            Verb::SetRegistryValue {
-                hive: "HKLM".into(),
-                path: r"SOFTWARE\Policies".into(),
-                name: "Example".into(),
-                value: "1".into(),
+            Verb::SetManagedSetting {
+                setting: ManagedSetting::FirewallPublicProfile,
+                value: SettingValue::Enabled,
             },
             Verb::AddDefenderExclusion {
                 path: r"D:\src\target".into(),
