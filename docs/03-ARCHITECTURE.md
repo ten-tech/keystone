@@ -102,13 +102,13 @@ mécanismes répondent à cela, et aucun ne dépend de l'intégrité de la machi
 
 | Crate | Rôle | Plateforme | Privilège | État |
 |---|---|---|---|---|
-| `ks-core` | vocabulaire : `Item`, `Drift`, `Plan`, `Action`, `Snapshot`, `JournalEntry` | portable | aucun | ✅ 23 tests, exécutés |
-| `ks-collectors` | collecte **lecture seule** | portable ; matériel, inventaire logiciel et posture Windows partielle — TPM, BitLocker, pare-feu, SMART et horloge restent à écrire (Phase 0.2) | aucun | ✅ 17 tests, 3 collecteurs |
-| `ks-cli` | la CLI `ks`, surface de référence | Windows (et Linux pour le dev) | aucun | ✅ `scan`/`status`/`explain`, 4 tests |
-| `ks-broker` | service privilégié | Windows visé ; compile aussi ailleurs, sans effet | élevé | 🔨 verbes énumérés + barrière SEC-02, 3 tests — aucun verbe implémenté |
+| `ks-core` | vocabulaire : `Item`, `Drift`, `Plan`, `Action`, `Snapshot`, `JournalEntry` | portable | aucun | ✅ 24 tests, exécutés |
+| `ks-collectors` | collecte **lecture seule** | portable ; matériel, inventaire logiciel, posture par le registre **et état effectif par WMI** — TPM, BitLocker et SMART restent hors de portée sans élévation (Phase 2) | aucun | ✅ 39 tests, 4 collecteurs |
+| `ks-cli` | la CLI `ks`, surface de référence | Windows (et Linux pour le dev) | aucun | ✅ `scan`/`status`/`explain`/`journal`/`report`, 18 tests |
+| `ks-broker` | service privilégié | Windows visé ; compile aussi ailleurs, sans effet | élevé | 🔨 verbes énumérés + **trois** barrières SEC-02, 4 tests — aucun verbe implémenté |
 | `ks-agent-linux` | agent satellite | Linux musl | aucun | 🔨 scan local, 0 test |
 
-**47 tests au total**, tous portables et tous exécutés — `cargo test --workspace`,
+**85 tests au total**, tous portables et tous exécutés — `cargo test --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings` et `cargo fmt --all --check`
 passent. Ce n'était pas le cas au premier commit : rien n'avait alors jamais été
 compilé, et les comptes annoncés étaient des déclarations.
@@ -124,9 +124,23 @@ le compilateur, non.
 et `Item.observed_at` ne sont pas des `Option` : un item sans origine ni horodatage
 est inconstructible. `DriftStatus::Accepted` porte `reason`, `expires`, `decided_by`
 et `decided_at` en champs obligatoires : une exception sans motif ni date
-d'expiration n'existe pas. `Verb::AddDefenderExclusion` de même. `Snapshot` et
-`BackupSet` sont deux types sans conversion : on ne peut pas passer l'un pour
-l'autre, ce qui était l'angle mort de la première conception.
+d'expiration n'existe pas. `Snapshot` et `BackupSet` sont deux types sans
+conversion : on ne peut pas passer l'un pour l'autre, ce qui était l'angle mort
+de la première conception.
+
+Les paramètres des verbes d'écriture de configuration relèvent aussi de cette
+catégorie depuis l'[ADR-0006](adr/0006-fermer-les-verbes-a-parametres-libres.md) :
+`ManagedService`, `ManagedSetting`, `StartupType` et `SettingValue` sont des
+énumérations **sans champ**, donc incapables de transporter un chemin.
+
+**Ce qui n'y est pas, contrairement à ce que ce paragraphe affirmait.**
+`Verb::AddDefenderExclusion` y figurait, à tort : ses trois champs sont des
+`String`. Le type garantit leur *présence*, pas leur *validité*. `reason: ""` et
+`expires: "hier"` compilent tous les deux, et le test censé le couvrir se
+contente de vérifier que le JSON porte les deux clés — ce que la définition de la
+structure garantit déjà. C'est exactement la sur-affirmation que `rust.md`
+interdit : ne jamais écrire « porté par le typage » pour ce qui ne l'est pas.
+La dette est nommée dans l'ADR-0006, avec son correctif.
 
 *Vérifiés à l'exécution, et testés* — les fonctions du tableau ci-dessous renvoient
 un `Result` ; elles refusent, elles n'empêchent pas d'appeler. `Capabilities` est une

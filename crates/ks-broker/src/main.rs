@@ -253,31 +253,72 @@ mod tests {
     /// contiennent eux-mêmes le texte recherché, en littéral. Un simple `find`
     /// tombait sur l'appel plutôt que sur la déclaration, et le test lisait alors
     /// son propre code. Exiger que l'ancre ouvre sa ligne écarte les littéraux.
+    ///
+    /// # Le comptage se fait sur du code, jamais sur du commentaire
+    ///
+    /// Une revue adverse a franchi cette barrière avec **une seule ligne de
+    /// documentation** contenant une accolade fermante :
+    ///
+    /// ```text
+    /// /// Le JSON attendu se termine par `"value": "1" }` — voir le protocole.
+    /// ```
+    ///
+    /// Le compteur voyait cette accolade, refermait le bloc par anticipation, et
+    /// tout ce qui suivait devenait invisible aux deux barrières textuelles. Un
+    /// `SetTuning { hive, key, value }` déguisé par `#[serde(rename)]` passait
+    /// alors au vert, clippy propre — c'est-à-dire le verbe que le §7 interdit,
+    /// restauré sans que rien ne bronche.
+    ///
+    /// D'où deux protections cumulées, parce qu'une seule s'était déjà révélée
+    /// insuffisante : les commentaires sont **retirés avant le comptage**, et la
+    /// fin du bloc est en outre ancrée sur une accolade **seule sur sa ligne**,
+    /// ce qui est la forme qu'impose `rustfmt` à toute fermeture de bloc réelle.
     fn bloc_apres(source: &str, declaration: &str) -> String {
-        let debut = source
+        let epure = sans_commentaires(source);
+        let debut = epure
             .match_indices(declaration)
             .map(|(i, _)| i)
             .find(|i| {
-                let debut_ligne = source[..*i].rfind('\n').map_or(0, |n| n + 1);
-                source[debut_ligne..*i].trim().is_empty()
+                let debut_ligne = epure[..*i].rfind('\n').map_or(0, |n| n + 1);
+                epure[debut_ligne..*i].trim().is_empty()
             })
             .unwrap_or_else(|| panic!("déclaration « {declaration} » introuvable"));
-        let reste = &source[debut..];
+
+        let reste = &epure[debut..];
         let ouvrante = reste.find('{').expect("le bloc doit avoir une accolade");
-        let mut profondeur = 0usize;
-        for (i, c) in reste[ouvrante..].char_indices() {
-            match c {
-                '{' => profondeur += 1,
-                '}' => {
-                    profondeur -= 1;
-                    if profondeur == 0 {
-                        return reste[ouvrante + 1..ouvrante + i].to_owned();
-                    }
-                }
-                _ => {}
+        let corps = &reste[ouvrante + 1..];
+
+        // L'ancrage : la première ligne réduite à « } », donc la fermeture que
+        // `rustfmt` produit. Une accolade en fin de ligne de code ne referme
+        // jamais une déclaration d'énumération.
+        let mut position = 0usize;
+        for ligne in corps.split_inclusive('\n') {
+            if ligne.trim_end() == "}" {
+                return corps[..position].to_owned();
             }
+            position += ligne.len();
         }
         panic!("bloc « {declaration} » non refermé");
+    }
+
+    /// Remplace le contenu des commentaires par des espaces, en gardant les
+    /// positions et le découpage en lignes intacts.
+    ///
+    /// On ne les supprime pas, on les blanchit : cela préserve les décalages, donc
+    /// la lisibilité des messages d'assertion qui citent la ligne fautive.
+    fn sans_commentaires(source: &str) -> String {
+        source
+            .lines()
+            .map(|ligne| match ligne.find("//") {
+                Some(debut) => {
+                    let mut propre = ligne[..debut].to_owned();
+                    propre.push_str(&" ".repeat(ligne.len() - debut));
+                    propre
+                }
+                None => ligne.to_owned(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// Les identifiants de variantes déclarés dans `enum Verb`, lus dans le source.
@@ -347,83 +388,135 @@ mod tests {
         }
     }
 
-    /// Les énumérations de paramètres n'ont **aucun champ**.
+    /// Champs `String` tolérés dans `Verb`, **chacun nommé et justifié ici**.
     ///
-    /// C'est la barrière que l'ADR-0006 installe, et elle porte sur le texte du
-    /// source parce qu'elle doit rester lisible par un relecteur humain.
+    /// La logique est inversée par rapport au premier jet, qui listait six noms
+    /// de champs interdits. Une liste noire est un échantillon : une revue
+    /// adverse l'a franchie en une ligne, avec
+    /// `SetPosture { root, location, entry, data }` — quatre mots qu'aucun
+    /// interdit ne couvrait, pour exactement la même écriture de registre
+    /// arbitraire. `security.md` le dit d'ailleurs sans détour : liste blanche
+    /// plutôt que liste noire.
     ///
-    /// Le raisonnement : un verbe est sûr tant qu'il ne peut désigner qu'une
-    /// cible d'un ensemble fini. Dès qu'une variante de paramètre porte un
-    /// champ — `ManagedSetting::Custom { path: String }` — l'ensemble redevient
-    /// infini, et le verbe redevient `SetRegistryValue` sans ACL, c'est-à-dire
-    /// une exécution de code arbitraire par IFEO.
+    /// Ce qui suit est donc la liste **complète** des champs textuels admis. Tout
+    /// autre champ de `Verb` doit porter le type d'une énumération fermée
+    /// déclarée dans ce fichier.
+    const CHAMPS_TEXTE_ADMIS: &[(&str, &str)] = &[
+        (
+            "domain",
+            "filtre d'affichage d'un scan : ne désigne aucune écriture",
+        ),
+        (
+            "path",
+            "sujet d'une exclusion Defender, choisi par l'utilisateur parmi tous \
+             les chemins possibles (D11-02). Le typer n'aurait aucun sens.",
+        ),
+        ("reason", "motif destiné à un humain, libre par nature"),
+        (
+            "expires",
+            "DETTE, ADR-0006 : devrait être un horodatage typé. « hier » et « » \
+             compilent aujourd'hui.",
+        ),
+        (
+            "snapshot_id",
+            "DETTE, ADR-0006 : identifiant à typer et à valider. Restaurer, c'est \
+             appliquer en SYSTEM un contenu désigné par l'appelant.",
+        ),
+        (
+            "kind",
+            "DETTE, ADR-0006 : devrait être un genre d'instantané fermé.",
+        ),
+        (
+            "target",
+            "DETTE, ADR-0006 : cible d'instantané. « registry-export » sur \
+             HKLM\\SAM fait extraire les empreintes de comptes par le broker.",
+        ),
+    ];
+
+    /// Les couples (nom, type) des champs déclarés dans `enum Verb`.
     ///
-    /// La barrière SEC-02 voisine ne l'aurait pas vu : elle refuse les verbes
-    /// *nommés* comme une primitive d'exécution, pas ceux qui en sont une sans
-    /// le dire. Les deux sont nécessaires.
+    /// Lecture textuelle, sur un bloc dont les commentaires ont déjà été
+    /// blanchis par [`bloc_apres`] — sans quoi une ligne de documentation
+    /// contenant « : » fabriquerait un faux champ.
+    fn champs_de_verbe(bloc: &str) -> Vec<(String, String)> {
+        let plat = bloc.replace(['\n', '\r'], " ");
+        let mut champs = Vec::new();
+        for morceau in plat.split(',') {
+            let Some((gauche, droite)) = morceau.split_once(':') else {
+                continue;
+            };
+            let nom = gauche
+                .rsplit(['{', ' '])
+                .find(|s| !s.is_empty())
+                .unwrap_or_default()
+                .trim();
+            let type_champ = droite
+                .split(['}', ' '])
+                .find(|s| !s.is_empty())
+                .unwrap_or_default()
+                .trim();
+            if !nom.is_empty() && !type_champ.is_empty() {
+                champs.push((nom.to_owned(), type_champ.to_owned()));
+            }
+        }
+        champs
+    }
+
+    /// **Tout paramètre de verbe désigne un ensemble fini, ou est un texte admis.**
+    ///
+    /// C'est la barrière que l'ADR-0006 installe, et elle a été réécrite après
+    /// qu'une revue adverse l'a franchie de trois façons. Ce qui a changé :
+    ///
+    /// * la liste des énumérations à contrôler n'est plus **écrite en dur** — elle
+    ///   est **dérivée des types de champs de `Verb`**. `SettingValue` et
+    ///   `StartupType` n'étaient pas dans la liste, et `SettingValue::Raw(String)`
+    ///   passait donc au vert, rendant sa chaîne libre au verbe ;
+    /// * les champs textuels ne sont plus filtrés par une liste noire de six
+    ///   noms, mais par la liste blanche ci-dessus ;
+    /// * une énumération de paramètre déplacée dans un autre fichier fait
+    ///   **paniquer** l'extraction, avec un message explicite, plutôt que de
+    ///   disparaître silencieusement du contrôle.
+    ///
+    /// Le raisonnement de fond n'a pas bougé : un verbe est sûr tant qu'il ne peut
+    /// désigner qu'une cible d'un ensemble fini. Dès qu'un paramètre transporte
+    /// une donnée libre, l'ensemble redevient infini et le verbe redevient
+    /// `SetRegistryValue` sans ACL, c'est-à-dire une exécution de code par IFEO.
     #[test]
-    fn les_parametres_de_verbe_ne_designent_quun_ensemble_fini() {
-        for enumeration in ["pub enum ManagedService", "pub enum ManagedSetting"] {
-            let bloc = bloc_apres(SOURCE, enumeration);
-            for ligne in bloc.lines().map(str::trim) {
-                if ligne.starts_with("//") || ligne.starts_with('#') || ligne.is_empty() {
+    fn tout_parametre_de_verbe_designe_un_ensemble_fini() {
+        let champs = champs_de_verbe(&bloc_apres(SOURCE, "pub enum Verb"));
+        assert!(
+            champs.len() >= 8,
+            "extraction des champs défaillante : {champs:?}"
+        );
+
+        for (nom, type_champ) in &champs {
+            if type_champ.contains("String") {
+                assert!(
+                    CHAMPS_TEXTE_ADMIS.iter().any(|(admis, _)| admis == nom),
+                    "SEC-02 / ADR-0006 : le champ « {nom}: {type_champ} » est un texte \
+                     libre non répertorié. Soit il désigne une cible, et il faut une \
+                     énumération fermée ; soit il est légitimement libre, et il faut \
+                     l'inscrire dans CHAMPS_TEXTE_ADMIS avec sa justification — ce qui \
+                     est précisément la revue qu'on veut provoquer."
+                );
+                continue;
+            }
+
+            // Le type doit être une énumération déclarée ICI. Si elle vit
+            // ailleurs, l'extraction panique en le disant : c'est le seul
+            // comportement acceptable, la barrière ne lisant qu'un fichier.
+            let bloc_enum = bloc_apres(SOURCE, &format!("pub enum {type_champ}"));
+            for ligne in bloc_enum.lines().map(str::trim) {
+                if ligne.is_empty() || ligne.starts_with('#') {
                     continue;
                 }
                 assert!(
                     !ligne.contains('{') && !ligne.contains('('),
-                    "SEC-02 / ADR-0006 : « {ligne} » porte un champ. Un paramètre de \
-                     verbe qui transporte une donnée libre rend l'ensemble des cibles \
-                     infini — le verbe redevient une écriture de registre arbitraire, \
-                     donc une exécution de code par IFEO. Ajoute une variante unitaire, \
-                     et la correspondance dans le broker."
-                );
-            }
-        }
-    }
-
-    /// Aucun verbe ne reçoit en chaîne la **désignation d'un réglage système**.
-    ///
-    /// Complément du test précédent : celui-ci regarde les champs des variantes
-    /// de `Verb`, l'autre les énumérations qu'elles référencent.
-    /// `SetRegistryValue { hive, path, name, value }` a vécu ici toute la
-    /// Phase 0 sans que rien ne bronche, alors que le §7 le nomme.
-    ///
-    /// # La frontière, et pourquoi ce n'est pas « aucun chemin »
-    ///
-    /// Ce test a d'abord interdit `path: String` partout, et il avait tort : il
-    /// refusait `AddDefenderExclusion { path }`, dont le chemin est le **sujet**
-    /// de l'opération, choisi par l'utilisateur parmi tous les chemins possibles.
-    /// Le typer n'aurait aucun sens.
-    ///
-    /// Ce qui est interdit, c'est que le client **désigne un réglage du
-    /// système** : une ruche, une clé, un service. Là, l'ensemble des cibles doit
-    /// rester fini et détenu par le broker, sans quoi le verbe redevient une
-    /// écriture de registre arbitraire, donc une exécution de code par IFEO.
-    ///
-    /// Une exclusion Defender ouvre un angle mort — grave, et encadré par D11-02
-    /// qui impose raison et expiration — mais n'exécute rien. Les deux dangers
-    /// sont réels et de nature différente ; les confondre aurait affaibli ce test
-    /// au lieu de le renforcer.
-    #[test]
-    fn aucun_verbe_ne_recoit_la_designation_dun_reglage_systeme() {
-        let bloc = bloc_apres(SOURCE, "pub enum Verb");
-        for ligne in bloc.lines().map(str::trim) {
-            if ligne.starts_with("//") {
-                continue;
-            }
-            for interdit in [
-                "hive: String",
-                "key: String",
-                "service: String",
-                "setting: String",
-                "registry_path: String",
-                "value_name: String",
-            ] {
-                assert!(
-                    !ligne.contains(interdit),
-                    "SEC-02 / ADR-0006 : « {ligne} » laisse le client désigner un \
-                     réglage du système. Le broker doit détenir la correspondance, \
-                     pas la recevoir — sinon l'ensemble des cibles est infini."
+                    "SEC-02 / ADR-0006 : « {ligne} », dans l'énumération « {type_champ} » \
+                     du champ « {nom} », porte une donnée. Une variante porteuse rend \
+                     l'ensemble des cibles infini — le verbe redevient une écriture de \
+                     registre arbitraire. Ajoute une variante unitaire, et la \
+                     correspondance dans le broker."
                 );
             }
         }

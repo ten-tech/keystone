@@ -58,9 +58,21 @@ paramètre libre court-circuite les trois.
 
 ## Décision
 
-**Aucun verbe du broker ne transporte de chemin, de nom de clé ou de nom de
-service fourni par le client.** Les deux verbes concernés sont remplacés par des
-variantes dont les paramètres sont des **énumérations fermées, sans champ**.
+**Les deux verbes d'écriture de configuration cessent de recevoir la désignation
+de leur cible.** Ils sont remplacés par des variantes dont les paramètres sont
+des **énumérations fermées, sans champ**.
+
+> **Ce que cette décision ne couvre pas, et il faut le lire avant de la citer.**
+>
+> Une première rédaction annonçait « aucun verbe du broker ne transporte de
+> chemin, de nom de clé ou de nom de service ». C'était faux au moment même où
+> c'était écrit : `TakeSnapshot { kind: String, target: String }` transporte les
+> trois, et n'a pas été touché. Une ADR qui promet plus que son code est
+> exactement le défaut que ce projet corrige à longueur de temps ; la phrase est
+> donc réduite à ce qu'elle tient.
+>
+> Les deux verbes restants sont nommés en dette ci-dessous, avec leur danger
+> réel. Ils **ne sont pas** couverts par cette décision.
 
 ```rust
 SetManagedSetting { setting: ManagedSetting, value: SettingValue },
@@ -74,9 +86,28 @@ plutôt qu'à composer une chaîne côté appelant.
 
 Les énumérations de paramètres sont **sans champ**, et un test le vérifie sur le
 texte du source. Une variante unitaire ne peut, par construction, transporter ni
-chemin ni valeur libre : c'est la même famille de barrière que le `match`
-exhaustif, elle casse la compilation ou le test avant qu'un humain ait à y
-penser.
+chemin ni valeur libre.
+
+**La portée exacte de cette barrière, parce qu'elle a déjà été surestimée.** Une
+revue adverse a franchi son premier jet de trois façons : une accolade fermante
+dans un commentaire de documentation refermait le bloc analysé par anticipation ;
+la liste des champs interdits était une liste noire de six noms, contournée en
+renommant les champs ; et la liste des énumérations contrôlées était écrite en
+dur, laissant `SettingValue` et `StartupType` hors du contrôle.
+
+Les trois sont corrigés, et **chacun a été rejoué par injection réelle** après
+correction. Mais la leçon compte plus que le correctif : une barrière qui lit le
+source doit d'abord délimiter ce source, et une liste de cibles écrite à la main
+dans un test n'est pas une barrière — c'est un échantillon. Seule la
+**dérivation depuis le type surveillé** suit l'ajout qu'on n'a pas anticipé.
+C'est pourquoi la liste des énumérations à contrôler est désormais lue dans les
+champs de `Verb` plutôt que nommée.
+
+Ce que la barrière ne couvre toujours pas : un fichier autre que
+`ks-broker/src/main.rs`. Le déplacement d'une énumération existante fait
+paniquer l'extraction, donc échouer bruyamment ; une énumération **nouvelle**
+dans un fichier **nouveau** resterait invisible. Aucun test grossier ne remplace
+la revue.
 
 ## Alternatives écartées
 
@@ -149,3 +180,70 @@ un éditeur de registre.
 La liste des réglages gérés est **volontairement minimale** en Phase 0 : elle
 sera peuplée en Phase 2, au fil des besoins réels de la convergence. Chaque
 ajout se relit ici. Ce que cette ADR fige, c'est la **forme**, pas le contenu.
+
+## La dette, nommée plutôt que tue
+
+Trois verbes gardent des paramètres libres. Ils ne sont **pas** couverts par
+cette décision, et chacun mérite son ADR — les inscrire en note de bas de page
+serait exactement la minimisation que ce document reproche à son propre premier
+jet. Échéance : **avant la première écriture de la Phase 2.**
+
+### `TakeSnapshot { kind: String, target: String }`
+
+Le danger n'est pas théorique. `ks_core::SnapshotKind` contient déjà
+`RegistryExport(String)` et `FileCopy(String)`, donc le sens attendu de ces deux
+champs est bien « une branche de registre ou un fichier, désignés par
+l'appelant ».
+
+`TakeSnapshot { kind: "registry-export", target: r"HKLM\SAM" }` fait donc écrire
+par le broker, **en SYSTEM**, la ruche des comptes locaux dans un fichier. C'est
+`reg save HKLM\sam`, soit l'extraction hors ligne des empreintes de mots de passe
+(ATT&CK T1003.002). Un appelant non privilégié — l'adversaire A1 du modèle —
+obtient par ce verbe ce qu'il ne pouvait pas lire.
+
+Correctif visé : `SnapshotKind` typé côté broker, cibles de registre et de
+fichier réduites à un ensemble fini.
+
+### `RestoreSnapshot { snapshot_id: String }`
+
+C'est aujourd'hui **le verbe le plus puissant de l'énumération**, et il est
+resté intact. Restaurer, c'est appliquer en SYSTEM un contenu que l'appelant
+désigne : un instantané contient légitimement des exports de registre et de la
+configuration de service. Un attaquant qui fait pointer l'identifiant vers un
+instantané qu'il a fabriqué obtient l'écriture de `Services\<svc>\ImagePath`,
+donc du code SYSTEM au démarrage — ce qui **contourne toutes les énumérations
+fermées que cette ADR vient d'installer**.
+
+S'y ajoute, si l'identifiant devient un composant de chemin, la traversée par
+`..\`.
+
+Correctif visé : `SnapshotId` validé par construction, jamais concaténé à un
+chemin mais résolu par l'index du journal, et empreinte vérifiée contre la
+chaîne (ADR-0004) avant restauration. Plus SEC-08 et SEC-10.
+
+### `AddDefenderExclusion { path: String, expires: String }`
+
+Le raisonnement qui laisse `path` libre tient — le chemin est le sujet de
+l'exclusion, pas la désignation d'un réglage. Mais l'argument opposé plus haut à
+`SetServiceStartup { service: "WinDefend" }` s'applique mot pour mot :
+une exclusion de dossier couvre tous ses sous-dossiers, les jokers sont acceptés,
+et les variables d'environnement sont développées. `C:\` ou `%SystemDrive%\*`
+sont donc `DisableDefender` sous un autre nom.
+
+Détour qui casse P2, et que personne n'avait vu : le service Defender tourne sous
+LocalSystem, donc `%TEMP%` se résout en `C:\Windows\TEMP`, pas dans le profil de
+l'utilisateur. Une chaîne transmise verbatim produit un **diff qui ne désigne pas
+le dossier réellement exclu**. Une simulation qui ment est pire qu'une absence de
+simulation.
+
+Correctif visé : refus par construction des racines de volume, des répertoires
+système et des jokers ; résolution des variables dans le contexte LocalSystem
+**avant** de produire le diff ; `expires` typé en horodatage avec un horizon
+maximal — `chrono` est déjà dans les dépendances, donc sans ADR supplémentaire.
+
+## SEC-10, dû aux deux verbes de cette ADR
+
+`SetServiceStartup { EventLog, Disabled }` efface la piste d'audit, ce que le §6
+classe au deuxième rang des signaux. C'est un verbe destructeur au sens de
+SEC-10 : la limitation de débit lui est due, y compris lorsqu'il est demandé
+légitimement. Elle n'existe pas encore ; elle arrive avec le broker.
