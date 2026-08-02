@@ -275,14 +275,36 @@ mod tests {
     /// ce qui est la forme qu'impose `rustfmt` à toute fermeture de bloc réelle.
     fn bloc_apres(source: &str, declaration: &str) -> String {
         let epure = sans_commentaires_ni_chaines(source);
-        let debut = epure
+        let mut candidats = epure
             .match_indices(declaration)
             .map(|(i, _)| i)
-            .find(|i| {
+            .filter(|i| {
                 let debut_ligne = epure[..*i].rfind('\n').map_or(0, |n| n + 1);
                 epure[debut_ligne..*i].trim().is_empty()
-            })
+            });
+        let debut = candidats
+            .next()
             .unwrap_or_else(|| panic!("déclaration « {declaration} » introuvable"));
+
+        // **L'unicité est une condition d'ancrage, pas une hygiène.**
+        //
+        // Sans elle, un leurre placé plus haut détourne toute la lecture — et il
+        // n'a même pas besoin de compiler :
+        //
+        //     #[cfg(any())]
+        //     mod protocole_v2 { pub enum Verb { … SetTuning, } }
+        //
+        // Le leurre est syntaxiquement valide, jamais compilé, et suffit à faire
+        // lire une énumération inoffensive pendant que la vraie porte trois
+        // chaînes libres. Tests verts, format propre. C'est la dixième attaque
+        // de cette revue, et la première qui ne vise ni le lexeur ni la
+        // délimitation : elle vise l'ancre elle-même.
+        assert!(
+            candidats.next().is_none(),
+            "SEC-02 : « {declaration} » est déclarée plusieurs fois dans ce fichier. \
+             La lecture textuelle ne sait pas laquelle est la vraie, donc elle ne \
+             garantit plus rien — un leurre non compilé suffirait à la détourner."
+        );
 
         // L'indentation de la déclaration est celle de sa fermeture : c'est la
         // règle que `rustfmt` applique sans exception. Anchorer sur « } » seul
@@ -432,6 +454,25 @@ mod tests {
                     }
                 }
                 continue;
+            }
+
+            // Littéral de caractère — la cinquième forme, celle qui manquait.
+            //
+            // `'"'` ouvrait une chaîne fictive et **inversait la polarité** du
+            // blanchiment : le code devenait chaîne et la chaîne devenait code.
+            // Ce fichier en contient déjà cinq, dont un dans ce lexeur même.
+            //
+            // Une durée de vie commence par le même caractère et doit passer
+            // intacte : on ne consomme que si la forme se referme, `'x'` ou
+            // `'\n'`. `'static` ne se referme pas, donc reste du code.
+            if c == '\'' {
+                let echappe = car.get(i + 1) == Some(&'\\');
+                let ferme = if echappe { i + 3 } else { i + 2 };
+                if car.get(ferme) == Some(&'\'') {
+                    let combien = ferme - i + 1;
+                    effacer(&mut sortie, &car, &mut i, combien);
+                    continue;
+                }
             }
 
             sortie.push(c);
