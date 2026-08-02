@@ -20,9 +20,57 @@ Rapports de contraste calculés selon la formule de luminance relative WCAG.
 | `--ink-3` | `#798C9D` | 5,54 | 5,05 | 4,52 | ✅ AA partout — voir note |
 | `--vital` | `#4FD1C5` | 10,30 | 9,39 | 8,40 | ✅ |
 | `--attention` | `#E8A33D` | 8,91 | 8,12 | 7,27 | ✅ |
-| `--grave` | `#E5534B` | 5,19 | 4,73 | 4,23 | ✅ AA texte normal |
+| `--grave` | `#EC5950` | 5,59 | 5,10 | 4,56 | ✅ AA partout — voir note |
 | `--good` | `#4BC97D` | 9,11 | 8,30 | 7,43 | ✅ |
 | `--grid` | `#1F2A36` | 1,32 | 1,20 | 1,08 | ✅ attendu — récessif par conception |
+| `--s-other` | `#607184` | 3,84 | 3,50 | 3,13 | ✅ ≥ 3:1 — voir note |
+
+**Note sur `--grave` et `--s-other` — corrigés le 02/08/2026.**
+
+Deux fois le même défaut, et c'est **la troisième fois** dans ce document. Le
+calcul est juste, la conclusion ne l'est pas.
+
+`--grave` valait `#E5534B` : 5,19 / 4,73 / **4,23**, avec le verdict « ✅ AA
+texte normal » écrit à côté. Or 4,23 est sous le seuil de 4,50 que ce document
+pose lui-même. Le défaut n'est pas théorique : `--grave` sert en texte normal à
+11,5 px (`.badge.bad`) et 12,5 px (`.sev.bad`), dans des conteneurs dont le
+**survol bascule en `--surface-2`** — exactement la surface où il échoue. Une
+encre calculée contre une surface, affichée sur une autre.
+
+`--s-other`, lui, n'avait **jamais été soumis à la validation** : la section 2
+ci-dessous ne teste que `--s1` à `--s6`. Recalculé, `#39485A` donnait 2,06 /
+1,88 / 1,68, sous le plancher de 3:1 exigé d'un composant, sur les trois
+surfaces. Et il ne s'agit pas d'un détail : dans la maquette, le segment
+« Autre » porte 914 des 1340 Go du graphique d'attribution d'espace, soit la
+majorité visuelle de la barre empilée.
+
+| | `--grave` avant | après | `--s-other` avant | après |
+|---|---|---|---|---|
+| hex | `#E5534B` | **`#EC5950`** | `#39485A` | **`#607184`** |
+| `/ surface-0` | 5,19 | **5,59** | 2,06 ❌ | **3,84** |
+| `/ surface-1` | 4,73 | **5,10** | 1,88 ❌ | **3,50** |
+| `/ surface-2` | 4,23 ❌ | **4,56** | 1,68 ❌ | **3,13** |
+| L (OKLCH) | 0,6374 | 0,6562 | 0,3962 | 0,5417 |
+| C (OKLCH) | 0,1829 | 0,1835 | 0,0362 | 0,0361 |
+| H (OKLCH) | 26,71° | 26,84° | 253,27° | 251,36° |
+
+Les deux corrections sont des montées de luminosité à **chroma constant** :
++0,0006 pour `--grave`, −0,0001 pour `--s-other`. La dérive de teinte est de
++0,13° et −1,91°, donc invisible.
+
+Pour `--s-other`, le point qui compte : le chroma reste à 0,036, contre 0,11 à
+0,18 pour une vraie couleur de série. C'est **la désaturation** qui porte le
+sens « catégorie sans intérêt », pas l'obscurité — la correction ne réintroduit
+donc pas la confusion que la règle §4 veut éviter.
+
+Séparation en vision déficiente revérifiée après correction de `--grave`
+(Machado, Oliveira & Fernandes 2009, ΔE OKLab ×100) : `attention`↔`grave` en
+deutan passe de 13,17 à **11,31**, `vital`↔`grave` de 17,57 à **16,24**. La
+cible est 8 ; aucune paire ne descend en dessous. Plancher de chroma : 0,1835,
+au-dessus du seuil de 0,1.
+
+Les chiffres de cette note ont été calculés deux fois, par deux chaînes
+indépendantes, avant d'être écrits.
 
 **Note sur `--ink-3` — corrigé le 30/07/2026.**
 
@@ -119,10 +167,18 @@ remplit des surfaces et doit rester dans une bande étroite pour que les séries
 soient comparables entre elles.
 
 Leurs équivalents série sont les slots 1 (`#2BAAA0`) et 2 (`#C98500`) — la même
-famille de teintes, redescendue dans la bande.
+famille de teintes, redescendue dans la bande. **`--grave` prend le slot 4
+(`#D55181`)**, et cette ligne manquait : c'est précisément parce que `--grave`
+était le seul des trois accents sans équivalent documenté que la maquette a
+fini par employer l'accent brut pour remplir une jauge sur 41 % de sa largeur.
+Une règle qui ne dit pas quoi faire à la place se fait contourner.
 
-**Ne jamais utiliser `--vital` ou `--attention` comme couleur de remplissage dans
-un graphique.** C'est l'erreur la plus facile à commettre avec cette palette.
+**Ne jamais utiliser `--vital`, `--attention` ou `--grave` comme couleur de
+remplissage dans un graphique.** C'est l'erreur la plus facile à commettre avec
+cette palette, et elle s'est produite : la vérification qui s'arrête au CSS
+statique ne voit rien, parce que la faute était dans la logique d'état en
+JavaScript. Sur une maquette pilotée par script, le balisage ne dit que la
+moitié de l'usage.
 
 ---
 

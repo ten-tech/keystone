@@ -434,3 +434,36 @@ jobs:
             exit 1
           fi
           echo "✓ aucune ressource réseau : les maquettes et le rapport s'ouvrent hors ligne"
+
+      # La maquette redéclare son propre bloc `:root` en recopiant les hex de
+      # design/tokens.css, sans `<link>` : c'est ce qui la garde autonome, mais
+      # ça crée deux sources de vérité pour la même couleur. Le défaut s'est
+      # produit : `--grave` corrigé d'un côté serait resté faux de l'autre.
+      #
+      # On ne supprime pas la duplication — un fichier qu'on peut envoyer tel
+      # quel a de la valeur — on la vérifie. Toute variable définie des deux
+      # côtés doit porter la même valeur.
+      - name: Les maquettes ne dérivent pas de design/tokens.css
+        run: |
+          divergences=0
+          verifies=0
+          for maquette in design/*.html; do
+            while IFS='|' read -r nom valeur; do
+              [ -z "$nom" ] && continue
+              ref=$(grep -oE "^\s*${nom}\s*:\s*[^;]+;" design/tokens.css \
+                    | head -1 | sed -E 's/.*:\s*//; s/\s*;$//')
+              [ -z "$ref" ] && continue
+              verifies=$((verifies + 1))
+              if [ "$(echo "$valeur" | tr 'A-Z' 'a-z')" != "$(echo "$ref" | tr 'A-Z' 'a-z')" ]; then
+                echo "::error file=$maquette::$nom vaut $valeur ici et $ref dans design/tokens.css"
+                divergences=1
+              fi
+            done <<< "$(grep -oE '^\s*--[a-z0-9-]+\s*:\s*#[0-9A-Fa-f]{3,8}\s*;' "$maquette" \
+                        | sed -E 's/^\s*//; s/\s*;$//; s/\s*:\s*/|/')"
+          done
+          if [ "$verifies" -eq 0 ]; then
+            echo "::error::aucune variable comparée — le contrôle ne contrôle plus rien"
+            exit 1
+          fi
+          echo "✓ $verifies variables comparées à design/tokens.css"
+          exit $divergences

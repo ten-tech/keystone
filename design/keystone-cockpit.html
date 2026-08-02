@@ -43,12 +43,18 @@
   /* Accents d'état — icône + libellé obligatoires, jamais la couleur seule */
   --vital:#4FD1C5;      /* 9.4:1 */
   --attention:#E8A33D;  /* 8.1:1 */
-  --grave:#E5534B;      /* 4.7:1 */
+  --grave:#EC5950;      /* 4.56:1 mini — AA sur les trois surfaces */
   --good:#4BC97D;       /* 8.3:1 */
 
   /* Séries de données — ordre fixe, jamais recyclé */
   --s1:#2BAAA0; --s2:#C98500; --s3:#3987E5;
   --s4:#D55181; --s5:#008300; --s6:#9085E9;
+
+  /* « Autre » : gris neutre, jamais une teinte de série. La
+     désaturation porte le sens « catégorie sans intérêt » ; la
+     clarté, elle, doit tenir le plancher de 3:1 — ce que la valeur
+     précédente (#39485A, 1,68:1 sur --surface-2) ne faisait pas. */
+  --s-other:#607184;    /* 3.13:1 mini */
 
   /* Typo */
   --sans:'Inter','Segoe UI',system-ui,sans-serif;
@@ -384,6 +390,36 @@ tr:last-child td{border-bottom:none}
   *{animation-duration:.01ms!important;animation-iteration-count:1!important;
     transition-duration:.01ms!important}
   .arc{opacity:.93;filter:drop-shadow(0 0 11px var(--state-dim))}
+}
+
+/* ─── Contraste forcé ───────────────────────────────────────────────────
+   Le bloc existait dans tokens.css, que cette maquette ne consomme pas :
+   elle redéclare ses variables à la main. La règle était donc écrite quelque
+   part et appliquée nulle part — le pire des deux mondes, puisqu'on pouvait
+   la citer.
+
+   En contraste forcé, le système impose sa propre palette et écrase color,
+   background-color et border-color, y compris posés en style= par le script.
+   Ce qui NE survit pas, ce sont les significations portées par la couleur
+   seule : les jauges deviennent toutes identiques, les pastilles de série
+   indistinctes. D'où les deux gestes ci-dessous — rendre les frontières
+   visibles, et s'assurer que rien ne repose sur une teinte.                 */
+@media (forced-colors: active){
+  :root{ --hairline:CanvasText; --grid:CanvasText; }
+
+  /* Les surfaces se distinguaient par 8 points de luminosité ; en contraste
+     forcé elles deviennent toutes Canvas. Sans trait, la structure disparaît. */
+  .tile,.card,.drow,.btn,.badge,.sev,.lg .sw{
+    border:1px solid CanvasText;
+  }
+
+  /* Une jauge remplie d'un aplat système ne se lit plus par sa couleur : on
+     garde sa longueur, seule information qui survit. */
+  .meter,.meter>*{ forced-color-adjust:none; }
+  .meter>*{ background:Highlight; }
+
+  /* Le focus doit rester visible quelle que soit la palette imposée. */
+  :focus-visible{ outline:3px solid Highlight; outline-offset:2px; }
 }
 </style>
 </head>
@@ -918,7 +954,15 @@ function setState(k,btn){
                 c:'Defender, BitLocker, HVCI, LSA actifs · WDAC en audit · 0 nouvelle persistance'},
     attention: {v:78,badge:'att',label:'1 constat',col:'var(--s2)',
                 c:'Autorité de certification racine ajoutée · non reconnue · tant qu’elle est là, le trafic HTTPS peut être lu'},
-    grave:     {v:41,badge:'bad',label:'2 constats',col:'var(--grave)',
+    /* --s4, et non --grave. Cette jauge est un APLAT : à 41 % de large, elle
+       dépasse de très loin le budget que ce dossier s'impose — « ≤ 1 % de la
+       surface de l'écran, et jamais en aplat » (tokens.css). Les deux autres
+       états évitaient déjà le piège en prenant leur équivalent série ; celui-ci
+       avait gardé l'accent brut, parce que --grave était le seul des trois à
+       ne pas avoir d'équivalent documenté. Il en a un maintenant
+       (palette-validation.md §3). La gravité est portée par l'icône, le
+       libellé et le décompte — jamais par la couleur seule (NF-05). */
+    grave:     {v:41,badge:'bad',label:'2 constats',col:'var(--s4)',
                 c:'Protection en temps réel désactivée · règle ASR retirée · aucun auteur identifié'}
   }[k];
   document.getElementById('sec-v').innerHTML=SEC.v+'<span>/ 100</span>';
@@ -965,7 +1009,7 @@ const SPACE=[
   {n:'Vidages · shaders · MSIX orphelins',v:31,r:3.1,c:'var(--s5)',m:'quarantaine 30 jours'},
   /* Le reste n'est pas une catégorie d'intérêt : il prend un gris neutre,
      pas une teinte de série — sinon il domine le graphique sans rien dire. */
-  {n:'Autre (données de travail, système)',v:914,r:0,c:'#39485A',m:'—'}
+  {n:'Autre (données de travail, système)',v:914,r:0,c:'var(--s-other)',m:'—'}
 ];
 const tot=SPACE.reduce((a,b)=>a+b.v,0);
 document.getElementById('stack').innerHTML=SPACE.map((d,i)=>
