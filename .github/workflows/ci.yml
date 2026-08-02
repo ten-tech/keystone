@@ -304,29 +304,41 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      # « Un comportement non documenté est un défaut » : les documents cités
-      # dans le README et l'index doivent exister.
-      - name: Les documents référencés existent
+      # « Un comportement non documenté est un défaut » : tout document cité
+      # doit exister.
+      #
+      # Cette étape portait une liste écrite à la main. Elle a dérivé deux fois
+      # — arrêtée à l'ADR-0003 quand il y en avait sept, puis à l'ADR-0007 quand
+      # il y en avait onze — et par construction elle ne pouvait que dériver :
+      # une liste de fichiers ne se met à jour que si quelqu'un y pense.
+      #
+      # On vérifie donc les **liens réels** plutôt qu'un inventaire. C'est
+      # strictement plus fort : ça couvre tout fichier cité où que ce soit, ça
+      # attrape le lien vers un document supprimé — le cas que la liste ne
+      # voyait pas du tout — et ça ne demande aucune maintenance. Le contrôle a
+      # été éprouvé par falsification : un lien vers un ADR inexistant ajouté à
+      # l'index le fait échouer, son retrait le fait passer.
+      #
+      # Le lien est résolu depuis le dossier du fichier qui le porte, comme le
+      # fait GitHub. Les URL absolues et les ancres pures sont hors sujet.
+      - name: Aucun lien mort entre les documents
         run: |
-          manquants=0
-          for f in \
-            docs/00-INDEX.md docs/01-CAHIER-DES-CHARGES.md docs/02-BRIEF-DESIGN.md \
-            docs/03-ARCHITECTURE.md docs/04-MODELE-DE-MENACE.md \
-            docs/05-ENVIRONNEMENT-DE-DEV.md docs/06-VM-DE-LABO.md \
-            docs/07-FEUILLE-DE-ROUTE.md docs/08-CONVENTIONS.md docs/09-GLOSSAIRE.md \
-            docs/adr/TEMPLATE.md docs/adr/0001-rust-pour-le-broker.md \
-            docs/adr/0002-grpc-sur-named-pipe.md docs/adr/0003-collecteurs-en-wasm.md \
-            docs/adr/0004-chainage-du-journal.md \
-            docs/adr/0005-lecture-detat-effectif.md \
-            docs/adr/0006-fermer-les-verbes-a-parametres-libres.md \
-            docs/adr/0007-ce-qui-garde-lenumeration-des-verbes.md \
-            design/tokens.css design/palette-validation.md \
-            design/keystone-cockpit.html design/ecrans-et-libelles.md \
-            schema/workstation.schema.json \
-            schema/examples/workstation.yaml SECURITY.md deny.toml ; do
-            [ -f "$f" ] || { echo "::error::document manquant : $f"; manquants=1; }
+          morts=$(mktemp)
+          for source in $(git ls-files '*.md'); do
+            base=$(dirname "$source")
+            grep -oE '\]\([^)#][^)]*\)' "$source" \
+              | sed -E 's/^\]\(//; s/\)$//' \
+              | while IFS= read -r cible; do
+                  case "$cible" in http*|mailto:*|'') continue ;; esac
+                  cible=${cible%%#*}
+                  [ -z "$cible" ] && continue
+                  if [ ! -e "$base/$cible" ]; then
+                    echo "::error file=$source::lien mort vers « $cible »"
+                    echo x >> "$morts"
+                  fi
+                done
           done
-          exit $manquants
+          [ ! -s "$morts" ]
 
       # Garde-fou de vocabulaire. Le glossaire proscrit ces formulations : elles
       # relèvent du dark pattern de la peur ou du charlatanisme (principe P9).
