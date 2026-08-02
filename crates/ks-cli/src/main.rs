@@ -292,10 +292,46 @@ fn cmd_scan(json: bool, domain: Option<&str>) -> Result<()> {
 
     println!("Scan — lecture seule, aucune écriture système.\n");
     for item in &items {
-        println!("  {:<44} {}", item.path, item.observed);
+        println!("  {:<44} {}", item.path, valeur_lisible(item));
     }
     println!("\n{} item(s) observé(s).", items.len());
     Ok(())
+}
+
+/// Rend une valeur lisible par un humain, sans toucher au modèle.
+///
+/// L'item porte des octets, parce qu'un octet est ce que la machine a mesuré, et
+/// que la Phase 1 comparera des octets. Mais `56043241472` à l'écran ne dit rien
+/// à personne, et le principe P6 refuse ce qu'on ne peut pas comprendre. La
+/// conversion appartient donc à l'affichage, jamais au relevé.
+fn valeur_lisible(item: &ks_core::Item) -> String {
+    if let (true, ks_core::ItemValue::Int(n)) = (item.path.ends_with("_bytes"), &item.observed) {
+        if let Ok(octets) = u64::try_from(*n) {
+            return octets_lisibles(octets);
+        }
+    }
+    item.observed.to_string()
+}
+
+/// Formate une taille en unités binaires, avec la ponctuation française.
+///
+/// Une décimale suffit : la deuxième donnerait une précision que ni le calcul ni
+/// le besoin ne justifient. L'espace avant l'unité est **insécable**, sans quoi le
+/// terminal coupe « 52,2 » et « Gio » sur deux lignes.
+fn octets_lisibles(octets: u64) -> String {
+    const UNITES: [&str; 5] = ["o", "Kio", "Mio", "Gio", "Tio"];
+    let mut valeur = octets as f64;
+    let mut rang = 0;
+    while valeur >= 1024.0 && rang < UNITES.len() - 1 {
+        valeur /= 1024.0;
+        rang += 1;
+    }
+    let arrondi = if rang == 0 {
+        format!("{octets}")
+    } else {
+        format!("{valeur:.1}").replace('.', ",")
+    };
+    format!("{arrondi}\u{a0}{}", UNITES[rang])
 }
 
 fn cmd_status(json: bool) -> Result<()> {
@@ -346,6 +382,31 @@ fn cmd_explain(path: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn une_taille_saffiche_en_unites_lisibles() {
+        // La valeur relevée sur la machine de référence. « 56043241472 » ne dit
+        // rien à personne ; « 52,2 Gio » situe immédiatement le disque WSL comme
+        // le premier poste d'occupation du poste.
+        assert_eq!(octets_lisibles(56_043_241_472), "52,2\u{a0}Gio");
+        assert_eq!(octets_lisibles(100_663_296), "96,0\u{a0}Mio");
+        // En deçà du kibioctet, l'arrondi n'apporte rien : on garde l'entier.
+        assert_eq!(octets_lisibles(0), "0\u{a0}o");
+        assert_eq!(octets_lisibles(512), "512\u{a0}o");
+        assert_eq!(octets_lisibles(1024), "1,0\u{a0}Kio");
+    }
+
+    #[test]
+    fn la_virgule_est_francaise_et_lespace_insecable() {
+        let rendu = octets_lisibles(1_610_612_736);
+        assert!(rendu.contains(','), "séparateur décimal français");
+        assert!(!rendu.contains('.'), "jamais le point décimal anglais");
+        assert!(
+            rendu.contains('\u{a0}'),
+            "espace insécable : sinon le terminal coupe le nombre de son unité"
+        );
+        assert!(!rendu.contains(' '), "aucune espace ordinaire");
+    }
 
     #[test]
     fn un_domaine_inconnu_est_refuse_plutot_quignore() {

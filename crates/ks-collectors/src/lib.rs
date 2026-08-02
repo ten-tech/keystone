@@ -40,12 +40,28 @@
 
 pub mod posture;
 pub mod software;
+pub mod virtualisation;
 pub mod winget;
 
 use chrono::Utc;
 use ks_core::{Domain, Item, ItemValue, Provenance};
 pub use posture::PostureCollector;
 pub use software::{Application, Gestionnaire, Inventaire, SoftwareCollector};
+pub use virtualisation::{Distribution, VirtualisationCollector};
+
+impl Collector for VirtualisationCollector {
+    fn id(&self) -> &'static str {
+        "virtualisation"
+    }
+
+    fn domain(&self) -> Domain {
+        Domain::Virtualization
+    }
+
+    fn collect(&self) -> Vec<Item> {
+        Self::items()
+    }
+}
 
 impl Collector for PostureCollector {
     fn id(&self) -> &'static str {
@@ -103,6 +119,7 @@ impl Inventory {
             Box::new(HardwareCollector),
             Box::new(SoftwareCollector),
             Box::new(PostureCollector),
+            Box::new(VirtualisationCollector),
         ];
 
         let mut items = Vec::new();

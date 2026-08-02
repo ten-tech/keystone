@@ -85,9 +85,16 @@ confirme qu'aucun octet n'a été modifié.
 
 ### 0.4 — WSL et VM en lecture
 
-- [ ] Inventaire des distros : version, noyau, systemd, **taille réelle du `ext4.vhdx`**
+- [x] Inventaire des distros par le registre : version, **taille réelle du `ext4.vhdx`**, intégration et montage des lecteurs
+- [ ] Noyau et `systemd` de chaque distro — exige d'y exécuter quelque chose, donc pas un collecteur
 - [ ] Inventaire Hyper-V : état, **âge des points de contrôle**, chaînes de disques différentiels
 - [ ] Déploiement et exécution de `ks-agent` dans une distro, remontée vers l'hôte
+
+> **Mesuré :** deux distributions, dont un `ext4.vhdx` de **52,2 Gio**. Ce fichier
+> grossit et ne se réduit jamais seul : supprimer des données dans la distribution
+> ne rend pas un octet à Windows. Invisible depuis l'explorateur, puisqu'il vit
+> dans un dossier de paquet — c'est typiquement le premier poste d'occupation d'un
+> poste de développement, et personne ne le sait.
 
 ### 0.5 — Journal et rapport
 
