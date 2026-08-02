@@ -4,9 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Keystone — Poste de pilotage</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!--
+  AUCUNE RESSOURCE RÉSEAU. Cette maquette chargeait trois familles depuis
+  Google Fonts, ce que le principe P5 — « Local, point final » — interdit
+  explicitement pour une maquette comme pour un rapport.
+
+  Ce n'était pas une subtilité : ouvrir ce fichier annonçait à un tiers qu'on
+  l'ouvrait, quand, et depuis quelle adresse. Pour une maquette d'outil de
+  sécurité dont la thèse est justement qu'il ne parle à personne, c'est la
+  contradiction la plus visible qu'on pouvait laisser.
+
+  Les piles de polices ci-dessous conservent Inter et JetBrains Mono en
+  premier choix : elles s'appliquent si elles sont installées, et retombent
+  sinon sur les polices du système. Embarquer les fichiers en @font-face
+  local reste possible et souhaitable, mais c'est une décision à part —
+  licence, graisses réellement utilisées, poids ajouté au dépôt.
+-->
 <style>
 /* ═══════════════════════════════════════════════════════════════
    KEYSTONE — direction « Poste de pilotage »

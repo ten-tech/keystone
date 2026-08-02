@@ -350,3 +350,27 @@ jobs:
             exit 1
           fi
           echo "✓ aucune formulation proscrite employée à son compte"
+
+      # Principe P5, « Local, point final » : aucune ressource réseau dans une
+      # maquette ni dans un rapport. Ni CDN, ni Google Fonts, ni police distante.
+      #
+      # Cette règle était écrite depuis le premier commit, et **rien ne la
+      # vérifiait** : les deux maquettes ont chargé trois familles Google Fonts
+      # pendant toute la Phase 0. Une maquette d'outil de sécurité dont la thèse
+      # est qu'il ne parle à personne, et qui annonce à un tiers qu'on l'ouvre :
+      # c'est la contradiction la plus visible qu'on pouvait laisser.
+      #
+      # Le filtre écarte `http://www.w3.org/…`, qui est un espace de noms XML —
+      # une chaîne d'identification qu'aucun navigateur ne va chercher — et le
+      # dossier d'import, archive documentée par son propre README.
+      - name: Aucune ressource réseau dans les maquettes
+        run: |
+          hits=$(grep -rnoE "https?://[^\"')[:space:]]+" design/ crates/ks-cli/src/rapport.rs 2>/dev/null \
+                 | grep -v "www\.w3\.org" \
+                 | grep -v "^design/import-claude-design/" || true)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "::error::ressource réseau dans une maquette ou un rapport — principe P5"
+            exit 1
+          fi
+          echo "✓ aucune ressource réseau : les maquettes et le rapport s'ouvrent hors ligne"
