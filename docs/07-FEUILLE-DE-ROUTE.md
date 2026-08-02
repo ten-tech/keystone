@@ -38,7 +38,7 @@ confirme qu'aucun octet n'a été modifié.
 - [x] **Pare-feu** : les trois profils, et les règles autorisant une connexion entrante *active* — 197 sur 649 relevées, le total ne se dépliant en rien
 - [x] **Firmware et microcode** : fabricant, version, date de publication, révision du microcode en hexadécimal brut
 - [x] **Horloge, la configuration** : source de temps et fuseau
-- [ ] **État effectif** de VBS, de l'intégrité mémoire, de Credential Guard et du temps réel Defender — par WMI, voir [ADR-0005](adr/0005-lecture-detat-effectif.md)
+- [x] **État effectif** de VBS, de l'intégrité mémoire, de Credential Guard et du temps réel Defender — par WMI, voir [ADR-0005](adr/0005-lecture-detat-effectif.md)
 - [ ] **Protection DMA** — seule sa *disponibilité* matérielle est lisible, pas son activation
 - [ ] **Usure NVMe / SMART**, santé et cycles de la batterie — `DeviceIoControl`, donc `unsafe`, donc une autre décision
 - [ ] **Cohérence de l'horloge** (D1-09) — une mesure contre une référence externe, pas une lecture

@@ -148,7 +148,7 @@ Pour que la validation YAML fonctionne, ajouter dans les réglages du workspace 
 ### Phase 0 — sur l'hôte, sans risque
 
 ```powershell
-cargo test --workspace          # 34 tests, tous portables
+cargo test --workspace          # 100 tests, tous portables
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p ks-cli -- scan
 cargo run -p ks-cli -- status
@@ -190,7 +190,7 @@ New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
   -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force
 ```
 
-**Fins de ligne.** `.gitattributes` n'existe pas encore dans le dépôt ; `.editorconfig`
+**Fins de ligne.** `.gitattributes` fixe les fins de ligne du dépôt ; `.editorconfig`
 impose LF partout sauf pour les `.ps1` (CRLF). Si tu vois des diffs entiers sans
 changement réel, c'est ça.
 

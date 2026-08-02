@@ -20,7 +20,7 @@ Les documents sont numérotés **dans l'ordre où il faut les lire**.
 
 | Répertoire | Contenu |
 |---|---|
-| [`../design/`](../design/) | maquette interactive, tokens CSS, note de validation de la palette |
+| [`../design/`](../design/) | maquette interactive, tokens CSS, note de validation de la palette, **écrans et libellés** |
 | [`../schema/`](../schema/) | JSON Schema de `workstation.yaml` + exemple complet commenté |
 | [`../scripts/`](../scripts/) | PowerShell : création du labo, vérification de la toolchain, cross-compilation |
 

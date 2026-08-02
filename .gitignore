@@ -60,3 +60,11 @@ ks-agent
 # Il vit dans SON PROPRE dépôt (voir docs/08-CONVENTIONS.md § « deux dépôts »).
 /workstation.yaml
 /base.yaml
+
+# ─── Sorties d'outils et d'agents ─────────────────────────────
+# Un audit qui redirige sa sortie dans le dépôt y laisse des traces : deux
+# journaux vides et un dépotoir de `cargo tree` sont arrivés ainsi dans un
+# commit. Le travail d'analyse se fait hors du dépôt ; ce qui en sort est un
+# rapport, pas un fichier temporaire.
+*.log
+tree*.txt

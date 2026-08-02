@@ -39,6 +39,8 @@
 # le marquer évite qu'il pollue les statistiques et les revues de diff.
 Cargo.lock text eol=lf linguist-generated=true
 
-# La maquette et le runtime importés de Claude Design sont du code produit
-# par un outil : même traitement.
-design/import-claude-design/support.js linguist-generated=true
+# L'import Claude Design portait ici une règle `linguist-generated`. Le dossier
+# a été supprimé (voir design/ecrans-et-libelles.md, qui en conserve la
+# substance) et la règle avec lui : git ignore silencieusement une règle sur un
+# chemin absent, donc rien n'aurait cassé — c'est précisément pourquoi elle
+# serait restée.

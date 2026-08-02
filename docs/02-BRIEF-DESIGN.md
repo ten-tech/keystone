@@ -9,7 +9,7 @@
 
 ## 0. À lire avant toute chose
 
-Keystone est un **plan de contrôle pour poste de travail d'ingénieur** : il surveille, décrit et fait converger l'état d'une machine Windows 11 avec ses distributions WSL2 et ses VM Hyper-V. Il met à jour, nettoie, durcit, sauvegarde, détecte les changements non désirés, et sait tout annuler.
+Keystone est un **plan de contrôle pour poste de travail d'ingénieur** : il surveille, décrit et fait converger l'état d'une machine Windows 11 avec ses distributions WSL2 et ses VM Hyper-V. Il met à jour, attribue l'espace, durcit, sauvegarde, constate les changements non désirés, et sait tout annuler.
 
 Ce n'est pas un utilitaire. C'est **l'instrument par lequel un ingénieur regarde sa machine**, plusieurs fois par jour, pendant des années. Le design doit donc tenir la répétition : ce qui est spectaculaire au jour 1 doit encore être supportable au jour 900.
 

@@ -316,8 +316,13 @@ jobs:
             docs/07-FEUILLE-DE-ROUTE.md docs/08-CONVENTIONS.md docs/09-GLOSSAIRE.md \
             docs/adr/TEMPLATE.md docs/adr/0001-rust-pour-le-broker.md \
             docs/adr/0002-grpc-sur-named-pipe.md docs/adr/0003-collecteurs-en-wasm.md \
+            docs/adr/0004-chainage-du-journal.md \
+            docs/adr/0005-lecture-detat-effectif.md \
+            docs/adr/0006-fermer-les-verbes-a-parametres-libres.md \
+            docs/adr/0007-ce-qui-garde-lenumeration-des-verbes.md \
             design/tokens.css design/palette-validation.md \
-            design/keystone-cockpit.html schema/workstation.schema.json \
+            design/keystone-cockpit.html design/ecrans-et-libelles.md \
+            schema/workstation.schema.json \
             schema/examples/workstation.yaml SECURITY.md deny.toml ; do
             [ -f "$f" ] || { echo "::error::document manquant : $f"; manquants=1; }
           done
@@ -336,7 +341,7 @@ jobs:
           # intrusions », que docs/09-GLOSSAIRE.md désigne pourtant comme LA phrase
           # à proscrire. Un garde-fou qui ne peut pas attraper son propre cas canonique
           # est une étape verte de plus. Vérifié empiriquement sur les cinq tournures.
-          hits=$(grep -rniE "détecte( \S+){0,2} intrusions?|optimise votre (PC|système|machine)|accélérateur de (RAM|mémoire)|nettoyeur de registre" \
+          hits=$(grep -rniE "détecte( \S+){0,2} intrusions?|optimise votre (PC|système|machine)|accélérateur de (RAM|mémoire)|nettoyeur de registre|nettoie" \
                    docs/ README.md 2>/dev/null \
                  | grep -viE "aucun|pas de|jamais|proscri|interdit|faux ami|refus|mensonge|dangereux" || true)
           # « » a été RETIRÉ de ce filtre inverse : les guillemets français sont la

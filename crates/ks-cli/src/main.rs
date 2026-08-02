@@ -15,7 +15,8 @@
 //!
 //! ## État
 //!
-//! Phase 0 : `scan`, `status` et `explain` fonctionnent en lecture seule. Les
+//! Phase 0 : `scan`, `status`, `explain`, `journal` et `report` fonctionnent en
+//! lecture seule. Les
 //! commandes mutantes sont déclarées mais refusent de s'exécuter — délibérément :
 //! la structure de la CLI est le contrat du produit, et il vaut mieux la figer tôt
 //! qu'inventer les verbes au fil de l'eau.
@@ -234,8 +235,10 @@ fn not_yet() -> ExitCode {
     println!(
         "Cette commande arrive après la Phase 0.\n\
          \n\
-         La Phase 0 est en lecture seule par conception : `scan`, `status` et `explain`\n\
-         fonctionnent, rien d'autre n'écrit. Voir docs/07-FEUILLE-DE-ROUTE.md."
+         La Phase 0 est en lecture seule par conception. Ce qui fonctionne :\n\
+         `scan`, `status`, `explain`, `journal` et `report`.\n\
+         \n\
+         Voir docs/07-FEUILLE-DE-ROUTE.md."
     );
     // Le message reste sur la sortie standard — il informe, il n'alarme pas — mais
     // le code de sortie est non nul : un script qui enchaîne des commandes doit

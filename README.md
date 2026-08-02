@@ -99,7 +99,7 @@ Le raisonnement complet est dans [`docs/05-ENVIRONNEMENT-DE-DEV.md`](docs/05-ENV
 
 | Phase | Objet | État |
 |---|---|---|
-| **0 — Observer** | collecteurs en lecture seule, inventaire, journal, CLI | 🔨 squelette posé |
+| **0 — Observer** | collecteurs en lecture seule, inventaire, journal, CLI | ✅ critère de sortie atteint |
 | 1 — Décrire | schéma yaml, import de l'existant, moteur de diff | ○ à faire |
 | 2 — Converger | instantanés, rollback, mises à jour orchestrées, sauvegarde | ○ à faire |
 | 3 — Tenir | espace, posture de sécurité, ancres externes, isolement | ○ à faire |

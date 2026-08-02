@@ -32,11 +32,24 @@
 //! Voir `docs/07-FEUILLE-DE-ROUTE.md`, Phase 0.3.
 //!
 //! [`PostureCollector`] — Secure Boot, VBS/HVCI, Credential Guard, protection
-//! LSA, exclusions et règles ASR de Defender, date des signatures, démarrage de
-//! six services de sécurité. Tout par le registre, donc sans un seul bloc
-//! `unsafe`. Restent à écrire : TPM, BitLocker par volume, protection DMA,
-//! Defender en temps réel, tâches planifiées, pare-feu, NVMe/SMART, batterie,
-//! firmware et microcode, cohérence de l'horloge — voir Phase 0.2.
+//! LSA, exclusions et règles ASR de Defender, pare-feu, firmware, microcode,
+//! horloge : la **configuration**, lue au registre. Et l'**état effectif** de
+//! VBS, de l'intégrité mémoire, de Credential Guard et de la protection en temps
+//! réel, lu par WMI ([`etat_effectif`], ADR-0005) — le registre ne le porte pas.
+//!
+//! [`VirtualisationCollector`] — distributions WSL par le registre : version,
+//! taille réelle du disque virtuel, intégration et montage des lecteurs.
+//!
+//! **Cette omission-ci est la troisième du genre.** Le collecteur de
+//! virtualisation manquait à cette liste alors qu'il est exporté, qu'il
+//! implémente [`Collector`] et qu'il tourne dans [`Inventory::collect_all`].
+//! L'avertissement ci-dessus ne suffit visiblement pas : si une quatrième
+//! survient, il faudra un test qui compare cette liste aux implémentations
+//! réelles du trait, plutôt qu'une consigne de relecture.
+//!
+//! Restent à écrire : TPM, BitLocker par volume, tâches planifiées — tous trois
+//! refusés sans élévation, donc reportés au broker (Phase 2) —, la protection
+//! DMA effective, l'usure NVMe/SMART et la cohérence de l'horloge.
 
 pub mod etat_effectif;
 pub mod posture;

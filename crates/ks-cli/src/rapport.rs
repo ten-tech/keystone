@@ -105,9 +105,14 @@ pub fn construire(items: &[Item], machine: &str, horodatage: &str) -> String {
             continue;
         }
 
+        // Le conteneur porte le défilement ET le focus : un tableau qui déborde
+        // doit pouvoir être parcouru au clavier, ce qu'un `div` sans `tabindex`
+        // interdit. `role="group"` et l'étiquette évitent qu'un lecteur d'écran
+        // annonce un conteneur anonyme.
         corps.push_str(&format!(
             "<section aria-labelledby=\"d-{0:?}\">\n\
              <h2 id=\"d-{0:?}\">{1} <span class=\"compte\">{2} item(s)</span></h2>\n\
+             <div class=\"cadre-table\" role=\"group\" aria-labelledby=\"d-{0:?}\" tabindex=\"0\">\n\
              <table>\n<caption class=\"sr\">Items observés du domaine {1}</caption>\n\
              <thead><tr><th scope=\"col\">Item</th><th scope=\"col\">Valeur constatée</th>\
              <th scope=\"col\">À quoi ça sert</th></tr></thead>\n<tbody>\n",
@@ -126,7 +131,7 @@ pub fn construire(items: &[Item], machine: &str, horodatage: &str) -> String {
                 echapper(&item.purpose)
             ));
         }
-        corps.push_str("</tbody>\n</table>\n</section>\n");
+        corps.push_str("</tbody>\n</table>\n</div>\n</section>\n");
     }
 
     let illisibles = items.iter().filter(|i| !i.observed.est_constat()).count();
@@ -209,12 +214,17 @@ h2 {
   padding-bottom: var(--sp-2); border-bottom: 1px solid var(--hairline);
 }
 .compte { color: var(--ink-3); font-weight: 400; font-size: 13px; }
-/* Le tableau défile dans son propre conteneur : le corps de page ne défile
-   jamais horizontalement, même sur un écran étroit. */
-table {
-  width: 100%; border-collapse: collapse; display: block; overflow-x: auto;
-  background: var(--surface-1); border-radius: var(--r-card);
+/* Le tableau défile dans SON CONTENEUR, pas lui-même.
+   `display:block` posé sur <table> retirait la sémantique de tableau de l'arbre
+   d'accessibilité : le lecteur d'écran cessait de proposer la navigation par
+   ligne et par colonne, et lisait chaque cellule comme du texte plat. Le
+   commentaire d'origine — « le tableau défile dans son propre conteneur » —
+   décrivait donc un effet visuel juste et une conséquence non dite. */
+.cadre-table {
+  overflow-x: auto; background: var(--surface-1); border-radius: var(--r-card);
 }
+.cadre-table:focus-visible { outline: 2px solid var(--vital); outline-offset: 2px; }
+table { width: 100%; border-collapse: collapse; }
 thead th {
   text-align: left; font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
   color: var(--ink-3); font-weight: 600; padding: var(--sp-3) var(--sp-4);
@@ -244,10 +254,23 @@ footer { margin-top: var(--sp-7); padding-top: var(--sp-4);
   .v-vital, .v-illisible, .v-absent { color: CanvasText; }
   table, .note { border: 1px solid CanvasText; }
 }
+/* Le rapport est fait pour être transmis et imprimé. Encore faut-il qu'il
+   s'imprime.
+   Les classes de valeur portent une couleur explicite, qui l'emporte sur le
+   `color: #000` du corps : sans les repeindre, `.v-normale` — la valeur par
+   défaut de la plupart des items — sortait à **1,18:1 sur papier blanc**,
+   c'est-à-dire invisible. Recalculé, pas estimé.
+   Même chose pour les filets, en blanc translucide : sur fond blanc, le
+   tableau perdait toutes ses séparations. */
 @media print {
-  body { background: #fff; color: #000; }
-  .bandeau, table { background: transparent; }
-  .but, .compte, code { color: #333; }
+  body { background: #fff; color: #111; }
+  .bandeau, .cadre-table, .note { background: transparent; }
+  .v-normale, .v-vital, .v-illisible, .v-absent { color: #111; }
+  .but, .compte, code, .sous, thead th, footer { color: #333; }
+  table, tbody th, tbody td, thead th, h2, footer, .note {
+    border-color: #ccc;
+  }
+  .note { border-left: 3px solid #666; }
 }
 "#;
 
@@ -347,6 +370,64 @@ mod tests {
         // Le libellé, pas seulement la classe.
         let sans_classes = html.replace("v-illisible", "");
         assert!(sans_classes.contains("illisible — accès refusé"));
+    }
+
+    #[test]
+    fn le_rapport_reste_lisible_une_fois_imprime() {
+        // Le rapport est fait pour être transmis et imprimé, et il s'imprimait
+        // en blanc sur blanc : les classes de valeur portent une couleur
+        // explicite qui l'emporte sur celle du corps, et `.v-normale` — le cas
+        // par défaut de la plupart des items — sortait à 1,18:1 sur papier.
+        //
+        // Un audit l'a mesuré ; ce test l'empêche de revenir.
+        let impression = STYLE
+            .split("@media print")
+            .nth(1)
+            .expect("une feuille d'impression doit exister");
+
+        for classe in [".v-normale", ".v-vital", ".v-illisible", ".v-absent"] {
+            assert!(
+                impression.contains(classe),
+                "« {classe} » n'est pas repeinte pour l'impression : elle sortirait \
+                 dans sa couleur d'écran, illisible sur papier blanc"
+            );
+        }
+        assert!(
+            impression.contains("border-color"),
+            "les filets sont en blanc translucide : sans repeinte, le tableau perd \
+             toutes ses séparations sur fond blanc"
+        );
+    }
+
+    #[test]
+    fn le_tableau_garde_sa_semantique_de_tableau() {
+        // `display: block` sur un `<table>` fait défiler le tableau, et retire
+        // sa sémantique de l'arbre d'accessibilité : le lecteur d'écran cesse de
+        // proposer la navigation par ligne et par colonne. Le défilement
+        // appartient donc au conteneur, jamais au tableau.
+        assert!(
+            !STYLE.contains("table {\n  width: 100%; border-collapse: collapse; display: block"),
+            "le défilement ne se pose pas sur le <table> lui-même"
+        );
+        assert!(
+            STYLE.contains(".cadre-table"),
+            "un conteneur doit porter le défilement"
+        );
+
+        let html = construire(
+            &[item("security.a", Domain::Security, ItemValue::Bool(true))],
+            "poste",
+            "2026-08-02T12:00:00Z",
+        );
+        assert!(html.contains("role=\"group\""), "le conteneur s'annonce");
+        assert!(
+            html.contains("class=\"cadre-table\" role=\"group\" aria-labelledby"),
+            "et il porte une étiquette plutôt que d'être anonyme"
+        );
+        assert!(
+            html.contains("tabindex=\"0\""),
+            "un tableau qui déborde doit se parcourir au clavier"
+        );
     }
 
     #[test]
