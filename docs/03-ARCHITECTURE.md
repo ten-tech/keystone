@@ -108,7 +108,7 @@ mécanismes répondent à cela, et aucun ne dépend de l'intégrité de la machi
 | `ks-broker` | service privilégié | Windows visé ; compile aussi ailleurs, sans effet | élevé | 🔨 verbes énumérés + **six** barrières SEC-02, 6 tests — aucun verbe implémenté |
 | `ks-agent-linux` | agent satellite | Linux musl | aucun | 🔨 scan local, 0 test |
 
-**85 tests au total**, tous portables et tous exécutés — `cargo test --workspace`,
+**87 tests au total**, tous portables et tous exécutés — `cargo test --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings` et `cargo fmt --all --check`
 passent. Ce n'était pas le cas au premier commit : rien n'avait alors jamais été
 compilé, et les comptes annoncés étaient des déclarations.

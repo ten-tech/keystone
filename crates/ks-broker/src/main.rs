@@ -274,7 +274,7 @@ mod tests {
     /// fin du bloc est en outre ancrée sur une accolade **seule sur sa ligne**,
     /// ce qui est la forme qu'impose `rustfmt` à toute fermeture de bloc réelle.
     fn bloc_apres(source: &str, declaration: &str) -> String {
-        let epure = sans_commentaires(source);
+        let epure = sans_commentaires_ni_chaines(source);
         let debut = epure
             .match_indices(declaration)
             .map(|(i, _)| i)
@@ -284,16 +284,21 @@ mod tests {
             })
             .unwrap_or_else(|| panic!("déclaration « {declaration} » introuvable"));
 
+        // L'indentation de la déclaration est celle de sa fermeture : c'est la
+        // règle que `rustfmt` applique sans exception. Anchorer sur « } » seul
+        // ne valait que pour les éléments de premier niveau — appliqué à une
+        // fonction imbriquée dans `mod tests`, l'analyse courait jusqu'à
+        // l'accolade finale du module et rendait 141 lignes au lieu de dix.
+        let debut_ligne = epure[..debut].rfind('\n').map_or(0, |n| n + 1);
+        let fermeture = format!("{}}}", &epure[debut_ligne..debut]);
+
         let reste = &epure[debut..];
         let ouvrante = reste.find('{').expect("le bloc doit avoir une accolade");
         let corps = &reste[ouvrante + 1..];
 
-        // L'ancrage : la première ligne réduite à « } », donc la fermeture que
-        // `rustfmt` produit. Une accolade en fin de ligne de code ne referme
-        // jamais une déclaration d'énumération.
         let mut position = 0usize;
         for ligne in corps.split_inclusive('\n') {
-            if ligne.trim_end() == "}" {
+            if ligne.trim_end() == fermeture {
                 return corps[..position].to_owned();
             }
             position += ligne.len();
@@ -301,24 +306,138 @@ mod tests {
         panic!("bloc « {declaration} » non refermé");
     }
 
-    /// Remplace le contenu des commentaires par des espaces, en gardant les
-    /// positions et le découpage en lignes intacts.
+    /// Blanchit **tout ce que l'auteur du fichier peut écrire librement** :
+    /// commentaires de ligne, commentaires de bloc, chaînes ordinaires et
+    /// chaînes brutes. Les fins de ligne sont préservées, donc les numéros de
+    /// ligne et les messages d'assertion restent justes.
     ///
-    /// On ne les supprime pas, on les blanchit : cela préserve les décalages, donc
-    /// la lisibilité des messages d'assertion qui citent la ligne fautive.
-    fn sans_commentaires(source: &str) -> String {
-        source
-            .lines()
-            .map(|ligne| match ligne.find("//") {
-                Some(debut) => {
-                    let mut propre = ligne[..debut].to_owned();
-                    propre.push_str(&" ".repeat(ligne.len() - debut));
-                    propre
+    /// # Pourquoi cette fonction a coûté trois passes de revue
+    ///
+    /// Elle ne blanchissait d'abord rien, puis seulement les commentaires de
+    /// ligne. À chaque fois la même attaque revenait par une région voisine, et
+    /// la troisième est la plus instructive : un littéral fournissait **à la
+    /// fois** l'accolade qui tronquait le bloc analysé **et** la fausse
+    /// déclaration de variante qui rétablissait l'égalité avec la liste de
+    /// serde.
+    ///
+    /// ```text
+    /// #[doc = "
+    /// SetTuning,
+    /// }
+    /// "]
+    /// SetTuning { hive: String, key: String, value: String },
+    /// ```
+    ///
+    /// Six tests verts, `rustfmt` conforme — et `SetRegistryValue` restauré,
+    /// donc du code SYSTEM par IFEO. La leçon vaut plus que le correctif :
+    /// **ancrer une lecture sur une source dérivée du type ne suffit pas si les
+    /// deux listes comparées se fabriquent dans la même région que l'attaquant
+    /// contrôle.** Il faut d'abord lui retirer cette région.
+    ///
+    /// Reste la limite de fond, qu'il faut dire : ceci est un analyseur écrit à
+    /// la main, et il perdra un jour contre quelqu'un qui connaît mieux la
+    /// grammaire. La sortie structurelle — analyser réellement, avec `syn` en
+    /// dépendance de développement — mérite son ADR ; elle n'est pas gratuite,
+    /// une dépendance de développement s'exécutant tout de même sur les postes
+    /// et en intégration continue.
+    fn sans_commentaires_ni_chaines(source: &str) -> String {
+        let car: Vec<char> = source.chars().collect();
+        let mut sortie = String::with_capacity(source.len());
+        let mut i = 0;
+
+        /// Efface `n` caractères en préservant les fins de ligne rencontrées.
+        fn effacer(sortie: &mut String, car: &[char], i: &mut usize, n: usize) {
+            for _ in 0..n {
+                match car.get(*i) {
+                    Some('\n') => sortie.push('\n'),
+                    Some(_) => sortie.push(' '),
+                    None => return,
                 }
-                None => ligne.to_owned(),
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+                *i += 1;
+            }
+        }
+
+        while i < car.len() {
+            let c = car[i];
+
+            if c == '/' && car.get(i + 1) == Some(&'/') {
+                let mut fin = i;
+                while fin < car.len() && car[fin] != '\n' {
+                    fin += 1;
+                }
+                let combien = fin - i;
+                effacer(&mut sortie, &car, &mut i, combien);
+                continue;
+            }
+
+            if c == '/' && car.get(i + 1) == Some(&'*') {
+                effacer(&mut sortie, &car, &mut i, 2);
+                let mut profondeur = 1usize;
+                while i < car.len() && profondeur > 0 {
+                    if car[i] == '/' && car.get(i + 1) == Some(&'*') {
+                        profondeur += 1;
+                        effacer(&mut sortie, &car, &mut i, 2);
+                    } else if car[i] == '*' && car.get(i + 1) == Some(&'/') {
+                        profondeur -= 1;
+                        effacer(&mut sortie, &car, &mut i, 2);
+                    } else {
+                        effacer(&mut sortie, &car, &mut i, 1);
+                    }
+                }
+                continue;
+            }
+
+            // Chaîne brute : `r"…"`, `r#"…"#`, et ainsi de suite.
+            if c == 'r' {
+                let mut j = i + 1;
+                let mut diese = 0usize;
+                while car.get(j) == Some(&'#') {
+                    diese += 1;
+                    j += 1;
+                }
+                if car.get(j) == Some(&'"') {
+                    let combien = j - i + 1;
+                    effacer(&mut sortie, &car, &mut i, combien);
+                    while i < car.len() {
+                        if car[i] == '"' {
+                            let mut k = i + 1;
+                            let mut vus = 0usize;
+                            while vus < diese && car.get(k) == Some(&'#') {
+                                vus += 1;
+                                k += 1;
+                            }
+                            if vus == diese {
+                                let combien = k - i;
+                                effacer(&mut sortie, &car, &mut i, combien);
+                                break;
+                            }
+                        }
+                        effacer(&mut sortie, &car, &mut i, 1);
+                    }
+                    continue;
+                }
+            }
+
+            if c == '"' {
+                effacer(&mut sortie, &car, &mut i, 1);
+                while i < car.len() {
+                    if car[i] == '\\' {
+                        effacer(&mut sortie, &car, &mut i, 2);
+                        continue;
+                    }
+                    let ferme = car[i] == '"';
+                    effacer(&mut sortie, &car, &mut i, 1);
+                    if ferme {
+                        break;
+                    }
+                }
+                continue;
+            }
+
+            sortie.push(c);
+            i += 1;
+        }
+        sortie
     }
 
     /// Les identifiants de variantes déclarés dans `enum Verb`, lus dans le source.
@@ -366,11 +485,11 @@ mod tests {
 
         // 3. Chaque identifiant déclaré a son bras dans `nom_du_verbe`, sous son
         //    vrai nom. Un verbe ajouté ne peut donc être ni oublié, ni déguisé.
+        // Pas de seuil numérique ici : `la_lecture_textuelle_voit_tous_les_verbes`
+        // exige déjà l'égalité avec la liste que serde dérive du type, ce qui est
+        // strictement plus fort qu'un plancher. Le seuil précédent n'avait tenu
+        // que par accident, et un accident n'est pas une défense.
         let variantes = variantes_declarees(&bloc);
-        assert!(
-            variantes.len() >= 7,
-            "extraction des variantes défaillante : {variantes:?}"
-        );
         let arms = bloc_apres(SOURCE, "fn nom_du_verbe");
         for v in &variantes {
             assert!(
@@ -442,6 +561,13 @@ mod tests {
     ];
 
     /// « SetManagedSetting » → « set-managed-setting ».
+    ///
+    /// Doit reproduire **exactement** la règle de serde, puisque l'égalité du
+    /// test en dépend : `serde_derive/src/internals/case.rs` insère un séparateur
+    /// avant chaque majuscule sauf la première, puis remplace `_` par `-`. Donc
+    /// `SetACL` donne « set-a-c-l » des deux côtés, et `TakeV2Snapshot`
+    /// « take-v2-snapshot ». Si serde changeait cette règle, le test casserait
+    /// sur du code légitime — et personne ne saurait pourquoi sans ce commentaire.
     fn en_kebab(ident: &str) -> String {
         mots_de_pascal_case(ident).join("-")
     }
