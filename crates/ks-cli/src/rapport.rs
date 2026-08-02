@@ -158,7 +158,11 @@ pub fn construire(items: &[Item], machine: &str, horodatage: &str) -> String {
          <main>\n<p class=\"chapeau\">{total} items relevés, en lecture seule. \
          Aucune écriture système n'a eu lieu pendant ce scan.</p>\n\
          {avertissement}{corps}\
-         <footer><p>Rapport autonome : il ne contacte aucun serveur pour s'afficher.</p>\
+         <footer><p>Rapport autonome : il ne contacte aucun serveur pour s'afficher.</p>\n\
+         <p>Avant de le transmettre : il porte le nom de cette machine et la liste \
+         des logiciels installés avec leur version exacte. Aucun secret, aucun \
+         chemin d'exclusion — mais de quoi savoir ce qui est à jour et ce qui \
+         ne l'est pas.</p>\
          </footer>\n</main>\n</body>\n</html>\n",
         machine = echapper(machine),
         horodatage = echapper(horodatage),
