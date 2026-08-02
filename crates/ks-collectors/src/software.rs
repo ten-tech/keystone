@@ -10,38 +10,46 @@
 //! installé, et c'est exactement là que dorment les versions vulnérables depuis
 //! quatorze mois : rien ne les surveille, donc rien ne les signale.
 //!
-//! ## Ce que ce collecteur mesure AUJOURD'HUI, et ce qu'il ne mesure pas
+//! ## Trois catégories, et pourquoi elles ne se mélangent pas
 //!
-//! Il produit les applications **dont le gestionnaire n'a pas été identifié** —
-//! ce qui n'est pas la même chose que « gérées par aucun gestionnaire ». La
-//! première est une affirmation sur ce que ce code sait faire ; la seconde, une
-//! affirmation sur le monde. Tant que winget n'est pas interrogeable, seule la
-//! première est vraie, et le pourcentage n'est pas publié du tout.
+//! Mesuré sur la machine de référence : **150 applications**, dont
+//!
+//! * **10 attribuées** à un gestionnaire nommé, winget compris depuis que ses
+//!   bases de suivi se lisent (voir [`crate::winget`]) ;
+//! * **54 non attribuées** — le livrable. Des applications classiques
+//!   qu'aucun gestionnaire ne suit, et c'est là que dorment les versions
+//!   vulnérables depuis quatorze mois ;
+//! * **86 empaquetées** (MSIX), rangées à part. Un paquet MSIX a toujours un
+//!   canal de service, mais le registre ne dit pas lequel : le Store pour ceux
+//!   qui en viennent, l'éditeur pour ceux déposés à la main. Vérifié sur trois
+//!   paquets de signatures différentes, aucune valeur ne les distingue.
+//!
+//! La troisième catégorie existe parce que la verser dans la deuxième ferait
+//! passer l'indicateur de 54 à 140 sans qu'un seul logiciel de plus soit à
+//! l'abandon. Un faux positif sur un indicateur de sécurité coûte sa crédibilité
+//! à l'outil entier — et le principe P6 interdit l'indicateur qu'on ne peut pas
+//! déplier en ses composantes exactes.
 //!
 //! ## Lecture seule, sans exception
 //!
-//! Aucune écriture, aucun processus lancé, aucun effet de bord. On lit trois vues
-//! du registre et quelques répertoires de gestionnaires. Ni `winget list` ni
-//! `Get-AppxPackage` ne sont invoqués : lancer un processus pour observer coûte
-//! des secondes, et un collecteur ne doit pas peser sur la machine (NF-01).
+//! Aucune écriture, aucun processus lancé, aucun effet de bord. On lit quatre
+//! vues du registre, quelques répertoires de gestionnaires, et les bases de suivi
+//! de winget en mode strictement lecture. Ni `winget list` ni `Get-AppxPackage`
+//! ne sont invoqués : lancer un processus pour observer coûte des secondes, et un
+//! collecteur ne doit pas peser sur la machine (NF-01).
 //!
-//! ## Ce qui n'est pas encore fait, et pourquoi
+//! ## Ce qui n'est pas encore fait
 //!
-//! * **winget** — l'attribution fine exige de lire sa base `StoreEdgeFD`, dont le
-//!   format n'est pas contractuel. On détecte sa *présence*, pas encore quelle
-//!   application il gère.
-//! * **MSIX / Store** — lisible via le dépôt `AppModel` du registre, mais mêlé à
-//!   des centaines de paquets système ; le tri demande une liste de référence.
+//! * **Canal de service des paquets MSIX** — distinguer Store et dépôt manuel
+//!   exige une source hors registre.
+//! * **Applications à mise à jour autonome** — un navigateur non attribué se met
+//!   pourtant à jour seul. « Non attribuée » ne se lit donc pas « jamais mise à
+//!   jour ». La distinction est une tâche de la Phase 1.
 //! * **Dernier lancement (SRUM)** — base ESE, analyse lourde. Prévu en 0.3 bis.
 //!
-//! Ces trois manques sont *déclarés*, pas silencieux, et le modèle les porte :
-//! `inventory.software.attribution` vaut « partielle » tant qu'un gestionnaire
-//! détecté ne sait pas être interrogé, et `unqueryable_managers` le nomme. Le
-//! décompte des non attribuées est alors un **majorant**, pas une mesure.
-//!
-//! C'est le seul traitement honnête : sur une machine où winget est présent, tout
-//! afficher comme orphelin donnerait 100 %, et un indicateur qu'on ne peut pas
-//! expliquer est une décoration (principe P6).
+//! Ces manques sont *déclarés*, pas silencieux : `inventory.software.attribution`
+//! vaut « partielle » dès qu'un gestionnaire détecté cesse d'être interrogeable,
+//! `unqueryable_managers` le nomme, et le pourcentage se tait alors entièrement.
 
 use chrono::Utc;
 use ks_core::{Domain, Item, ItemValue, Provenance};
@@ -59,13 +67,26 @@ pub enum Gestionnaire {
     VisualStudio,
     /// JetBrains Toolbox.
     JetBrainsToolbox,
+    /// Paquet MSIX dont le canal de service n'est **pas** identifiable.
+    ///
+    /// Un paquet empaqueté a toujours un canal : le Store le met à jour s'il en
+    /// vient, son éditeur s'en charge s'il a été déposé à la main. Le registre ne
+    /// dit pas lequel — vérifié sur trois paquets de signatures différentes,
+    /// aucune valeur ne les distingue.
+    ///
+    /// D'où une catégorie à part, et non un rangement parmi les orphelines. Les y
+    /// verser gonflerait de 86 unités, sur la machine de référence, un indicateur
+    /// que l'utilisateur lirait « personne ne met à jour ces applications » —
+    /// alors que le Store en met à jour la plupart. Un faux positif sur un
+    /// indicateur de sécurité coûte sa crédibilité à l'outil entier.
+    Msix,
     /// **Non attribué** — et surtout pas « aucun ».
     ///
     /// La nuance décide de la valeur du livrable. « Aucun gestionnaire ne la met à
     /// jour » est une affirmation sur le monde ; « je n'ai pas su identifier son
     /// gestionnaire » est une affirmation sur ce que ce collecteur sait faire.
-    /// Tant que l'attribution winget n'existe pas, seule la seconde est vraie —
-    /// et la première rassurerait à tort dans un sens comme dans l'autre.
+    /// L'attribution winget ayant rejoint le code, la première est enfin vraie
+    /// pour les applications classiques — tant que winget reste interrogeable.
     NonAttribue,
 }
 
@@ -79,14 +100,18 @@ impl Gestionnaire {
             Self::Chocolatey => "Chocolatey",
             Self::VisualStudio => "Visual Studio Installer",
             Self::JetBrainsToolbox => "JetBrains Toolbox",
+            Self::Msix => "paquet MSIX, canal non identifié",
             Self::NonAttribue => "non attribué",
         }
     }
 
     /// L'application a-t-elle un gestionnaire identifié ?
+    ///
+    /// `Msix` répond non : savoir qu'une application est empaquetée ne dit pas
+    /// qui la met à jour. Elle est simplement comptée à part des orphelines.
     #[must_use]
     pub const fn est_attribue(self) -> bool {
-        !matches!(self, Self::NonAttribue)
+        !matches!(self, Self::NonAttribue | Self::Msix)
     }
 }
 
@@ -146,12 +171,26 @@ pub struct Inventaire {
 }
 
 impl Inventaire {
-    /// Les applications dont le gestionnaire n'a pas pu être identifié.
+    /// **Le livrable.** Les applications classiques qu'aucun gestionnaire ne suit.
+    ///
+    /// Les paquets MSIX en sont exclus délibérément : ils ont tous un canal de
+    /// service, même quand on ne sait pas lequel. Les compter ici ferait passer
+    /// l'indicateur de 54 à 140 sur la machine de référence, sans qu'un seul
+    /// logiciel de plus soit réellement à l'abandon.
     #[must_use]
     pub fn non_attribuees(&self) -> Vec<&Application> {
         self.applications
             .iter()
-            .filter(|a| !a.gestionnaire.est_attribue())
+            .filter(|a| a.gestionnaire == Gestionnaire::NonAttribue)
+            .collect()
+    }
+
+    /// Les paquets MSIX dont le canal de service reste à identifier.
+    #[must_use]
+    pub fn empaquetees(&self) -> Vec<&Application> {
+        self.applications
+            .iter()
+            .filter(|a| a.gestionnaire == Gestionnaire::Msix)
             .collect()
     }
 
@@ -245,11 +284,21 @@ impl SoftwareCollector {
         item(
             "inventory.software.unattributed".to_owned(),
             ItemValue::Int(i64::try_from(sans_gestionnaire.len()).unwrap_or(-1)),
-            "Applications qu'aucun gestionnaire de paquets ne suit. Deux réserves : \
-             tant que l'attribution est incomplète, c'est un majorant ; et certaines \
-             se mettent à jour seules (navigateurs, éditeurs), donc « non attribuée » \
-             ne se lit pas « jamais mise à jour ». Distinguer les deux est une tâche \
-             de la Phase 1.",
+            "Applications classiques qu'aucun gestionnaire de paquets ne suit. Deux \
+             réserves : tant que l'attribution est incomplète, c'est un majorant ; \
+             et certaines se mettent à jour seules (navigateurs, éditeurs), donc \
+             « non attribuée » ne se lit pas « jamais mise à jour ». Distinguer les \
+             deux est une tâche de la Phase 1.",
+            "Aucun — cet item est un constat.",
+        );
+
+        item(
+            "inventory.software.packaged".to_owned(),
+            ItemValue::Int(i64::try_from(inv.empaquetees().len()).unwrap_or(-1)),
+            "Paquets MSIX dont le canal de service n'est pas identifiable : le Store \
+             met à jour ceux qui en viennent, l'éditeur ceux qui ont été déposés à la \
+             main, et le registre ne les distingue pas. Comptés à part des non \
+             attribuées, parce qu'ils ne sont pas à l'abandon pour autant.",
             "Aucun — cet item est un constat.",
         );
 
@@ -409,6 +458,99 @@ mod windows_impl {
         trouvees
     }
 
+    /// Le dépôt où Windows déclare ses paquets MSIX.
+    ///
+    /// Sans lui, l'inventaire n'était pas seulement mal attribué : il était
+    /// **aveugle**. PowerShell 7 l'a révélé — installé par winget, présent dans
+    /// son suivi, et pourtant introuvable dans les trois vues `Uninstall`, parce
+    /// qu'un paquet MSIX n'en pose aucune. Mesuré sur la machine de référence :
+    /// 63 applications au registre, 87 en MSIX.
+    const DEPOT_MSIX: &str = r"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages";
+
+    /// Découpe un identifiant de paquet `Nom_Version_Arch__Éditeur`.
+    ///
+    /// Renvoie le nom, la version, et le **nom de famille** `Nom_Éditeur` — la
+    /// forme sous laquelle winget range ses paquets MSIX, donc la clé de
+    /// rapprochement. Le séparateur est sûr : la spécification MSIX interdit le
+    /// tiret bas dans un nom de paquet.
+    fn decouper_identifiant(id: &str) -> Option<(String, String, String)> {
+        let morceaux: Vec<&str> = id.split('_').collect();
+        // Nom, version, architecture, chaîne vide, éditeur : cinq au minimum.
+        let (nom, version, editeur) = (
+            *morceaux.first()?,
+            *morceaux.get(1)?,
+            *morceaux.last().filter(|s| !s.is_empty())?,
+        );
+        if nom.is_empty() || morceaux.len() < 5 {
+            return None;
+        }
+        Some((
+            nom.to_owned(),
+            version.to_owned(),
+            format!("{nom}_{editeur}"),
+        ))
+    }
+
+    /// Les applications empaquetées, hors composants livrés avec Windows.
+    ///
+    /// Trois exclusions, chacune mesurée et défendable — 412 clés en donnent 87 :
+    ///
+    /// * `Framework = 1` : une bibliothèque partagée n'est pas une application,
+    ///   personne ne l'a installée pour elle-même ;
+    /// * un identifiant contenant `_split.` : un paquet de langue ou de ressources,
+    ///   pas un produit ;
+    /// * une racine hors de `WindowsApps` : `C:\Windows\SystemApps` abrite les
+    ///   274 composants livrés avec le système, que compter comme « installés »
+    ///   noierait le signal sous le bruit.
+    ///
+    /// La dernière exclusion a un coût assumé : elle écarte aussi les rares
+    /// paquets déployés hors de ce dossier. Mieux vaut une frontière explicable
+    /// qu'une liste exhaustive et illisible (principe P6).
+    fn applications_msix() -> Vec<Application> {
+        let Ok(depot) = CURRENT_USER.open(DEPOT_MSIX) else {
+            return Vec::new();
+        };
+        let Ok(paquets) = depot.keys() else {
+            return Vec::new();
+        };
+
+        let mut trouvees = Vec::new();
+        for identifiant in paquets {
+            let Ok(clef) = depot.open(&identifiant) else {
+                continue;
+            };
+            if clef.get_u32("Framework").unwrap_or(0) == 1 || identifiant.contains("_split.") {
+                continue;
+            }
+            let racine = lire_texte(&clef, "PackageRootFolder").unwrap_or_default();
+            if !racine.to_lowercase().contains(r"\windowsapps\") {
+                continue;
+            }
+            let Some((nom_paquet, version, famille)) = decouper_identifiant(&identifiant) else {
+                continue;
+            };
+
+            // Plus de la moitié des `DisplayName` sont des références
+            // `ms-resource:` que seul le chargeur de ressources sait résoudre.
+            // Les afficher telles quelles donnerait « ms-resource:/Resources/
+            // AppName » à l'écran : un item que l'utilisateur ne peut pas
+            // comprendre, donc inaffichable (P6). On retombe alors sur le nom du
+            // paquet, moins joli mais lisible.
+            let nom = lire_texte(&clef, "DisplayName")
+                .filter(|n| !n.starts_with("ms-resource"))
+                .unwrap_or(nom_paquet);
+
+            trouvees.push(Application {
+                nom,
+                version: Some(version),
+                editeur: None,
+                gestionnaire: Gestionnaire::Msix,
+                clef_source: Some(famille),
+            });
+        }
+        trouvees
+    }
+
     /// Les répertoires d'un gestionnaire, s'il est installé.
     ///
     /// On lit le système de fichiers plutôt que d'invoquer les commandes des
@@ -475,12 +617,17 @@ mod windows_impl {
     fn attribuer_winget(applications: &mut [Application]) -> bool {
         let suivi = crate::winget::lire_suivi();
         for app in applications.iter_mut() {
-            if !app.gestionnaire.est_attribue()
-                && app
-                    .clef_source
-                    .as_deref()
-                    .is_some_and(|c| suivi.revendique_code(c))
-            {
+            if app.gestionnaire.est_attribue() {
+                continue;
+            }
+            // Deux identités, un seul champ : un code produit pour une entrée du
+            // registre, un nom de famille pour un paquet MSIX. winget range les
+            // deux, dans deux tables distinctes.
+            let revendique = app
+                .clef_source
+                .as_deref()
+                .is_some_and(|c| suivi.revendique_code(c) || suivi.revendique_famille(c));
+            if revendique {
                 app.gestionnaire = Gestionnaire::Winget;
             }
         }
@@ -489,6 +636,7 @@ mod windows_impl {
 
     pub(super) fn inventorier() -> Inventaire {
         let mut applications = applications_du_registre();
+        applications.extend(applications_msix());
 
         // Index des paquets revendiqués par chaque gestionnaire, par clef de
         // rapprochement. `BTreeMap` plutôt que `HashMap` : l'ordre stable rend les
@@ -622,6 +770,35 @@ mod tests {
             None,
             "un pourcentage calculé sur une attribution incomplète ment"
         );
+    }
+
+    #[test]
+    fn un_paquet_msix_ne_grossit_pas_le_compte_des_orphelines() {
+        // L'invariant qui empêche l'indicateur de mentir. Un paquet MSIX a
+        // toujours un canal de service — le Store, ou son éditeur — même quand le
+        // registre ne dit pas lequel. Le verser parmi les orphelines ferait passer
+        // le compte de 54 à 140 sur la machine de référence, sans qu'un seul
+        // logiciel de plus soit réellement à l'abandon.
+        let inv = Inventaire {
+            applications: vec![
+                app("Vieux Logiciel", Gestionnaire::NonAttribue),
+                app("WhatsApp", Gestionnaire::Msix),
+                app("Claude", Gestionnaire::Msix),
+                app("Git", Gestionnaire::Winget),
+            ],
+            gestionnaires: vec![Gestionnaire::Winget],
+            non_interrogeables: Vec::new(),
+        };
+
+        assert_eq!(inv.non_attribuees().len(), 1, "seul le logiciel classique");
+        assert_eq!(inv.empaquetees().len(), 2);
+        assert!(
+            !Gestionnaire::Msix.est_attribue(),
+            "empaqueté ne veut pas dire attribué : on ignore qui le met à jour"
+        );
+        // 1 orpheline sur 4 applications : le dénominateur reste le total, sinon
+        // deux items du même écran se compareraient sur des bases différentes.
+        assert_eq!(inv.part_non_attribuees(), Some(25));
     }
 
     #[test]

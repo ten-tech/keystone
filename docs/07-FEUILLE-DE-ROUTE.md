@@ -51,27 +51,31 @@ confirme qu'aucun octet n'a été modifié.
 - [x] Résolution vers une clef de rapprochement canonique
 - [x] Détection de Scoop, Chocolatey, JetBrains Toolbox, VS Installer, winget
 - [x] Attribution pour Scoop, Chocolatey, JetBrains Toolbox, VS Installer
-- [ ] **Attribution winget** — bloquant pour le livrable
-- [ ] MSIX et Store, via le dépôt `AppModel` du registre
+- [x] **Attribution winget** — ses bases de suivi se lisent, une par source
+- [x] MSIX et Store, via le dépôt `AppModel` du registre
+- [ ] **Canal de service d'un paquet MSIX** — Store ou dépôt manuel, indiscernables au registre
+- [ ] Distinguer les applications à mise à jour autonome des vraies orphelines
 - [ ] Détection des applications installées et jamais lancées (données d'usage SRUM)
 
-> **État réel, mesuré sur un poste :** 63 applications trouvées, **attribution
-> partielle**. winget est détecté mais pas interrogeable — son inventaire vit dans
-> une base SQLite (`StoreEdgeFD`) au format non contractuel — donc les applications
-> qu'il gère remontent aujourd'hui comme non attribuées.
+> **État réel, mesuré sur un poste :** 150 applications, dont 10 attribuées,
+> **54 non attribuées** et 86 empaquetées. Attribution « complète ».
 >
-> Le modèle le dit plutôt que de le taire : `inventory.software.attribution` vaut
-> « partielle », et `unqueryable_managers` nomme le coupable. Le décompte des non
-> attribuées est un **majorant**, pas une mesure — et le pourcentage n'est pas
-> publié du tout tant que c'est le cas. Un « 100 % d'orphelines » qui signifie
-> « on n'a pas su regarder » serait exactement l'indicateur non explicable que le
-> principe P6 interdit.
+> Deux corrections successives ont amené ce chiffre. La première : winget est
+> désormais interrogeable. Ses bases de suivi rangent le code produit, qui est
+> exactement le nom de la clé de désinstallation — un rapprochement sûr là où le
+> nom échoue, comme `readyfor` qui s'affiche « Smart Connect » au registre et
+> « Ready For Assistant » chez winget.
 >
-> **Conséquence pour le critère de sortie de la Phase 0 :** il exige « la liste des
-> applications gérées par aucun gestionnaire ». Tant que l'attribution est
-> partielle, cette liste n'existe pas — seule celle des non attribuées existe.
-> L'attribution winget est donc sur le chemin critique, et rusqlite (prévu en 0.5)
-> pourrait être avancé pour lire sa base.
+> La seconde, plus large : l'inventaire ne voyait **que** le registre. PowerShell 7
+> l'a révélé, installé par winget et pourtant introuvable dans les trois vues
+> `Uninstall`, parce qu'un paquet MSIX n'en pose aucune. Il manquait 87
+> applications sur 150.
+>
+> Ces 86 paquets restants sont comptés **à part**, et non parmi les orphelines. Un
+> paquet MSIX a toujours un canal de service ; le registre ne dit pas lequel. Les
+> verser dans les non attribuées ferait passer l'indicateur de 54 à 140 sans qu'un
+> seul logiciel de plus soit à l'abandon — un faux positif qui coûterait sa
+> crédibilité à l'outil entier.
 
 > C'est le livrable le plus sous-estimé du produit. Sur un poste réel, la liste des
 > orphelins représente typiquement 30 % des applications installées — et c'est
