@@ -25,6 +25,59 @@ param()
 $ErrorActionPreference = 'Continue'
 $script:Manquants = @()
 
+# ─── Rendu ─────────────────────────────────────────────────────────────────
+#
+# Une seule fonction pose une ligne, et toutes les colonnes en découlent.
+# Auparavant chaque appel refaisait l'alignement à la main : « [ok] » était
+# précédé de deux espaces, « [opt] » d'aucun, et la colonne des valeurs variait
+# d'un bloc à l'autre. Un alignement recopié dérive toujours.
+
+$script:Marge     = 2   # espaces avant l'état
+$script:ColEtat   = 7   # « [ok]   », « [opt]  », « [abs]  »
+$script:ColNom    = 24
+$script:ColValeur = $script:Marge + $script:ColEtat + $script:ColNom
+
+function Write-Section {
+    param([Parameter(Mandatory)] [string] $Titre)
+    Write-Host ''
+    Write-Host ((' ' * $script:Marge) + $Titre) -ForegroundColor White
+}
+
+function Write-Ligne {
+    param(
+        [Parameter(Mandatory)] [ValidateSet('ok', 'opt', 'abs')] [string] $Etat,
+        [Parameter(Mandatory)] [string] $Nom,
+        [string] $Valeur = ''
+    )
+    switch ($Etat) {
+        'ok'  { $marque = '[ok]'; $couleur = 'Green'  }
+        'opt' { $marque = '[opt]'; $couleur = 'Yellow' }
+        'abs' { $marque = '[abs]'; $couleur = 'Red'    }
+    }
+    $prefixe = (' ' * $script:Marge) + $marque.PadRight($script:ColEtat)
+    Write-Host ($prefixe + $Nom.PadRight($script:ColNom)) -NoNewline -ForegroundColor $couleur
+    Write-Host $Valeur -ForegroundColor DarkGray
+}
+
+# Ligne de continuation, alignée sur la colonne des valeurs.
+function Write-Note {
+    param([Parameter(Mandatory)] [string] $Texte)
+    Write-Host ((' ' * $script:ColValeur) + $Texte) -ForegroundColor DarkGray
+}
+
+# « rustc 1.97.1 (…) » → « 1.97.1 (…) », « git version 2.55 » → « 2.55 ».
+# Le nom occupe déjà sa colonne : le répéter dans la valeur est du bruit.
+function Format-Version {
+    param([string] $Brut, [string] $Commande, [string] $Nom)
+    $v = (($Brut -replace '\s+', ' ')).Trim()
+    foreach ($prefixe in @($Commande, ($Nom -split ' ')[0], 'version')) {
+        if ($prefixe -and $v.StartsWith($prefixe + ' ', 'OrdinalIgnoreCase')) {
+            $v = $v.Substring($prefixe.Length + 1).Trim()
+        }
+    }
+    return $v
+}
+
 function Test-Outil {
     param(
         [Parameter(Mandatory)] [string] $Nom,
@@ -34,29 +87,30 @@ function Test-Outil {
         [switch] $Optionnel
     )
 
-    $exe = Get-Command $Commande -ErrorAction SilentlyContinue
-    if ($exe) {
-        $version = & $Commande $VersionArg 2>&1 | Select-Object -First 1
-        Write-Host ('  [ok]   ' + $Nom.PadRight(24)) -NoNewline -ForegroundColor Green
-        Write-Host $version -ForegroundColor DarkGray
+    if (Get-Command $Commande -ErrorAction SilentlyContinue) {
+        $brut = & $Commande $VersionArg 2>&1 | Select-Object -First 1
+        Write-Ligne -Etat 'ok' -Nom $Nom -Valeur (Format-Version -Brut $brut -Commande $Commande -Nom $Nom)
         return $true
     }
 
-    $etiquette = if ($Optionnel) { '[opt]  ' } else { '[abs]  ' }
-    $couleur   = if ($Optionnel) { 'Yellow' } else { 'Red' }
-    Write-Host ($etiquette + $Nom.PadRight(24)) -NoNewline -ForegroundColor $couleur
-    Write-Host $Installation -ForegroundColor DarkGray
+    Write-Ligne -Etat $(if ($Optionnel) { 'opt' } else { 'abs' }) -Nom $Nom -Valeur $Installation
     if (-not $Optionnel) { $script:Manquants += $Nom }
     return $false
 }
 
+# Largeur de la règle : la colonne des valeurs plus de quoi loger la plus longue
+# d'entre elles. Une seule constante, pour que le trait du bas et celui du haut
+# ne divergent jamais.
+$script:Largeur = $script:ColValeur + 46
+
 Write-Host ''
-Write-Host '  KEYSTONE — vérification de l''environnement de développement' -ForegroundColor Cyan
-Write-Host '  Ce script ne modifie rien.' -ForegroundColor DarkGray
-Write-Host ''
+Write-Host ((' ' * $script:Marge) + 'KEYSTONE') -NoNewline -ForegroundColor Cyan
+Write-Host ' · vérification de l''environnement de développement' -ForegroundColor Gray
+Write-Host ((' ' * $script:Marge) + 'Ce script ne modifie rien : il constate et rapporte.') -ForegroundColor DarkGray
+Write-Host ((' ' * $script:Marge) + ('─' * $script:Largeur)) -ForegroundColor DarkGray
 
 # ─── Chaîne Rust ───────────────────────────────────────────────────────────
-Write-Host '  Chaîne Rust' -ForegroundColor White
+Write-Section 'Chaîne Rust'
 Test-Outil -Nom 'rustc'   -Commande 'rustc'   -Installation 'winget install Rustlang.Rustup' | Out-Null
 Test-Outil -Nom 'cargo'   -Commande 'cargo'   -Installation 'winget install Rustlang.Rustup' | Out-Null
 Test-Outil -Nom 'rustup'  -Commande 'rustup'  -Installation 'winget install Rustlang.Rustup' | Out-Null
@@ -65,19 +119,17 @@ if (Get-Command rustup -ErrorAction SilentlyContinue) {
     $cibles = rustup target list --installed
     foreach ($cible in @('x86_64-pc-windows-msvc', 'x86_64-unknown-linux-musl')) {
         if ($cibles -contains $cible) {
-            Write-Host ('  [ok]   cible ' + $cible) -ForegroundColor Green
+            Write-Ligne -Etat 'ok' -Nom 'cible' -Valeur $cible
         } else {
-            Write-Host ('  [abs]  cible ' + $cible.PadRight(30)) -NoNewline -ForegroundColor Red
-            Write-Host ('rustup target add ' + $cible) -ForegroundColor DarkGray
+            Write-Ligne -Etat 'abs' -Nom 'cible' -Valeur ('rustup target add ' + $cible)
             $script:Manquants += ('cible ' + $cible)
         }
     }
     foreach ($c in @('rustfmt', 'clippy')) {
         if ((rustup component list --installed) -match $c) {
-            Write-Host ('  [ok]   composant ' + $c) -ForegroundColor Green
+            Write-Ligne -Etat 'ok' -Nom 'composant' -Valeur $c
         } else {
-            Write-Host ('  [abs]  composant ' + $c.PadRight(26)) -NoNewline -ForegroundColor Red
-            Write-Host ('rustup component add ' + $c) -ForegroundColor DarkGray
+            Write-Ligne -Etat 'abs' -Nom 'composant' -Valeur ('rustup component add ' + $c)
             $script:Manquants += ('composant ' + $c)
         }
     }
@@ -86,57 +138,50 @@ if (Get-Command rustup -ErrorAction SilentlyContinue) {
 # ─── Linker MSVC ───────────────────────────────────────────────────────────
 # La cible du produit est -msvc, pas -gnu : le broker tape dans WMI, DPAPI-NG,
 # WFP et l'API TPM. Un binaire -gnu n'est pas le binaire qu'on livre.
-Write-Host ''
-Write-Host '  Outils de compilation Microsoft' -ForegroundColor White
+Write-Section 'Outils de compilation Microsoft'
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (Test-Path $vswhere) {
     $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion 2>$null
     if ($vs) {
-        Write-Host ('  [ok]   outils C++ MSVC        ' + $vs) -ForegroundColor Green
+        Write-Ligne -Etat 'ok' -Nom 'outils C++ MSVC' -Valeur $vs
     } else {
-        Write-Host '  [abs]  outils C++ MSVC        ' -NoNewline -ForegroundColor Red
-        Write-Host 'installeur VS → « Développement Desktop en C++ » + SDK Windows' -ForegroundColor DarkGray
+        Write-Ligne -Etat 'abs' -Nom 'outils C++ MSVC' -Valeur 'installeur VS → « Développement Desktop en C++ » + SDK Windows'
         $script:Manquants += 'outils C++ MSVC'
     }
 } else {
-    Write-Host '  [abs]  Visual Studio Build Tools' -NoNewline -ForegroundColor Red
-    Write-Host '  winget install Microsoft.VisualStudio.2022.BuildTools' -ForegroundColor DarkGray
+    Write-Ligne -Etat 'abs' -Nom 'Visual Studio Build Tools' -Valeur 'winget install Microsoft.VisualStudio.2022.BuildTools'
     $script:Manquants += 'Visual Studio Build Tools'
 }
 
 # ─── Cross-compilation de l'agent Linux ────────────────────────────────────
-Write-Host ''
-Write-Host '  Cross-compilation de l''agent Linux' -ForegroundColor White
+Write-Section 'Cross-compilation de l''agent Linux'
 $zb = Test-Outil -Nom 'cargo-zigbuild' -Commande 'cargo-zigbuild' -Installation 'cargo install cargo-zigbuild' -Optionnel
 $zig = Test-Outil -Nom 'zig' -Commande 'zig' -Installation 'winget install zig.zig' -Optionnel -VersionArg 'version'
 if (-not ($zb -and $zig)) {
-    Write-Host '         Alternative si Docker est déjà installé : cargo install cross' -ForegroundColor DarkGray
+    Write-Note 'Alternative si Docker est déjà installé : cargo install cross'
 }
 
 # ─── Le reste ──────────────────────────────────────────────────────────────
-Write-Host ''
-Write-Host '  Outils du projet' -ForegroundColor White
+Write-Section 'Outils du projet'
 Test-Outil -Nom 'git'         -Commande 'git'         -Installation 'winget install Git.Git' | Out-Null
 Test-Outil -Nom 'cargo-audit' -Commande 'cargo-audit' -Installation 'cargo install cargo-audit' -Optionnel | Out-Null
 Test-Outil -Nom 'cargo-deny'  -Commande 'cargo-deny'  -Installation 'cargo install cargo-deny'  -Optionnel | Out-Null
 
 # ─── Le shell lui-même ─────────────────────────────────────────────────────
-Write-Host ''
-Write-Host '  Shell' -ForegroundColor White
+Write-Section 'Shell'
 # `PSEdition` vaut « Desktop » pour Windows PowerShell 5.1 et « Core » pour
 # PowerShell 7 : les nommer pareil serait faux, ce sont deux produits distincts.
 $nomShell = if ($PSVersionTable.PSEdition -eq 'Core') { 'PowerShell' } else { 'Windows PowerShell' }
-Write-Host ("  [ok]   {0,-22}{1} — suffit pour tous les scripts du dépôt" -f $nomShell, $PSVersionTable.PSVersion) -ForegroundColor Green
+Write-Ligne -Etat 'ok' -Nom $nomShell -Valeur ("{0} — suffit pour tous les scripts du dépôt" -f $PSVersionTable.PSVersion)
 
 if ($PSVersionTable.PSEdition -ne 'Core') {
     Test-Outil -Nom 'PowerShell 7' -Commande 'pwsh' `
         -Installation 'winget install Microsoft.PowerShell' -Optionnel | Out-Null
-    Write-Host '         Recommandé pour le confort interactif, jamais requis par les scripts.' -ForegroundColor DarkGray
+    Write-Note 'Recommandé pour le confort interactif, jamais requis par les scripts.'
 }
 
 # ─── Contexte de la machine ────────────────────────────────────────────────
-Write-Host ''
-Write-Host '  Contexte de la machine' -ForegroundColor White
+Write-Section 'Contexte de la machine'
 
 # `Get-WindowsOptionalFeature -Online` exige l'élévation. Sans elle, l'appel
 # échoue et l'ancien code concluait « Hyper-V absent » — un faux négatif sur le
@@ -158,13 +203,11 @@ if ($eleve) {
 $outilsHv = [bool](Get-Command Get-VM -ErrorAction SilentlyContinue)
 
 if (($hv -and $hv.State -eq 'Enabled') -or (-not $eleve -and $outilsHv)) {
-    Write-Host '  [ok]   Hyper-V                 activé — la VM de labo est possible' -ForegroundColor Green
+    Write-Ligne -Etat 'ok' -Nom 'Hyper-V' -Valeur 'activé — la VM de labo est possible'
 } elseif (-not $eleve) {
-    Write-Host '  [opt]  Hyper-V                 ' -NoNewline -ForegroundColor Yellow
-    Write-Host 'outils de gestion absents — requis seulement à partir de la Phase 2' -ForegroundColor DarkGray
+    Write-Ligne -Etat 'opt' -Nom 'Hyper-V' -Valeur 'outils de gestion absents — requis à partir de la Phase 2'
 } else {
-    Write-Host '  [opt]  Hyper-V                 ' -NoNewline -ForegroundColor Yellow
-    Write-Host 'requis à partir de la Phase 2 (voir docs/06-VM-DE-LABO.md)' -ForegroundColor DarkGray
+    Write-Ligne -Etat 'opt' -Nom 'Hyper-V' -Valeur 'requis à partir de la Phase 2 (voir docs/06-VM-DE-LABO.md)'
 }
 
 if (Get-Command wsl -ErrorAction SilentlyContinue) {
@@ -181,35 +224,42 @@ if (Get-Command wsl -ErrorAction SilentlyContinue) {
         [Console]::OutputEncoding = $encodagePrecedent
     }
     if (-not $distros) { $distros = 'aucune distribution installée' }
-    Write-Host ('  [ok]   WSL                     ' + $distros) -ForegroundColor Green
+    Write-Ligne -Etat 'ok' -Nom 'WSL' -Valeur $distros
 } else {
-    Write-Host '  [opt]  WSL                     ' -NoNewline -ForegroundColor Yellow
-    Write-Host 'nécessaire pour tester ks-agent' -ForegroundColor DarkGray
+    Write-Ligne -Etat 'opt' -Nom 'WSL' -Valeur 'nécessaire pour tester ks-agent'
 }
 
 # Chemins longs : Rust + Windows + arborescence profonde = échecs obscurs.
 $lp = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name LongPathsEnabled -ErrorAction SilentlyContinue
 if ($lp.LongPathsEnabled -eq 1) {
-    Write-Host '  [ok]   chemins longs           activés' -ForegroundColor Green
+    Write-Ligne -Etat 'ok' -Nom 'chemins longs' -Valeur 'activés'
 } else {
-    Write-Host '  [opt]  chemins longs           ' -NoNewline -ForegroundColor Yellow
-    Write-Host 'voir docs/05-ENVIRONNEMENT-DE-DEV.md § Pièges' -ForegroundColor DarkGray
+    Write-Ligne -Etat 'opt' -Nom 'chemins longs' -Valeur 'voir docs/05-ENVIRONNEMENT-DE-DEV.md § Pièges'
 }
 
 # ─── Verdict ───────────────────────────────────────────────────────────────
+# Un écran calme est la récompense : quand tout va bien, on le dit en une ligne
+# et on s'arrête. Le détail ne s'impose que lorsqu'il manque quelque chose.
+$marge = ' ' * $script:Marge
 Write-Host ''
+Write-Host ($marge + ('─' * $script:Largeur)) -ForegroundColor DarkGray
+
 if ($script:Manquants.Count -eq 0) {
-    Write-Host '  Environnement complet.' -ForegroundColor Green
+    Write-Host ($marge + 'Environnement complet.') -ForegroundColor Green
     Write-Host ''
-    Write-Host '  Prochaine étape — la Phase 0 est en LECTURE SEULE, aucun risque :' -ForegroundColor White
-    Write-Host '    cargo test --workspace' -ForegroundColor Cyan
-    Write-Host '    cargo run -p ks-cli -- scan' -ForegroundColor Cyan
-    Write-Host '    cargo run -p ks-cli -- status' -ForegroundColor Cyan
+    Write-Host ($marge + 'Prochaine étape — la Phase 0 est en LECTURE SEULE, aucun risque :') -ForegroundColor Gray
+    foreach ($cmd in @('cargo test --workspace',
+                       'cargo run -p ks-cli -- scan',
+                       'cargo run -p ks-cli -- status')) {
+        Write-Host ($marge + '  ' + $cmd) -ForegroundColor Cyan
+    }
 } else {
-    Write-Host ('  ' + $script:Manquants.Count + ' élément(s) requis manquant(s) :') -ForegroundColor Red
-    $script:Manquants | ForEach-Object { Write-Host ('    · ' + $_) -ForegroundColor Red }
+    $n = $script:Manquants.Count
+    $mot = if ($n -gt 1) { 'éléments requis manquants' } else { 'élément requis manquant' }
+    Write-Host ($marge + "$n $mot :") -ForegroundColor Red
+    $script:Manquants | ForEach-Object { Write-Host ($marge + '  · ' + $_) -ForegroundColor Red }
     Write-Host ''
-    Write-Host '  Les commandes d''installation sont indiquées ci-dessus.' -ForegroundColor DarkGray
-    Write-Host '  Détail complet : docs/05-ENVIRONNEMENT-DE-DEV.md' -ForegroundColor DarkGray
+    Write-Host ($marge + 'Les commandes d''installation sont indiquées ci-dessus.') -ForegroundColor DarkGray
+    Write-Host ($marge + 'Détail complet : docs/05-ENVIRONNEMENT-DE-DEV.md') -ForegroundColor DarkGray
 }
 Write-Host ''

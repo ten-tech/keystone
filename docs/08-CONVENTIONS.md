@@ -178,6 +178,36 @@ cargo audit        # vulnérabilités connues
 cargo deny check   # licences, doublons, sources
 ```
 
+### Ce qui est épinglé, et ce que Dependabot ne couvre pas
+
+Tout ce qui influence un build est épinglé : `Cargo.lock` versionné et `--locked`
+partout, actions de CI par SHA complet, images de runner par version nommée,
+toolchain Rust par version exacte.
+
+**Rust n'a pas de canal de support long terme** — seulement stable, beta et
+nightly. « stable » désigne la dernière version, qui change toutes les six
+semaines : l'épingler revient à accepter qu'un build reproductible aujourd'hui ne
+le soit plus dans six semaines. D'où la version exacte dans
+[`../rust-toolchain.toml`](../rust-toolchain.toml).
+
+Dependabot couvre **les actions et les crates**. Il ne couvre ni les images de
+runner, ni la version de Rust. Deux choses se relèvent donc à la main, et se
+vérifient **à la source** — jamais de mémoire :
+
+| Quoi | Où | Source à consulter |
+|---|---|---|
+| Image de runner | `runs-on:` dans le workflow | [`actions/runner-images`](https://github.com/actions/runner-images) |
+| Version de Rust | `rust-toolchain.toml` **et** la révision de `dtolnay/rust-toolchain` | [releases de Rust](https://github.com/rust-lang/rust/releases) |
+
+La version de Rust est le **seul** endroit du dépôt où un numéro est écrit deux
+fois. C'est délibéré : cette action ne lit pas `rust-toolchain.toml`, et une
+révision `@stable` en face d'un fichier épinglé ferait télécharger deux toolchains
+par job. Les deux se déplacent ensemble, ou pas du tout.
+
+Une image de runner épinglée **finit par être retirée** : GitHub annonce la
+dépréciation, puis programme des coupures. Sans revue, la CI casse un matin sans
+qu'aucun commit n'ait bougé.
+
 Sur `ks-broker`, chaque dépendance ajoutée est une surface ajoutée sur un composant
 privilégié. Elle passe par une ADR, et la question « peut-on faire sans ? » est posée
 sérieusement à chaque fois.

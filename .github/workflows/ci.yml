@@ -32,6 +32,46 @@ env:
   #
   # `-D warnings` reste appliqué à clippy, explicitement, sur NOTRE code seul.
 
+# ─── Runners épinglés, et la dette que ça crée ──────────────────────────────
+#
+# `ubuntu-24.04` et `windows-2025` plutôt que `-latest`, pour la même raison que
+# `Cargo.lock` et les SHA d'actions : un build reproductible ne dépend pas d'une
+# étiquette qui bascule sans qu'aucun commit n'ait bougé. `devops.md` pose la
+# règle — jamais `latest`.
+#
+# **Ce que ça coûte, et qu'il faut savoir.** Une image épinglée finit par être
+# retirée : GitHub annonce la dépréciation puis programme des coupures avant la
+# suppression. Et Dependabot ne suit PAS les étiquettes de runner — il ne couvre
+# que les actions et les crates. Cette ligne-ci ne se met donc à jour que
+# manuellement.
+#
+# À vérifier à chaque revue de dépendances, à la source :
+#   https://github.com/actions/runner-images
+#
+# Au 2026-08-02 : `ubuntu-latest` désignait 24.04, `windows-latest` désignait
+# Windows Server 2025. Épingler revient donc à figer l'état du jour, pas à
+# rétrograder.
+
+# ─── Toolchain Rust ─────────────────────────────────────────────────────────
+#
+# Aucun job ne déclare `targets:` ni `components:` : `rust-toolchain.toml` les
+# gouverne et l'emporte de toute façon sur ce qu'installe l'action. Les déclarer
+# aux deux endroits, c'était deux vérités pour une seule question — et la seconde
+# ne servait à rien. Une déclaration, zéro dérive.
+#
+# **La révision de l'action doit rester alignée sur `rust-toolchain.toml`.**
+# Vérifié à la source : cette action ne lit PAS `rust-toolchain.toml`. Avec une
+# révision `@stable` et un fichier épinglé sur une version exacte, chaque job
+# téléchargerait donc DEUX toolchains — celle de l'action, puis celle que rustup
+# installe à la première invocation de cargo. Et `Swatinem/rust-cache` ne met pas
+# `~/.rustup` en cache : le surcoût serait payé à chaque run, sur huit jobs.
+#
+# D'où la révision `1.97.1`, identique au fichier. C'est le seul endroit du dépôt
+# où une version est écrite deux fois ; les deux se déplacent ensemble, ou pas
+# du tout.
+#
+# Seul le job `msrv` s'en écarte, volontairement, via `cargo +1.85.0`.
+
 jobs:
   # ── Le socle portable ──────────────────────────────────────────────────
   # ks-core, ks-collectors, ks-cli et ks-agent-linux compilent partout : c'est
@@ -39,12 +79,10 @@ jobs:
   # `main` vert sur l'essentiel sans attendre un agent Windows.
   portable:
     name: Socle portable (Linux)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # branche stable
-        with:
-          components: rustfmt, clippy
+      - uses: dtolnay/rust-toolchain@46511b1c83438f0dd37c02d843619ece5a4abb5b # branche 1.97.1
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Format
@@ -68,13 +106,10 @@ jobs:
   # ── La cible réelle du produit ─────────────────────────────────────────
   windows:
     name: Cible du produit (Windows, MSVC)
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # branche stable
-        with:
-          targets: x86_64-pc-windows-msvc
-          components: clippy
+      - uses: dtolnay/rust-toolchain@46511b1c83438f0dd37c02d843619ece5a4abb5b # branche 1.97.1
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Clippy sur tout le workspace, broker compris
@@ -113,12 +148,10 @@ jobs:
   # ── L'agent Linux, tel qu'il est livré ─────────────────────────────────
   agent-musl:
     name: Agent Linux (musl statique)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # branche stable
-        with:
-          targets: x86_64-unknown-linux-musl
+      - uses: dtolnay/rust-toolchain@46511b1c83438f0dd37c02d843619ece5a4abb5b # branche 1.97.1
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: sudo apt-get update && sudo apt-get install -y musl-tools
 
@@ -152,7 +185,7 @@ jobs:
   # ── Le schéma et son exemple ───────────────────────────────────────────
   schema:
     name: Schéma workstation.yaml
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -190,7 +223,7 @@ jobs:
   # l'emporterait autrement sur la toolchain installée par l'action.
   msrv:
     name: Version minimale (MSRV)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@8641a17e25bf5b40c118d48fe0f81e8655731839 # branche 1.85.0
@@ -203,7 +236,7 @@ jobs:
   # (voir docs/04-MODELE-DE-MENACE.md, adversaire A4).
   audit:
     name: Audit des dépendances
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       # L'action publie son résultat sous forme de « check run ». Elle n'ouvre
@@ -223,7 +256,7 @@ jobs:
   # maintenant dans deny.toml, à la racine.
   deny:
     name: Licences et provenance des dépendances
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
@@ -234,7 +267,7 @@ jobs:
   # ── Cohérence de la documentation ──────────────────────────────────────
   docs:
     name: Documentation
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 

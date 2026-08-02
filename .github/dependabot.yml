@@ -1,5 +1,12 @@
 version: 2
 
+# Les PR de Dependabot visent `dev`, pas `main`.
+#
+# Sans cette ligne, Dependabot cible la branche par défaut — donc `main`, qui ne
+# doit recevoir que du vérifié, en provenance de `dev` (docs/08-CONVENTIONS.md).
+# Une montée de dépendance n'est pas plus dispensée de ce chemin qu'un correctif
+# écrit à la main.
+
 updates:
   # ── Actions GitHub ────────────────────────────────────────────────────
   # Complément indispensable de l'épinglage par SHA : une action figée sur un
@@ -8,6 +15,7 @@ updates:
   # vulnérables. Dependabot rouvre le canal, avec revue humaine à chaque fois.
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -25,6 +33,7 @@ updates:
   # fusionnées à la main.
   - package-ecosystem: "cargo"
     directory: "/"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
       day: "monday"

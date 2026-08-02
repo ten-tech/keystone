@@ -1,5 +1,20 @@
+# Version EXACTE, pas « stable ».
+#
+# Rust n'a pas de canal de support long terme : il n'existe que stable, beta et
+# nightly, et « stable » désigne la dernière en date, qui change toutes les six
+# semaines. Épingler « stable » revient donc à accepter qu'un build reproductible
+# aujourd'hui ne le soit plus dans six semaines — pour un projet qui livre un
+# composant privilégié et signé, ce n'est pas tenable.
+#
+# La contrepartie est réelle et assumée : les correctifs du compilateur n'arrivent
+# plus tout seuls. Cette version se relève donc **délibérément**, en vérifiant la
+# stable courante à la source, et jamais de mémoire.
+#
+# Ce fichier l'emporte sur toute toolchain installée par une action de CI : il est
+# la source de vérité unique du canal, des cibles et des composants. Les workflows
+# ne les redéclarent pas.
 [toolchain]
-channel = "stable"
+channel = "1.97.1"
 components = ["rustfmt", "clippy"]
 
 # La cible du produit est MSVC, pas MinGW : le broker tape dans WMI, DPAPI-NG,
