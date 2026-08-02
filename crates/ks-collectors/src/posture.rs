@@ -11,23 +11,30 @@
 //! C'est exactement ce que lit ce module — et c'est le créneau étroit et réel que
 //! Keystone revendique : il ne voit pas le malware, il voit qu'on a baissé la garde.
 //!
-//! ## Tout par le registre, donc aucun bloc `unsafe`
+//! ## Deux sources, et la différence entre elles est l'information
 //!
-//! La **configuration** de Secure Boot, d'HVCI, de VBS, de Credential Guard, de la
-//! protection LSA, ainsi que les versions et exclusions de Defender et le type de
-//! démarrage des services, se lit dans le registre. Ni WMI, ni l'API TBS, ni
-//! PowerShell : la Phase 0.2 démarre donc sans avoir à trancher le grain des
-//! exceptions `unsafe`, qui reste une décision à part.
+//! Le **registre** donne la configuration : Secure Boot, la stratégie VBS et
+//! HVCI, la protection LSA, les versions et exclusions de Defender, le type de
+//! démarrage des services, le pare-feu, le firmware, l'horloge.
 //!
-//! **Configuration n'est pas exécution**, et le registre ne dit que la première.
-//! Aucune valeur de registre n'atteste que VBS tourne, que le noyau sécurisé a
-//! démarré ou que la protection en temps réel est active : ces états vivent dans
-//! `Win32_DeviceGuard` et `MSFT_MpComputerStatus`. Les chemins d'items le disent —
-//! `hvci_policy`, `vbs_policy` — plutôt que de laisser croire au contraire.
+//! **WMI** donne l'exécution, et lui seul. Aucune valeur de registre n'atteste
+//! que VBS tourne, que le noyau sécurisé a démarré, ou que la protection en
+//! temps réel est active. Ces états vivent dans `Win32_DeviceGuard` et
+//! `MSFT_MpComputerStatus` — voir [`crate::etat_effectif`] et l'ADR-0005.
 //!
-//! Ce qui exige réellement une API native — état détaillé du TPM, protecteurs
-//! BitLocker par volume, usure SMART, état effectif des protections — attend cette
-//! décision et n'est pas ici.
+//! Les chemins le disent : `vbs_policy` contre `vbs_running`, `hvci_policy`
+//! contre `hvci_running`. **Leur divergence est ce qui vaut d'être regardé** —
+//! une configuration sans exécution décrit une machine qu'on croit protégée et
+//! qui ne l'est pas.
+//!
+//! Ni l'une ni l'autre source n'exige un bloc `unsafe` : la bibliothèque WMI
+//! expose une API sûre de bout en bout pour ce qu'on en fait. Ce qui l'exigerait
+//! — l'usure SMART, par `DeviceIoControl` — n'est pas ici, et attend sa propre
+//! décision.
+//!
+//! Le TPM et BitLocker par volume, eux, ne butent pas sur une API mais sur une
+//! liste de contrôle d'accès : mesurés en accès refusé sans élévation, ils
+//! appartiennent au broker, donc à la Phase 2.
 //!
 //! ## La règle qui gouverne tout ce fichier
 //!
@@ -85,11 +92,15 @@ pub fn demarrage_service(valeur: u32) -> &'static str {
 /// place au deuxième rang de valeur. Et il était invisible en intégration
 /// continue, où le porteur d'exécution est administrateur : la lecture y réussit,
 /// l'écart n'y est pas reproductible.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Lecture<T> {
     /// La valeur existe et a été lue.
     Trouvee(T),
     /// La clé ou la valeur n'existe pas sur cette machine.
+    ///
+    /// C'est le défaut, et c'est délibéré : une structure fabriquée sans lecture
+    /// ne doit contenir que des absences, jamais des zéros.
+    #[default]
     Absente,
     /// La lecture a été refusée. Ce n'est pas une absence : c'est un aveu.
     Refusee,
@@ -204,10 +215,22 @@ pub mod service_vbs {
 /// Contrairement au registre, **un `false` est ici un constat**, pas une
 /// supposition : la liste a été lue, et le code n'y est pas. C'est toute la
 /// différence entre « je n'ai rien trouvé » et « j'ai regardé, ce n'est pas là ».
+/// Le libellé est **textuel**, et pas un booléen, parce qu'un booléen s'affiche
+/// « activé » — le vocabulaire d'un interrupteur. Or la question posée ici est
+/// « est-ce que ça tourne ? », à laquelle « activé » répond de travers : c'est
+/// précisément la confusion entre configuration et exécution que ce module
+/// existe pour lever.
 #[must_use]
 pub fn service_vbs_present(lecture: &Lecture<Vec<u32>>, code: u32) -> ItemValue {
     match lecture {
-        Lecture::Trouvee(codes) => ItemValue::Bool(codes.contains(&code)),
+        Lecture::Trouvee(codes) => ItemValue::Text(
+            if codes.contains(&code) {
+                "en cours d'exécution"
+            } else {
+                "à l'arrêt"
+            }
+            .to_owned(),
+        ),
         Lecture::Absente => ItemValue::Absent,
         Lecture::Refusee => ItemValue::illisible(REFUS),
     }
@@ -436,9 +459,10 @@ fn horodatage_vers_filetime(d: DateTime<Utc>) -> u64 {
 #[cfg(windows)]
 mod windows_impl {
     use super::{
-        date_firmware_certaine, demarrage_service, drapeau, est_autorisation_entrante_active,
-        filetime_vers_horodatage, item_posture, liste, mode_asr, protection_verrouillable, texte,
-        Lecture, SERVICES_SURVEILLES,
+        application_integrite_code, date_firmware_certaine, demarrage_service, drapeau,
+        est_autorisation_entrante_active, etat_vbs, filetime_vers_horodatage, item_posture, liste,
+        mode_asr, protection_verrouillable, service_vbs, service_vbs_present, texte, Lecture,
+        SERVICES_SURVEILLES,
     };
     use ks_core::{Item, ItemValue};
     use windows_registry::{Type, LOCAL_MACHINE};
@@ -718,6 +742,106 @@ mod windows_impl {
                 "Aucune règle configurée n'est pas une faute en soi, mais c'est une \
                  couche de défense qu'on n'a pas prise.",
                 None,
+            ));
+        }
+
+        // ─── État EFFECTIF, par WMI (ADR-0005) ──────────────────────────────
+        //
+        // Ce que les items `_policy` ci-dessus ne peuvent pas dire. Ils décrivent
+        // ce qui est demandé ; ceux-ci, ce qui tourne. Leur divergence est
+        // précisément l'information : une configuration sans exécution décrit une
+        // machine qu'on croit protégée et qui ne l'est pas.
+        let (plateforme, defender) = crate::etat_effectif::lire();
+
+        items.push(item_posture(
+            "security.platform.vbs_running",
+            etat_vbs(&plateforme.vbs),
+            "Sécurité basée sur la virtualisation, telle qu'elle TOURNE. À lire \
+             avec `vbs_policy` : « configurée, mais pas en cours d'exécution » est \
+             un état réel, et le registre ne sait pas le distinguer de l'exécution.",
+            "Une VBS configurée qui ne démarre pas — pilote incompatible, refus de \
+             l'hyperviseur — laisse la machine sans aucune des protections qu'on \
+             croit avoir activées.",
+            Some("docs/adr/0005-lecture-detat-effectif.md"),
+        ));
+
+        items.push(item_posture(
+            "security.platform.hvci_running",
+            service_vbs_present(&plateforme.services_actifs, service_vbs::INTEGRITE_MEMOIRE),
+            "Intégrité mémoire réellement en cours d'exécution.",
+            "Sans elle, un pilote non signé ou détourné s'exécute en anneau 0.",
+            None,
+        ));
+
+        items.push(item_posture(
+            "security.platform.credential_guard_running",
+            service_vbs_present(&plateforme.services_actifs, service_vbs::CREDENTIAL_GUARD),
+            "Credential Guard réellement en cours d'exécution. Lève l'ambiguïté du \
+             registre, où l'absence recouvrait « éteint » et « actif par défaut \
+             depuis Windows 11 22H2 ».",
+            "Sans lui, un attaquant SYSTEM récolte les empreintes et les tickets en \
+             mémoire, et se déplace latéralement.",
+            None,
+        ));
+
+        items.push(item_posture(
+            "security.platform.code_integrity_enforcement",
+            application_integrite_code(&plateforme.integrite_code),
+            "Mode d'application de la stratégie d'intégrité du code.",
+            "En mode audit, la stratégie journalise sans bloquer : ce n'est pas une \
+             protection, c'est une observation.",
+            None,
+        ));
+
+        items.push(item_posture(
+            "security.platform.dma_protection_available",
+            crate::etat_effectif::propriete_disponible(
+                &plateforme,
+                crate::etat_effectif::propriete_materielle::PROTECTION_DMA,
+            ),
+            "Protection DMA **disponible sur ce matériel**. Ne dit pas qu'elle est \
+             active : cette activation n'est lisible par aucune source accessible \
+             sans élévation.",
+            "Sans protection DMA, un périphérique branché à chaud lit la mémoire \
+             physique, mots de passe et clés compris.",
+            None,
+        ));
+
+        // Le chemin que `ks-core` donne depuis toujours comme exemple canonique
+        // d'item, et que le collecteur ne produisait pas.
+        for (suffixe, valeur, but, risque) in [
+            (
+                "realtime",
+                &defender.temps_reel,
+                "Protection en temps réel de Defender, telle qu'elle tourne.",
+                "Sa désactivation est, au §6 du modèle de menace, le deuxième signal \
+                 par rapport valeur / effort. Beaucoup d'intrusions commencent là.",
+            ),
+            (
+                "tamper_protection",
+                &defender.anti_alteration,
+                "Protection contre l'altération des réglages de Defender.",
+                "Sans elle, un attaquant administrateur éteint l'antivirus par une \
+                 simple commande, sans laisser d'obstacle.",
+            ),
+            (
+                "behavior_monitoring",
+                &defender.surveillance_comportementale,
+                "Surveillance comportementale de Defender.",
+                "Sa désactivation retire la détection qui ne dépend pas des \
+                 signatures, donc celle qui voit l'inconnu.",
+            ),
+        ] {
+            items.push(item_posture(
+                &format!("security.defender.{suffixe}"),
+                match valeur {
+                    Lecture::Trouvee(v) => ItemValue::Bool(*v),
+                    Lecture::Absente => ItemValue::Absent,
+                    Lecture::Refusee => ItemValue::illisible("WMI n'a pas répondu"),
+                },
+                but,
+                risque,
+                Some("docs/04-MODELE-DE-MENACE.md § 6"),
             ));
         }
 
@@ -1070,25 +1194,27 @@ mod tests {
         // C'est le seul endroit du module où un `false` est légitime.
         let mesure = Lecture::Trouvee(vec![service_vbs::INTEGRITE_MEMOIRE]);
 
+        let actif = service_vbs_present(&mesure, service_vbs::INTEGRITE_MEMOIRE);
+        let arrete = service_vbs_present(&mesure, service_vbs::CREDENTIAL_GUARD);
+
+        assert_eq!(actif, ItemValue::Text("en cours d'exécution".into()));
         assert_eq!(
-            service_vbs_present(&mesure, service_vbs::INTEGRITE_MEMOIRE),
-            ItemValue::Bool(true)
-        );
-        assert_eq!(
-            service_vbs_present(&mesure, service_vbs::CREDENTIAL_GUARD),
-            ItemValue::Bool(false),
+            arrete,
+            ItemValue::Text("à l'arrêt".into()),
             "la liste est lue : son absence est un constat, pas une supposition"
         );
 
-        // En revanche, une liste qu'on n'a pas pu lire ne produit jamais `false`.
-        assert_ne!(
+        // Jamais « activé » : le vocabulaire de l'interrupteur redirait la
+        // confusion entre configuration et exécution que ce module lève.
+        assert!(!actif.to_string().contains("activé"));
+
+        // Et une liste qu'on n'a pas pu lire ne produit jamais « à l'arrêt ».
+        for illisible in [
             service_vbs_present(&Lecture::Refusee, service_vbs::CREDENTIAL_GUARD),
-            ItemValue::Bool(false)
-        );
-        assert_ne!(
             service_vbs_present(&Lecture::Absente, service_vbs::CREDENTIAL_GUARD),
-            ItemValue::Bool(false)
-        );
+        ] {
+            assert_ne!(illisible, ItemValue::Text("à l'arrêt".into()));
+        }
     }
 
     #[test]

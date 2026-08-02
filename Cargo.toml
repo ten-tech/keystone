@@ -52,6 +52,13 @@ thiserror = "2"
 # `default-features = false` retire le cache de requêtes préparées : trois
 # requêtes jetables par scan n'en tirent aucun bénéfice, et il coûte trois
 # crates de plus.
+# Volontairement PAS la 0.18+. Elle passe en `edition = "2024"` et emploie des
+# let-chains, stabilisees en Rust 1.88 — trois versions au-dessus de notre MSRV
+# 1.85. Ni le manifeste ni le resolveur ne le signalent : l'echec n'arrive qu'a
+# la compilation. Deuxieme occurrence de ce piege sur ce projet, apres
+# libsqlite3-sys et sa macro cfg_select!. Verifie en compilant, le 2026-08-02.
+wmi = "0.17.3"
+
 rusqlite = { version = "0.39", default-features = false, features = ["bundled"] }
 
 # Le profil de release est volontairement strict : le broker est un composant
