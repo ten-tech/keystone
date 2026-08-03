@@ -155,6 +155,86 @@ la VM devient inutilisable.
 | Phase 4 | une VM par édition de Windows visée, pour la matrice de NF-07 |
 | Phase 6 | l'automatisation complète de la création du labo, pour que la CI la fabrique elle-même |
 
+
+## La voie de secours quand l'hôte n'a pas Hyper-V
+
+Ce document suppose Hyper-V. **Le poste de référence ne l'a pas** : il tourne sous
+Windows 11 Famille, où `New-VM`, `Enable-VMTPM` et `PowerShell Direct` n'existent
+pas. Toute la procédure ci-dessus y est donc inapplicable.
+
+Une seconde voie a été **mesurée** le 2026-08-03, et elle tient : QEMU/KVM dans
+une distribution WSL2. Les chiffres qui suivent sont des relevés, pas des
+estimations.
+
+### Ce qui est prouvé
+
+| Question | Mesure |
+|---|---|
+| KVM est-il accessible depuis WSL2 ? | `/dev/kvm` présent, drapeau `vmx`, `kvm_intel` chargé |
+| KVM expose-t-il l'imbrication à **ses** invités ? | `/sys/module/kvm_intel/parameters/nested` = `Y` |
+| Un invité tourne-t-il réellement sous KVM ? | `info kvm` → **`kvm support: enabled`**, `VM status: running` |
+| Le test discrimine-t-il ? | contre-épreuve `-accel tcg` → `kvm support: disabled` |
+| Un TPM virtuel est-il possible ? | `swtpm` 0.7.1 au dépôt ; QEMU expose `tpm-crb` et `tpm-tis` |
+
+L'imbrication fonctionne donc **de bout en bout** : Hyper-V (WSL2) → KVM →
+invité. C'est le point qu'on croyait bloquant, et il ne l'est pas.
+
+### Le piège de mesure, et pourquoi il compte
+
+Un invité déclaré à 6 Go **démarre** sans erreur. C'est une preuve faible, et il
+faut le savoir : Linux surengage la mémoire et QEMU l'alloue paresseusement.
+Mesuré pendant qu'un tel invité tournait, la consommation réelle est passée de
+880 à **888 Mo** — huit mégaoctets. Le démarrage ne dit rien de la charge.
+
+Conclure « 6 Go tiennent » à partir de ce test serait exactement la faute que ce
+dépôt traque ailleurs : prendre l'absence d'erreur pour une garantie.
+
+### Le budget réel, et ce qu'il autorise
+
+Sur le poste de référence : **15,7 Go** physiques, dont 8 alloués à la WSL2 par
+`.wslconfig`.
+
+- **Labo dégradé** — un invité Windows 11 nu, sans WSL2 ni Hyper-V à
+  l'intérieur : 4 Go pour l'invité, ~1 Go pour la distribution hôte, dans un
+  budget WSL2 de 8. **Plausible sur cette machine**, et non vérifié sous charge.
+  Il permet de tester le registre, les services, Defender, les politiques et les
+  exports de registre — soit l'essentiel des verbes du broker.
+- **Labo complet** — celui que ce document décrit, où WSL2 et Hyper-V tournent
+  *dans* l'invité : il faut un quatrième niveau d'hyperviseur, et 2 à 4 Go de
+  plus. **Hors budget à 15,7 Go.** S'y ajoute une inconnue qui n'a pas été
+  levée : Hyper-V dans KVM dans Hyper-V, ce sont deux hyperviseurs de types
+  différents empilés, réputé bien plus fragile que du KVM dans KVM.
+
+### La distribution de labo
+
+Elle est **séparée de la distribution de travail**, volontairement :
+
+```powershell
+wsl --install -d Debian --name ks-lab --location C:\wsl\ks-lab --no-launch
+```
+
+Son disque vit dans `C:\wsl\ks-lab`, distinct de celui du travail quotidien.
+Elle se jette et se refait en une commande :
+
+```powershell
+wsl --unregister ks-lab
+```
+
+C'est la même raison qui fait exister le labo : ce qu'on peut détruire sans
+réfléchir, on l'utilise pour essayer. Et une distribution de travail dans
+laquelle on installe un hyperviseur cesse d'être une distribution de travail.
+
+### Ce qui reste à éprouver avant d'y installer Windows
+
+1. La consommation **sous charge**, pas au démarrage.
+2. Le TPM virtuel bout en bout : `swtpm` branché à QEMU, et Windows 11 qui
+   l'accepte à l'installation.
+3. Hyper-V dans l'invité — l'inconnue qui décide entre labo dégradé et labo
+   complet.
+
+Tant que ces trois points ne sont pas mesurés, ce document décrit une voie
+crédible, pas une voie éprouvée. La distinction est le sujet de tout ce dépôt.
+
 ## Rappel
 
 Le seul endroit où Keystone ne doit **jamais** tourner en développement, c'est la
