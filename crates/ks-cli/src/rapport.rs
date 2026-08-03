@@ -283,8 +283,10 @@ main { max-width: 1080px; margin: 0 auto; padding: var(--sp-7) var(--sp-5) var(-
    generique, il ne dit rien que le texte ne dise deja, et il depense une
    couleur d'etat pour decorer. A la place, la notation du dessin technique
    — hachure a 45 degres, pas de 7 px, trait de 1,15 px, les valeurs exactes
-   du motif de la marque — qui signifie « zone non levee ». Monochrome, donc
-   lisible a l'impression comme en contraste force. Le bloc est RECESSE : ce
+   du motif de la marque — qui signifie « zone non levee ». Monochrome, donc lisible a
+   l'impression. En contraste force elle disparait — background-image y calcule
+   a none — et le bloc est alors marque par un trait tirete, voir le bloc
+   @media plus bas. Le bloc est RECESSE : ce
    qu'on n'a pas pu lire s'enfonce, il ne saute pas aux yeux. */
 .note {
   margin: 0 0 var(--sp-6); padding: var(--sp-3) var(--sp-4) var(--sp-3) var(--sp-5);
@@ -339,6 +341,24 @@ footer { margin-top: var(--sp-7); padding-top: var(--sp-4);
 /* Contraste imposé par le système : on rend la main aux couleurs de l'OS
    plutôt que d'imposer les nôtres. */
 @media (forced-colors: active) {
+  /* La hachure NE SURVIT PAS au contraste forcé, et le commentaire d'à côté
+     affirmait le contraire — vérifié au texte normatif de CSS Color Adjust
+     Level 1 : « background-image computes to none unless the original value
+     contains a url() function », et « box-shadow […] compute to none ». Fond,
+     ombre et hachure disparaissent donc tous les trois, et le bloc « non
+     calculable » devenait indiscernable d'un bloc mesuré.
+
+     Ce qui survit avec certitude, c'est une BORDURE : le spec en force la
+     couleur, il ne la supprime pas. Un trait tireté appartient à la même
+     famille de notation que la hachure — en dessin technique, il dit
+     « provisoire, non levé ». Le sens est donc conservé sans dépendre d'une
+     propriété dont on n'est pas sûr qu'elle soit rendue.
+
+     `forced-color-adjust: none` aurait peut-être suffi à conserver la hachure.
+     Peut-être : la lecture du spec est ambiguë sur ce point précis. On ne
+     construit pas une garantie d'accessibilité sur un peut-être. */
+  .note { border-left: 3px dashed CanvasText; }
+
   .v-vital, .v-illisible, .v-absent { color: CanvasText; }
   table, .note { border: 1px solid CanvasText; }
 }
@@ -579,5 +599,102 @@ mod tests {
     #[test]
     fn un_horodatage_illisible_saffiche_tel_quel_plutot_que_dinventer() {
         assert_eq!(horodatage_lisible("pas une date"), "pas une date");
+    }
+    /// Ce qui porte un sens à l'écran doit le porter aussi en contraste forcé.
+    ///
+    /// Le bloc « non lu » se distingue par une hachure et une récession. Or le
+    /// spec CSS Color Adjust est explicite : en contraste forcé,
+    /// `background-image` calcule à `none` et `box-shadow` aussi. Fond, ombre
+    /// et hachure disparaissent donc **tous les trois**, et le bloc devenait
+    /// indiscernable d'un paragraphe ordinaire — alors qu'un commentaire du
+    /// fichier affirmait qu'il survivait.
+    ///
+    /// Ce test exige qu'une marque **qui survit** soit déclarée. Une bordure en
+    /// survit : le spec en force la couleur, il ne la supprime pas.
+    #[test]
+    fn le_bloc_non_lu_reste_distinct_en_contraste_force() {
+        // Le bloc s'arrête à SON accolade fermante, et pas à la fin de la
+        // feuille. La première version employait `split_once`, donc lisait
+        // tout ce qui suivait le marqueur — y compris la feuille d'impression,
+        // qui parle elle aussi de `.note`. Le test passait alors même quand la
+        // règle de contraste forcé était retirée : il ne contrôlait rien.
+        let bloc = {
+            let apres = STYLE
+                .split_once("@media (forced-colors: active)")
+                .map(|(_, apres)| apres)
+                .expect("le rapport doit porter un bloc de contraste forcé");
+            let debut = apres.find('{').expect("bloc mal formé") + 1;
+            let mut profondeur = 1_i32;
+            let mut fin = debut;
+            for (i, c) in apres[debut..].char_indices() {
+                match c {
+                    '{' => profondeur += 1,
+                    '}' => {
+                        profondeur -= 1;
+                        if profondeur == 0 {
+                            fin = debut + i;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            assert!(fin > debut, "accolade fermante introuvable");
+            &apres[debut..fin]
+        };
+
+        // Une bordure ORDINAIRE ne suffit pas : le bloc en recevait déjà une
+        // par `table, .note { border: 1px solid CanvasText }`, identique à
+        // celle d'un tableau. Il était donc bien visible, et indiscernable
+        // d'autre chose — ce qui est le défaut, pas sa correction. On exige
+        // une marque PROPRE au bloc, et le tireté est ce que le dessin
+        // technique emploie pour « provisoire, non levé ».
+        //
+        // La première version de ce test cherchait « .note », « CanvasText »
+        // et « border » n'importe où dans le bloc : les trois y étaient déjà,
+        // donc il passait même la règle retirée. Il ne contrôlait rien.
+        // Les commentaires sortent du champ AVANT toute analyse. Celui qui
+        // explique cette règle NOMME `background-image` et `box-shadow` pour
+        // dire pourquoi ils ne conviennent pas : sans ce retrait, le contrôle
+        // échouait sur sa propre justification. C'est le troisième garde-fou
+        // de ce dépôt à trébucher ainsi — le filtre de vocabulaire doit citer
+        // les mots qu'il proscrit, la barrière winget doit nommer les drapeaux
+        // qu'elle interdit. Un contrôle se lit toujours après avoir retiré ce
+        // qui l'explique.
+        let sans_commentaires = {
+            let mut sortie = String::with_capacity(bloc.len());
+            let mut reste = bloc;
+            while let Some(debut) = reste.find("/*") {
+                sortie.push_str(&reste[..debut]);
+                match reste[debut..].find("*/") {
+                    Some(fin) => reste = &reste[debut + fin + 2..],
+                    None => {
+                        reste = "";
+                        break;
+                    }
+                }
+            }
+            sortie.push_str(reste);
+            sortie
+        };
+
+        let regle_du_bloc = sans_commentaires
+            .split(';')
+            .find(|r| r.contains(".note") && r.contains("dashed"))
+            .map(|r| r.trim().to_owned());
+
+        assert!(
+            regle_du_bloc.is_some(),
+            "aucune marque propre au bloc « non lu » en contraste forcé : il y              porte la même bordure qu'un tableau, donc plus rien ne le              distingue. Bloc reçu : {bloc}"
+        );
+        let regle = regle_du_bloc.unwrap_or_default();
+        assert!(
+            regle.contains("CanvasText"),
+            "la marque doit employer une couleur système, seule à survivre : {regle}"
+        );
+        assert!(
+            !regle.contains("background-image") && !regle.contains("box-shadow"),
+            "background-image et box-shadow calculent tous deux à `none` en              contraste forcé : ils ne peuvent pas porter la marque. {regle}"
+        );
     }
 }
