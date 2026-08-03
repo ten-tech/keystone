@@ -224,6 +224,24 @@ C'est la même raison qui fait exister le labo : ce qu'on peut détruire sans
 réfléchir, on l'utilise pour essayer. Et une distribution de travail dans
 laquelle on installe un hyperviseur cesse d'être une distribution de travail.
 
+### Ce qui a été fait, et ce qui reste
+
+**Windows 11 Pro est installé dans ce labo**, sans intervention, le 2026-08-03.
+Les scripts sont dans [`scripts/labo/`](../scripts/labo/LISEZ-MOI.md), avec les
+quatre pièges rencontrés et le mot de passe du compte jetable.
+
+Restent deux points, dans cet ordre :
+
+1. **Hyper-V dans l'invité.** `vmx` est exposé — mesuré, contre-épreuve
+   comprise — donc le prérequis matériel est là. Reste à démarrer réellement
+   Hyper-V, ce qui décide entre le **labo dégradé** (registre, services,
+   Defender, politiques : l'essentiel des verbes du broker) et le **labo
+   complet** (collecteurs WSL et Hyper-V, instantanés par point de contrôle).
+2. **Le point de contrôle `clean`.** `qemu-img snapshot -c clean` sur le
+   qcow2 rend toutes les remises à zéro instantanées. C'est ce qui transforme
+   une installation d'une demi-heure en un cycle de vingt secondes, et c'est la
+   raison d'être du labo.
+
 ### Ce qui reste à éprouver avant d'y installer Windows
 
 1. La consommation **sous charge**, pas au démarrage.
