@@ -7,7 +7,7 @@
 ## Contexte
 
 `Item::verdict()` compare `desired` et `observed` par **égalité de
-`ItemValue`**. Pour treize items relevés sur la machine de référence, cette
+`ItemValue`**. Pour douze items relevés sur la machine de référence, cette
 égalité porte sur une **phrase française rédigée par le collecteur**.
 
 ### Ce qui est réellement comparé, mesuré
@@ -25,7 +25,7 @@ Relevé le 2026-08-03, sur les 115 items :
 | `security.services.{windefend,mpssvc,eventlog,wscsvc,bits}.startup` | `automatique` |
 | `inventory.software.attribution` | `complète` |
 
-Ces treize items ne sont pas un échantillon quelconque : ce sont **presque tous
+Ces douze items ne sont pas un échantillon quelconque : ce sont **presque tous
 des déclarables** au sens de l'ADR-0009, c'est-à-dire précisément ceux qui
 entreront dans `workstation.yaml` et dont la comparaison décidera de la posture
 affichée.
@@ -155,7 +155,7 @@ traduction que nous aurions choisie.
 | Comparer en ignorant la casse, les accents et la ponctuation | une normalisation est une devinette : « activée, sans verrou UEFI » et « activée sans verrou UEFI » deviendraient égales, mais « arrêté » et « à l'arrêt » resteraient différentes. On aurait la fragilité, plus une illusion de robustesse |
 | Ajouter un champ `label` à côté de `value` dans `ItemValue` | fait porter la présentation par le modèle, alors que le projet a déjà tranché l'inverse pour les octets. Et double la surface sérialisée de chaque item, pour une information que `lisible` sait recalculer |
 | Garder l'entier brut du registre comme valeur (`2` pour `lsa_protection`) | `ks explain` afficherait `2`, et le fichier d'état désiré aussi. On perd l'explicabilité de P6 au lieu de la gagner, et on rend le yaml illisible autrement qu'avec la documentation de Microsoft à côté |
-| Traiter le problème en Phase 2, quand la convergence écrira ces valeurs | trop tard de sept jours : la série d'observations de la Phase 1 aura été enregistrée en prose, et sa reformulation l'invalidera rétroactivement. Le coût de la correction augmente avec la durée de l'historique |
+| Reporter la correction en Phase 2, quand la convergence écrira ces valeurs | trop tard de sept jours : la série d'observations de la Phase 1 aura été enregistrée en prose, et sa reformulation l'invalidera rétroactivement. Le coût de la correction augmente avec la durée de l'historique |
 
 ## Conséquences
 
@@ -168,7 +168,7 @@ chemin.
 
 ### Ce que ça nous coûte
 
-Environ treize sites d'émission dans `posture.rs` et `etat_effectif.rs`, plus la
+Environ douze sites d'émission dans `posture.rs` et `etat_effectif.rs`, plus la
 table de correspondance jeton → libellé dans `lisible.rs`, plus le dépliage de
 `lsa_protection` en deux items — soit un item de plus dans l'inventaire, qui
 passe de 115 à 116, et deux documents à corriger dans le même commit
