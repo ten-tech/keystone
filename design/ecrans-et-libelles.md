@@ -101,8 +101,8 @@ dans l'import :
 
 - [ ] `forced-colors` — attention, un style en ligne posé par un script l'emporte
       sur une règle `@media` sans `!important`
-- [ ] cibles tactiles de la frise : 24 px minimum, contre 9 px aujourd'hui
+- [x] cibles tactiles de la frise : 24 px minimum, contre 9 px aujourd'hui — fait
 - [ ] navigation au clavier des vagues et de la palette de commandes
-- [ ] écran E7, absent des deux maquettes
+- [x] écran E7, absent des deux maquettes — fait
 - [ ] polices embarquées en `@font-face` local — décision à part : licence,
       graisses réellement utilisées, poids ajouté au dépôt

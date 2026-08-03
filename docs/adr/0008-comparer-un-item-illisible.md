@@ -1,6 +1,6 @@
 # ADR-0008 — Comparer un état désiré à une lecture qui a échoué
 
-- **Statut** : Proposé
+- **Statut** : Accepté — implémentée le 2026-08-02 (`Item::verdict`, `DriftSummary.unreadable`)
 - **Date** : 2026-08-02
 - **Exigences concernées** : D2-04, D2-05, P2, P6, SEC-01
 

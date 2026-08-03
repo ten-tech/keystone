@@ -165,7 +165,7 @@ html[data-state="attention"] {
 }
 html[data-state="grave"] {
   --state: var(--grave);
-  --state-dim: rgba(229, 83, 75, .14);
+  --state-dim: rgba(236, 89, 80, .14);
   --breathe: var(--breathe-grave);
 }
 

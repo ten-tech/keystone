@@ -68,6 +68,7 @@ keystone/
 ├── docs/               toute la documentation, numérotée dans l'ordre de lecture
 │   └── adr/            décisions d'architecture, une par fichier, immuables
 ├── design/             maquette interactive + tokens de design + validation de palette
+│   └── marque/         identité visuelle : logomark, icônes, états illustrés
 ├── schema/             JSON Schema de workstation.yaml + exemple complet commenté
 ├── crates/
 │   ├── ks-core/        types du modèle de données — Item, Drift, Plan, Snapshot, Journal
@@ -75,6 +76,8 @@ keystone/
 │   ├── ks-collectors/  collecteurs en lecture seule (Phase 0)
 │   ├── ks-broker/      service Windows privilégié (Phase 2) — le composant sensible
 │   └── ks-agent-linux/ agent pour les distros WSL2 et les VM Linux
+├── ui/                 coque de bureau Tauri — workspace SÉPARÉ, verrou distinct
+│   └── ks-ui/          le poste de pilotage, sur données réelles (ADR-0012, ADR-0013)
 ├── scripts/            PowerShell : labo, toolchain, cross-compilation
 └── .github/workflows/  intégration continue
 ```
@@ -104,7 +107,7 @@ Le raisonnement complet est dans [`docs/05-ENVIRONNEMENT-DE-DEV.md`](docs/05-ENV
 | 2 — Converger | instantanés, rollback, mises à jour orchestrées, sauvegarde | ○ à faire |
 | 3 — Tenir | espace, posture de sécurité, ancres externes, isolement | ○ à faire |
 | 4 — Vivre | profils, WSL/VM, réseau, docteur de dev, coexistence MDM | ○ à faire |
-| 5 — Voir | interface Tauri, timeline, rapports, copilote local | ○ à faire |
+| 5 — Voir | interface Tauri, timeline, rapports, copilote local | ◐ socle livré en avance (ADR-0012, ADR-0013) : 9 écrans sur données réelles. Health Ring calculable, timeline forensique et copilote restent à faire |
 | 6 — Essaimer | flotte, vue mobile, documentation, empaquetage | ○ à faire |
 
 Détail et critères de sortie de chaque phase : [`docs/07-FEUILLE-DE-ROUTE.md`](docs/07-FEUILLE-DE-ROUTE.md).

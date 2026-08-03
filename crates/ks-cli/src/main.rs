@@ -133,7 +133,11 @@ enum Command {
         action: BackupAction,
     },
 
-    /// Journal inaltérable.
+    /// Journal chaîné. La portée exacte de ce que le chaînage détecte est
+    /// affichée par la commande elle-même — et elle n'est pas totale : la
+    /// suppression des dernières entrées reste indétectable localement
+    /// (ADR-0004). Le mot « inaltérable » figurait ici ; il promettait plus
+    /// que ce que le code tient.
     Journal {
         /// Depuis cette date (RFC 3339).
         #[arg(long)]

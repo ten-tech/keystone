@@ -1,4 +1,10 @@
-//! Le journal — inaltérable, chaîné, expédié hors machine.
+//! Le journal — chaîné, et expédié hors machine parce que le chaînage seul ne
+//! suffit pas.
+//!
+//! Le mot « inaltérable » ouvrait ce fichier. Il était faux dans les deux sens
+//! qui comptent : la troncature par la fin est indétectable localement, et un
+//! attaquant SYSTEM refabrique la chaîne entière. C'est écrit dans l'ADR-0004,
+//! et c'est la raison d'être de SEC-04.
 //!
 //! C'est le composant qui permet de contredire une machine compromise.
 //!

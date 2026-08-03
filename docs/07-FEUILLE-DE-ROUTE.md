@@ -226,20 +226,33 @@ auprès de 5 utilisateurs.
 
 ---
 
-## Les cinq prochaines tâches, concrètement
+## Les prochaines tâches, concrètement
 
-Si tu ouvres le projet demain matin :
+Si tu ouvres le projet demain matin.
 
-1. **Remplacer `JournalEntry::digest()`** par BLAKE3. Le bouchon est annoncé dans le
-   code, il ne doit pas survivre à la Phase 0.
-2. **Collecteur TPM + Secure Boot + BitLocker.** Le socle de tout le domaine D5, et le
-   premier vrai contact avec les API Windows.
-3. **Réconciliation d'inventaire logiciel.** Le plus gros gain de valeur immédiat, et
-   100 % lecture seule.
-4. **Persistance SQLite + `ks journal`.** Sans historique, la dérive n'est pas
-   mesurable.
-5. **Créer la VM de labo** — même si la Phase 2 est loin. La créer maintenant évite de
-   se retrouver bloqué trois heures le jour où on en a besoin.
+> Cette liste a été périmée sur trois points sur cinq pendant plusieurs
+> semaines : elle réclamait BLAKE3 et la persistance SQLite, tous deux livrés
+> et cochés en Phase 0.5 quinze lignes plus haut, et rangeait le TPM et
+> BitLocker dans « la prochaine tâche » alors que ce même document les renvoie
+> explicitement au broker, donc à la Phase 2. Une liste de tâches ne se relit
+> pas toute seule : elle se corrige dans le commit qui en accomplit une.
+
+1. **Persister les valeurs observées.** La dérive sur sept jours — critère de
+   sortie de la Phase 1 — n'est pas mesurable tant qu'aucun relevé n'est
+   comparé au précédent. Le magasin existe, il ne stocke que le journal.
+2. **Charger `workstation.yaml`.** Sans état désiré, `Item::verdict()` répond
+   `NonContraint` sur les 115 items, l'anneau du poste de pilotage reste « pas
+   encore calculable », et la vue Dérive n'a rien à comparer. C'est le verrou
+   qui bloque le plus d'écrans à la fois.
+3. **Réconciliation d'inventaire logiciel** — livrée pour l'essentiel, mais
+   l'attribution reste incomplète : 54 applications sur 150 sans gestionnaire
+   identifié, et le module le déclare lui-même plutôt que d'arrondir.
+4. **Créer la VM de labo** — même si la Phase 2 est loin. La créer maintenant
+   évite de se retrouver bloqué trois heures le jour où on en a besoin. C'est
+   aussi la seule façon d'éprouver un jour le broker sans risquer l'hôte.
+5. **Le TPM, BitLocker et les tâches planifiées** ne sont pas des tâches de
+   Phase 0 : ils sont refusés sans élévation, donc ils appartiennent au
+   broker. Ils figurent ici pour qu'on cesse de les y chercher.
 
 ## Ce qui est explicitement refusé
 
