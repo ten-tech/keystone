@@ -536,7 +536,13 @@ jobs:
           # gagné 'Cascadia Mono'). Le motif de `grep` ne dépend pas de la
           # syntaxe du fichier, seulement de la forme `--nom: valeur;`, donc
           # rien n'empêchait de l'y appliquer.
-          for source in design/*.html ui/ks-ui/web/*.css ui/ks-ui/web/*.html                         crates/ks-cli/src/rapport.rs; do
+          # `design/*.html` ne descend PAS dans les sous-dossiers : le motif
+          # n'a pas d'étoile double, et `design/marque/index.html` échappait
+          # donc au contrôle sans que rien ne le signale. Un garde-fou dont le
+          # périmètre est plus étroit que son nom est un garde-fou qu'on croit
+          # avoir. Le second niveau est explicite plutôt que récursif : on veut
+          # savoir ce qu'on vérifie, pas ratisser.
+          for source in design/*.html design/*/*.html                         ui/ks-ui/web/*.css ui/ks-ui/web/*.html                         crates/ks-cli/src/rapport.rs; do
             [ -e "$source" ] || continue
             while IFS='|' read -r nom valeur; do
               [ -z "$nom" ] && continue

@@ -1,0 +1,7 @@
+<!-- Keystone — lockup horizontal. Espace libre minimal tout autour :
+     un tiers de la hauteur du logomark. Le mot-symbole est du texte
+     vivant : à vectoriser le jour où la fonte sera embarquée. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 30" fill="currentColor" role="img"><title>Keystone</title>
+<g transform="scale(0.625)"><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></g>
+<text x="42.6" y="22.4" font-family="Inter Tight, Inter, system-ui, sans-serif" font-size="26" font-weight="600" letter-spacing="-0.52">Keystone</text>
+</svg>

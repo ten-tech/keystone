@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keystone — identité visuelle</title>
+<!--
+  AUCUNE RESSOURCE RÉSEAU. Ni police distante, ni CDN, ni image externe.
+  La seule occurrence de http:// dans ce fichier est la déclaration d'espace
+  de noms XML des SVG (www.w3.org), que le contrôle de CI écarte
+  explicitement : c'est une chaîne d'identification, pas une adresse qu'un
+  navigateur va chercher. Vérifié dans .github/workflows/ci.yml, étape
+  « Aucune ressource réseau dans les maquettes ».
+
+  Les piles de polices retombent sur les polices du système si Inter Tight,
+  Inter et JetBrains Mono ne sont pas installées. Cette page a été jugée sur
+  un poste qui ne les avait pas : les proportions du lockup sont donc à
+  revoir le jour où la fonte sera réellement embarquée en @font-face local.
+-->
+<style>
+/* ═══ Tokens — recopiés à l'identique de design/tokens.css ═══════════════
+   Cette page est autonome et ne fait pas de <link> vers tokens.css. La
+   contrepartie est une duplication : toute correction de teinte doit être
+   reportée ici. Le contrôle de CI qui compare les maquettes à tokens.css
+   parcourt « design/*.html » et n'atteint donc PAS ce sous-dossier — voir
+   la note en pied de page.                                              */
+:root{
+  color-scheme: dark;
+  --surface-0: #0B0F14;
+  --surface-1: #131A22;
+  --surface-2: #1B242F;
+  --surface-3: #222E3B;
+  --hairline: rgba(255, 255, 255, .07);
+  --hairline-strong: rgba(255, 255, 255, .12);
+  --grid: #1F2A36;
+  --ink-1: #E6EDF3;
+  --ink-2: #9FB0C0;
+  --ink-3: #798C9D;
+  --vital: #4FD1C5;
+  --attention: #E8A33D;
+  --grave: #EC5950;
+  --good: #4BC97D;
+  --font-tight: 'Inter Tight', 'Inter', system-ui, sans-serif;
+  --font-sans:  'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-mono:  'JetBrains Mono', ui-monospace, monospace;
+  --fs-h1: 22px;
+  --fs-h2: 16px;
+  --fs-body: 14px;
+  --fs-sm: 13px;
+  --fs-mono: 12.5px;
+  --fs-label: 11px;   --ls-label: .09em;
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px;
+  --r-ctl: 6px;    --r-card: 10px;  --r-sheet: 14px;  --r-pill: 999px;
+  --t-micro: 120ms;
+  --e-out: cubic-bezier(.2, .8, .2, 1);
+}
+
+*{box-sizing:border-box}
+html{background:var(--surface-0)}
+body{margin:0;background:var(--surface-0);color:var(--ink-1);
+     font-family:var(--font-sans);font-size:var(--fs-body);line-height:1.55;
+     -webkit-font-smoothing:antialiased}
+
+/* Le bandeau cadre la page depuis les bords ; le contenu reste dans une
+   colonne plus étroite. Les deux ne partagent pas le même conteneur.     */
+.bandeau{border-bottom:1px solid var(--hairline);padding:var(--sp-5) var(--sp-7);
+         display:flex;align-items:center;gap:var(--sp-5);flex-wrap:wrap}
+.bandeau .lk{width:196px;height:34px;color:var(--ink-1);flex:none}
+.bandeau .dit{color:var(--ink-2);font-size:var(--fs-sm);max-width:52ch}
+.wrap{max-width:1080px;margin:0 auto;padding:var(--sp-7) var(--sp-5) var(--sp-8)}
+
+h2{font-family:var(--font-tight);font-size:var(--fs-h1);font-weight:600;
+   letter-spacing:-.02em;margin:var(--sp-8) 0 var(--sp-2)}
+h2:first-of-type{margin-top:0}
+h3{font-size:var(--fs-label);letter-spacing:var(--ls-label);text-transform:uppercase;
+   color:var(--ink-3);font-weight:500;margin:var(--sp-6) 0 var(--sp-3)}
+p{margin:0 0 var(--sp-3);max-width:74ch;color:var(--ink-2)}
+p.intro{color:var(--ink-2);max-width:74ch}
+b,strong{color:var(--ink-1);font-weight:600}
+code,.mono{font-family:var(--font-mono);font-size:var(--fs-mono);
+           font-variant-numeric:tabular-nums;color:var(--ink-2)}
+hr{border:0;border-top:1px solid var(--hairline);margin:var(--sp-7) 0}
+
+.carte{background:var(--surface-1);border:1px solid var(--hairline);
+       border-radius:var(--r-card);padding:var(--sp-5)}
+.rang{display:flex;gap:var(--sp-5);flex-wrap:wrap;align-items:flex-end}
+.col{display:flex;flex-direction:column;gap:var(--sp-2)}
+.lg{font-size:var(--fs-label);letter-spacing:var(--ls-label);text-transform:uppercase;
+    color:var(--ink-3)}
+
+/* ── Échantillons de fond ─────────────────────────────────────────────── */
+.ech{display:flex;flex-direction:column;align-items:center;gap:var(--sp-3);
+     padding:var(--sp-5);border-radius:var(--r-card);border:1px solid var(--hairline);
+     min-width:150px}
+.s0{background:var(--surface-0)} .s1{background:var(--surface-1)}
+.s2{background:var(--surface-2)} .s3{background:var(--surface-3)}
+/* Le mode clair n'est pas une seconde palette : c'est l'INVERSION exacte de
+   la paire encre/surface déjà validée — --surface-0 sur --ink-1, 16,27:1.  */
+.clair{background:var(--ink-1);color:var(--surface-0);border-color:rgba(0,0,0,.12)}
+.clair .lg{color:var(--surface-0);opacity:.62}
+/* #FFF et #000 purs : ce sont les valeurs que le mode contraste forcé de
+   Windows impose lui-même. Ce ne sont pas des surfaces du produit, et la
+   règle « jamais de #000 pur en mode sombre » ne s'y applique donc pas —
+   ces deux échantillons SIMULENT un mode système, ils ne le proposent pas. */
+.fc-clair{background:#FFF;color:#000;border-color:#000}
+.fc-sombre{background:#000;color:#FFF;border-color:#FFF}
+.fc-clair .lg,.fc-sombre .lg{color:inherit;opacity:.7}
+
+svg{display:block}
+.mk,.lk{display:block}
+.mk svg,.lk svg{width:100%;height:100%}
+.pile{display:flex;align-items:flex-end;gap:var(--sp-5);flex-wrap:wrap}
+.item{display:flex;flex-direction:column;align-items:center;gap:var(--sp-2)}
+.item .n{font-family:var(--font-mono);font-size:var(--fs-label);color:var(--ink-3);
+         font-variant-numeric:tabular-nums}
+.clair .item .n{color:var(--surface-0);opacity:.62}
+.fc-clair .item .n,.fc-sombre .item .n{color:inherit;opacity:.7}
+
+/* ── Schéma de construction ───────────────────────────────────────────── */
+.schema{width:100%;height:auto;max-width:430px}
+.schema .trait{fill:none;stroke:var(--grid);stroke-width:.35}
+.schema .axe{fill:none;stroke:var(--grid);stroke-width:.35}
+.schema .forme{fill:var(--ink-2)}
+.schema .cote{font-family:var(--font-mono);font-size:2.9px;fill:var(--ink-3)}
+.schema .rappel{fill:none;stroke:var(--ink-3);stroke-width:.25;opacity:.55}
+
+/* ── Icônes ───────────────────────────────────────────────────────────── */
+.grille-ic{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));
+           gap:var(--sp-4)}
+.ic-case{display:flex;flex-direction:column;align-items:center;gap:var(--sp-2);
+         padding:var(--sp-4) var(--sp-2);border-radius:var(--r-ctl);
+         transition:background var(--t-micro) var(--e-out)}
+.ic-case:hover{background:var(--surface-2)}
+.ic-paire{display:flex;align-items:center;gap:var(--sp-3);color:var(--ink-1)}
+.ic-paire svg{display:block}
+.ic-24{width:24px;height:24px} .ic-16{width:16px;height:16px}
+.ic-case .nom{font-size:var(--fs-sm);color:var(--ink-2);text-align:center}
+.ic-case .cle{font-family:var(--font-mono);font-size:var(--fs-label);color:var(--ink-3)}
+
+/* ── Rail de démonstration ────────────────────────────────────────────── */
+.rail{width:216px;background:var(--surface-1);border:1px solid var(--hairline);
+      border-radius:var(--r-card);padding:var(--sp-3) var(--sp-2)}
+.rail .nav{display:flex;align-items:center;gap:var(--sp-3);width:100%;
+           padding:0 var(--sp-3);height:36px;border-radius:var(--r-ctl);
+           color:var(--ink-2);font-size:var(--fs-sm)}
+.rail .nav[aria-current]{background:var(--surface-2);color:var(--ink-1)}
+.rail .nav svg{width:16px;height:16px;flex:none;opacity:.85}
+.rail .tag{margin-left:auto;font-family:var(--font-mono);font-size:var(--fs-label);
+           color:var(--ink-3)}
+.rail .titre{font-size:var(--fs-label);letter-spacing:var(--ls-label);
+             text-transform:uppercase;color:var(--ink-3);padding:var(--sp-4) var(--sp-3) var(--sp-2)}
+
+/* ── États illustrés ──────────────────────────────────────────────────── */
+.etats{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+       gap:var(--sp-4)}
+.etat{background:var(--surface-1);border:1px solid var(--hairline);
+      border-radius:var(--r-card);padding:var(--sp-6) var(--sp-5);
+      display:flex;flex-direction:column;align-items:center;text-align:center;
+      gap:var(--sp-2)}
+.etat .ill{width:96px;height:96px;color:var(--ink-3);margin-bottom:var(--sp-2)}
+.etat .ill svg{display:block;width:100%;height:100%}
+.etat h4{font-family:var(--font-tight);font-size:var(--fs-h2);font-weight:600;
+         margin:0;color:var(--ink-1);display:flex;align-items:center;gap:var(--sp-2)}
+.etat p{margin:0;font-size:var(--fs-sm);color:var(--ink-2);max-width:34ch}
+.etat .detail{font-family:var(--font-mono);font-size:var(--fs-label);color:var(--ink-3);
+              margin-top:var(--sp-2)}
+/* La couleur d'état ne porte JAMAIS le sens seule : elle double une forme
+   (clé absente / pleine / hachurée) et un libellé écrit.                  */
+.etat.sain .ks-cle{fill:var(--vital);stroke:var(--vital)}
+.etat.sain .ill{color:var(--ink-3)}
+
+/* ── Espace libre du lockup ───────────────────────────────────────────── */
+.libre{display:inline-block;background:var(--surface-2);padding:10px;
+       border:1px solid var(--hairline-strong);border-radius:var(--r-ctl)}
+.libre .dedans{background:var(--surface-1);padding:0}
+.libre .lk{width:196px;height:30px;color:var(--ink-1)}
+
+/* ── Interdits ────────────────────────────────────────────────────────── */
+.non{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+     gap:var(--sp-3)}
+.non div{background:var(--surface-1);border:1px solid var(--hairline);
+         border-radius:var(--r-ctl);padding:var(--sp-4);font-size:var(--fs-sm);
+         color:var(--ink-2)}
+.non b{display:block;color:var(--ink-1);font-weight:600;margin-bottom:var(--sp-1)}
+
+table{border-collapse:collapse;width:100%;font-size:var(--fs-sm)}
+th,td{text-align:left;padding:var(--sp-2) var(--sp-3);
+      border-bottom:1px solid var(--hairline);vertical-align:top}
+th{font-size:var(--fs-label);letter-spacing:var(--ls-label);text-transform:uppercase;
+   color:var(--ink-3);font-weight:500}
+td{color:var(--ink-2)}
+td.f{font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--ink-1);
+     white-space:nowrap}
+
+:focus-visible{outline:2px solid var(--vital);outline-offset:2px}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{transition-duration:.01ms !important;
+                       animation-duration:.01ms !important}
+}
+/* Contraste forcé de Windows : le logomark est monochrome, donc il survit.
+   Les échantillons qui simulent ce mode sont neutralisés pour ne pas
+   afficher deux fois la même chose.                                       */
+@media (forced-colors: active){
+  .carte,.etat,.ech,.rail,.non div{border:1px solid CanvasText}
+  .schema .trait,.schema .axe{stroke:CanvasText}
+  .schema .forme{fill:CanvasText}
+  /* La clé pleine doit rester visible : sans cette ligne, le navigateur
+     peut la repeindre en Canvas et l'état « aucun écart » perdrait son
+     seul élément distinctif. La hachure, elle, retombe sur le comportement
+     du navigateur — et c'est acceptable, parce que les trois états sont de
+     toute façon distingués par leur libellé écrit, jamais par le dessin seul. */
+  .etat .ks-cle{fill:CanvasText;stroke:CanvasText}
+}
+</style>
+</head>
+<body>
+
+<header class="bandeau">
+  <span class="lk"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 30" fill="currentColor" role="img"><title>Keystone</title>
+<g transform="scale(0.625)"><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></g>
+<text x="42.6" y="22.4" font-family="Inter Tight, Inter, system-ui, sans-serif" font-size="26" font-weight="600" letter-spacing="-0.52">Keystone</text>
+</svg></span>
+  <span class="dit">Identité visuelle. Une clé de voûte : la pierre centrale
+    d'un arc, la seule qui tienne par la compression des autres, et sans
+    laquelle l'ensemble tombe.</span>
+</header>
+
+<main class="wrap">
+
+<h2>La forme, et pourquoi</h2>
+<p class="intro">Le logomark est un arc en plein cintre réduit à trois voussoirs.
+Celui du milieu est la clé : il <b>saille</b> de 2 unités au-dessus de l'extrados
+et <b>plonge</b> de 6 sous l'intrados. C'est ce double dépassement, et lui seul,
+qui distingue la marque d'une arcade quelconque, et c'est le dernier détail à
+survivre quand la taille descend.</p>
+<p>Rien n'a été placé à l'œil : la totalité de la géométrie dérive de deux rayons
+et d'un angle. Le tracé se régénère par calcul, il ne se retouche pas.</p>
+
+<div class="rang" style="align-items:center;gap:var(--sp-7)">
+  <div class="carte"><svg xmlns="http://www.w3.org/2000/svg" viewBox="-22 -12 94 70" class="schema" aria-hidden="true"><g class="cons"><circle class="trait" cx="24" cy="26" r="8"/><circle class="trait" cx="24" cy="26" r="14"/><circle class="trait" cx="24" cy="26" r="20"/><circle class="trait" cx="24" cy="26" r="22"/><path class="trait" d="M-2 26H50"/><path class="axe" d="M24 -6V32"/><path class="trait" d="M21.808 21.506L12.602 2.631"/><path class="trait" d="M26.192 21.506L35.398 2.631"/><path class="trait" d="M21.149 21.892L9.175 4.641"/><path class="trait" d="M26.851 21.892L38.825 4.641"/></g><g class="forme"><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></g><text class="cote" x="24" y="-7.4" text-anchor="middle">2θ = 52°</text><path class="rappel" d="M51.6 19.1H44.5"/><text class="cote" x="50" y="20" text-anchor="start">extrados 20</text><path class="rappel" d="M51.6 26.1H38.5"/><text class="cote" x="50" y="27" text-anchor="start">intrados 14</text><path class="rappel" d="M51.6 33.1H36.5"/><text class="cote" x="50" y="34" text-anchor="start">joint 2,6</text><path class="rappel" d="M-3.6 11.1H20.5"/><text class="cote" x="-2" y="12" text-anchor="end">saillie 2</text><path class="rappel" d="M-3.6 18.1H17.5"/><text class="cote" x="-2" y="19" text-anchor="end">dent 6</text><text class="cote" x="24" y="51" text-anchor="middle">cadre 48 · marque 40 × 40</text></svg></div>
+  <div class="col" style="gap:var(--sp-4);max-width:34ch">
+    <div><span class="lg">Cadre</span><div class="mono">48 · marque 40 × 40 · marge 4</div></div>
+    <div><span class="lg">Rayons</span><div class="mono">extrados 20 · intrados 14</div></div>
+    <div><span class="lg">Clé</span><div class="mono">2θ = 52° · saillie 2 · dent 6</div></div>
+    <div><span class="lg">Joints</span><div class="mono">2,6 radial — l'écart de surface du système</div></div>
+  </div>
+</div>
+
+<h2>Le logomark, à taille réelle</h2>
+<p class="intro">Les cinq déclinaisons, sans agrandissement. Le 16 px est la
+contrainte qui tue la plupart des marques, et c'est celle de la barre des
+tâches : il est donc dessiné à part.</p>
+
+<h3>Sur les trois surfaces du produit</h3>
+<div class="ech s0" style="align-items:flex-start">
+  <span class="lg">surface-0 — le plan de page</span>
+  <div class="pile"><div class="item"><span class="mk" style="width:16px;height:16px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" role="img"><title>Keystone</title><path d="M1 15L1 8A7 7 0 0 1 3.667 2.502L5.06 4.269A4.75 4.75 0 0 0 3.25 8L3.25 15Z"/><path d="M4.714 1.819A7 7 0 0 1 11.286 1.819L9.479 5.219A3.15 3.15 0 0 0 6.521 5.219Z"/><path d="M15 15L15 8A7 7 0 0 0 12.333 2.502L10.94 4.269A4.75 4.75 0 0 1 12.75 8L12.75 15Z"/></svg></span><span class="n">16</span></div><div class="item"><span class="mk" style="width:24px;height:24px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">24</span></div><div class="item"><span class="mk" style="width:32px;height:32px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">32</span></div><div class="item"><span class="mk" style="width:64px;height:64px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">64</span></div><div class="item"><span class="mk" style="width:256px;height:256px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">256</span></div></div>
+</div>
+<div class="rang" style="margin-top:var(--sp-3)">
+  <div class="ech s1"><span class="lg">surface-1</span><div class="pile"><div class="item"><span class="mk" style="width:16px;height:16px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" role="img"><title>Keystone</title><path d="M1 15L1 8A7 7 0 0 1 3.667 2.502L5.06 4.269A4.75 4.75 0 0 0 3.25 8L3.25 15Z"/><path d="M4.714 1.819A7 7 0 0 1 11.286 1.819L9.479 5.219A3.15 3.15 0 0 0 6.521 5.219Z"/><path d="M15 15L15 8A7 7 0 0 0 12.333 2.502L10.94 4.269A4.75 4.75 0 0 1 12.75 8L12.75 15Z"/></svg></span><span class="n">16</span></div><div class="item"><span class="mk" style="width:24px;height:24px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">24</span></div><div class="item"><span class="mk" style="width:32px;height:32px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">32</span></div><div class="item"><span class="mk" style="width:64px;height:64px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">64</span></div></div></div>
+  <div class="ech s2"><span class="lg">surface-2</span><div class="pile"><div class="item"><span class="mk" style="width:16px;height:16px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" role="img"><title>Keystone</title><path d="M1 15L1 8A7 7 0 0 1 3.667 2.502L5.06 4.269A4.75 4.75 0 0 0 3.25 8L3.25 15Z"/><path d="M4.714 1.819A7 7 0 0 1 11.286 1.819L9.479 5.219A3.15 3.15 0 0 0 6.521 5.219Z"/><path d="M15 15L15 8A7 7 0 0 0 12.333 2.502L10.94 4.269A4.75 4.75 0 0 1 12.75 8L12.75 15Z"/></svg></span><span class="n">16</span></div><div class="item"><span class="mk" style="width:24px;height:24px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">24</span></div><div class="item"><span class="mk" style="width:32px;height:32px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">32</span></div><div class="item"><span class="mk" style="width:64px;height:64px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">64</span></div></div></div>
+  <div class="ech s3"><span class="lg">surface-3</span><div class="pile"><div class="item"><span class="mk" style="width:16px;height:16px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" role="img"><title>Keystone</title><path d="M1 15L1 8A7 7 0 0 1 3.667 2.502L5.06 4.269A4.75 4.75 0 0 0 3.25 8L3.25 15Z"/><path d="M4.714 1.819A7 7 0 0 1 11.286 1.819L9.479 5.219A3.15 3.15 0 0 0 6.521 5.219Z"/><path d="M15 15L15 8A7 7 0 0 0 12.333 2.502L10.94 4.269A4.75 4.75 0 0 1 12.75 8L12.75 15Z"/></svg></span><span class="n">16</span></div><div class="item"><span class="mk" style="width:24px;height:24px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">24</span></div><div class="item"><span class="mk" style="width:32px;height:32px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">32</span></div><div class="item"><span class="mk" style="width:64px;height:64px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">64</span></div></div></div>
+</div>
+
+<h3>En clair, et en contraste forcé</h3>
+<p>Le produit est en mode sombre natif : il n'existe pas de seconde palette
+claire, et en inventer une reviendrait à choisir des teintes à l'œil. Le clair
+de la marque est donc l'<b>inversion exacte</b> de la paire déjà validée,
+<code>--surface-0</code> sur <code>--ink-1</code>, soit 16,27:1. Le contraste
+forcé de Windows remplace les deux par les couleurs système ; la marque étant
+monochrome, elle traverse l'opération sans rien perdre.</p>
+<div class="ech clair" style="align-items:flex-start">
+  <span class="lg">inversion — surface-0 sur ink-1, 16,27:1</span>
+  <div class="pile"><div class="item"><span class="mk" style="width:16px;height:16px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" role="img"><title>Keystone</title><path d="M1 15L1 8A7 7 0 0 1 3.667 2.502L5.06 4.269A4.75 4.75 0 0 0 3.25 8L3.25 15Z"/><path d="M4.714 1.819A7 7 0 0 1 11.286 1.819L9.479 5.219A3.15 3.15 0 0 0 6.521 5.219Z"/><path d="M15 15L15 8A7 7 0 0 0 12.333 2.502L10.94 4.269A4.75 4.75 0 0 1 12.75 8L12.75 15Z"/></svg></span><span class="n">16</span></div><div class="item"><span class="mk" style="width:24px;height:24px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">24</span></div><div class="item"><span class="mk" style="width:32px;height:32px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">32</span></div><div class="item"><span class="mk" style="width:64px;height:64px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">64</span></div><div class="item"><span class="mk" style="width:256px;height:256px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">256</span></div></div>
+</div>
+<div class="rang" style="margin-top:var(--sp-3)">
+  <div class="ech fc-clair"><span class="lg">contraste forcé, clair</span><div class="pile"><div class="item"><span class="mk" style="width:16px;height:16px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" role="img"><title>Keystone</title><path d="M1 15L1 8A7 7 0 0 1 3.667 2.502L5.06 4.269A4.75 4.75 0 0 0 3.25 8L3.25 15Z"/><path d="M4.714 1.819A7 7 0 0 1 11.286 1.819L9.479 5.219A3.15 3.15 0 0 0 6.521 5.219Z"/><path d="M15 15L15 8A7 7 0 0 0 12.333 2.502L10.94 4.269A4.75 4.75 0 0 1 12.75 8L12.75 15Z"/></svg></span><span class="n">16</span></div><div class="item"><span class="mk" style="width:24px;height:24px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">24</span></div><div class="item"><span class="mk" style="width:32px;height:32px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">32</span></div><div class="item"><span class="mk" style="width:64px;height:64px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">64</span></div></div></div>
+  <div class="ech fc-sombre"><span class="lg">contraste forcé, sombre</span><div class="pile"><div class="item"><span class="mk" style="width:16px;height:16px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" role="img"><title>Keystone</title><path d="M1 15L1 8A7 7 0 0 1 3.667 2.502L5.06 4.269A4.75 4.75 0 0 0 3.25 8L3.25 15Z"/><path d="M4.714 1.819A7 7 0 0 1 11.286 1.819L9.479 5.219A3.15 3.15 0 0 0 6.521 5.219Z"/><path d="M15 15L15 8A7 7 0 0 0 12.333 2.502L10.94 4.269A4.75 4.75 0 0 1 12.75 8L12.75 15Z"/></svg></span><span class="n">16</span></div><div class="item"><span class="mk" style="width:24px;height:24px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">24</span></div><div class="item"><span class="mk" style="width:32px;height:32px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">32</span></div><div class="item"><span class="mk" style="width:64px;height:64px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">64</span></div></div></div>
+</div>
+
+<h3>Deux tailles optiques, et ce qui les sépare</h3>
+<p>En dessous de 24 px, le dessin de référence perd sa clé : les joints se
+referment et la saillie ne vaut plus qu'un demi-pixel. La variante de petite
+taille élargit les joints, retire la saillie et raccourcit la dent — car une
+dent trop profonde, une fois la saillie disparue, fait lire un <b>M</b>. Les
+deux dessins sont ci-dessous à 16 px, puis grossis six fois pour montrer
+l'écart.</p>
+<div class="rang">
+  <div class="ech s1"><span class="lg">référence à 16 px</span>
+    <div class="pile"><div class="item"><span class="mk" style="width:16px;height:16px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">16</span></div>
+    <div class="item"><span class="mk" style="width:96px;height:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="currentColor" role="img"><title>Keystone</title><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></svg></span><span class="n">× 6</span></div></div></div>
+  <div class="ech s1"><span class="lg">taille optique 16</span>
+    <div class="pile"><div class="item"><span class="mk" style="width:16px;height:16px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" role="img"><title>Keystone</title><path d="M1 15L1 8A7 7 0 0 1 3.667 2.502L5.06 4.269A4.75 4.75 0 0 0 3.25 8L3.25 15Z"/><path d="M4.714 1.819A7 7 0 0 1 11.286 1.819L9.479 5.219A3.15 3.15 0 0 0 6.521 5.219Z"/><path d="M15 15L15 8A7 7 0 0 0 12.333 2.502L10.94 4.269A4.75 4.75 0 0 1 12.75 8L12.75 15Z"/></svg></span><span class="n">16</span></div>
+    <div class="item"><span class="mk" style="width:96px;height:96px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" role="img"><title>Keystone</title><path d="M1 15L1 8A7 7 0 0 1 3.667 2.502L5.06 4.269A4.75 4.75 0 0 0 3.25 8L3.25 15Z"/><path d="M4.714 1.819A7 7 0 0 1 11.286 1.819L9.479 5.219A3.15 3.15 0 0 0 6.521 5.219Z"/><path d="M15 15L15 8A7 7 0 0 0 12.333 2.502L10.94 4.269A4.75 4.75 0 0 1 12.75 8L12.75 15Z"/></svg></span><span class="n">× 6</span></div></div></div>
+</div>
+
+<h2>Lockup</h2>
+<p class="intro">Marque et mot-symbole. La hauteur de la marque vaut 1,15 fois la
+hauteur de capitale du mot ; l'écart entre les deux vaut 0,42 fois la hauteur de
+la marque.</p>
+<div class="rang" style="align-items:center">
+  <div class="ech s1" style="min-width:auto">
+    <span class="lg">espace libre minimal</span>
+    <span class="libre"><span class="dedans"><span class="lk"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 30" fill="currentColor" role="img"><title>Keystone</title>
+<g transform="scale(0.625)"><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></g>
+<text x="42.6" y="22.4" font-family="Inter Tight, Inter, system-ui, sans-serif" font-size="26" font-weight="600" letter-spacing="-0.52">Keystone</text>
+</svg></span></span></span>
+  </div>
+  <div class="col" style="max-width:38ch">
+    <p><b>Un tiers de la hauteur du logomark</b>, sur les quatre côtés. Rien
+    n'entre dans cette zone : ni texte, ni filet, ni bord de conteneur.</p>
+    <p>Taille minimale : <b>96 px</b> de large pour le lockup, <b>16 px</b> pour
+    le logomark seul. En dessous, le logomark seul, jamais le lockup réduit.</p>
+  </div>
+</div>
+<div class="rang" style="margin-top:var(--sp-4)">
+  <div class="ech s0" style="min-width:260px"><span class="lg">surface-0</span>
+    <span class="mk" style="width:202px;height:36px;color:var(--ink-1)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 30" fill="currentColor" role="img"><title>Keystone</title>
+<g transform="scale(0.625)"><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></g>
+<text x="42.6" y="22.4" font-family="Inter Tight, Inter, system-ui, sans-serif" font-size="26" font-weight="600" letter-spacing="-0.52">Keystone</text>
+</svg></span></div>
+  <div class="ech s2" style="min-width:260px"><span class="lg">surface-2</span>
+    <span class="mk" style="width:202px;height:36px;color:var(--ink-1)"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 30" fill="currentColor" role="img"><title>Keystone</title>
+<g transform="scale(0.625)"><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></g>
+<text x="42.6" y="22.4" font-family="Inter Tight, Inter, system-ui, sans-serif" font-size="26" font-weight="600" letter-spacing="-0.52">Keystone</text>
+</svg></span></div>
+  <div class="ech clair" style="min-width:260px"><span class="lg">inversion</span>
+    <span class="mk" style="width:200px;height:36px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 30" fill="currentColor" role="img"><title>Keystone</title>
+<g transform="scale(0.625)"><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></g>
+<text x="42.6" y="22.4" font-family="Inter Tight, Inter, system-ui, sans-serif" font-size="26" font-weight="600" letter-spacing="-0.52">Keystone</text>
+</svg></span></div>
+</div>
+<p style="margin-top:var(--sp-4)"><b>Réserve.</b> Le mot-symbole est encore du
+texte vivant, réglé sur la pile <code>Inter Tight</code> des tokens. Cette page a
+été jugée sur un poste où cette fonte n'est pas installée : ce que vous voyez ci-
+dessus est la police de repli du système. Le mot-symbole doit être vectorisé le
+jour où la fonte sera embarquée en <code>@font-face</code> local, décision qui
+reste ouverte (licence, graisses réellement employées, poids ajouté au dépôt).</p>
+
+<h2>Jeu d'icônes</h2>
+<p class="intro">Neuf icônes de navigation, grille 24, trait 1,7, sans
+remplissage, en <code>currentColor</code>. Elles reprennent le jeu déjà présent
+dans le rail du poste de pilotage plutôt que d'ouvrir un dialecte parallèle.
+Trois changements de fond, et un réglage général.</p>
+<p>Le réglage général : <b>terminaisons et jonctions rondes</b>. C'est déjà le
+langage de l'arc du Health&nbsp;Ring, qui porte <code>stroke-linecap: round</code> ;
+les icônes du rail employaient le défaut, et l'écart se voyait aux extrémités.</p>
+<div class="grille-ic"><div class="ic-case"><div class="ic-paire"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-24" aria-hidden="true"><circle cx="12" cy="12" r="8.25"/><circle cx="12" cy="12" r="2.5"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><circle cx="12" cy="12" r="8.25"/><circle cx="12" cy="12" r="2.5"/></svg></div><span class="nom">Vue d'ensemble</span><span class="cle">ks-overview</span></div><div class="ic-case"><div class="ic-paire"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-24" aria-hidden="true"><path d="M3.5 8h5.5l2.5 8h9"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M3.5 8h5.5l2.5 8h9"/></svg></div><span class="nom">Dérive</span><span class="cle">ks-drift</span></div><div class="ic-case"><div class="ic-paire"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-24" aria-hidden="true"><path d="M12 4.25v9.6M8.5 10.75 12 14.25l3.5-3.5M5 19.25h14"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M12 4.25v9.6M8.5 10.75 12 14.25l3.5-3.5M5 19.25h14"/></svg></div><span class="nom">Mises à jour</span><span class="cle">ks-updates</span></div><div class="ic-case"><div class="ic-paire"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-24" aria-hidden="true"><path d="M12 3.4 19 6.2v5.9c0 4.15-2.85 7.5-7 8.75-4.15-1.25-7-4.6-7-8.75V6.2Z"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M12 3.4 19 6.2v5.9c0 4.15-2.85 7.5-7 8.75-4.15-1.25-7-4.6-7-8.75V6.2Z"/></svg></div><span class="nom">Sécurité</span><span class="cle">ks-security</span></div><div class="ic-case"><div class="ic-paire"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-24" aria-hidden="true"><path d="M5.25 6.5h13.5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5.25a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2M8.5 6.5v11M13 6.5v11"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M5.25 6.5h13.5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5.25a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2M8.5 6.5v11M13 6.5v11"/></svg></div><span class="nom">Espace</span><span class="cle">ks-space</span></div><div class="ic-case"><div class="ic-paire"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-24" aria-hidden="true"><path d="M5.5 4.25h13a2.25 2.25 0 0 1 2.25 2.25v11a2.25 2.25 0 0 1-2.25 2.25h-13A2.25 2.25 0 0 1 3.25 17.5v-11A2.25 2.25 0 0 1 5.5 4.25M8.75 8.5h6.5a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5h-6.5A1.5 1.5 0 0 1 7.25 14v-4A1.5 1.5 0 0 1 8.75 8.5"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M5.5 4.25h13a2.25 2.25 0 0 1 2.25 2.25v11a2.25 2.25 0 0 1-2.25 2.25h-13A2.25 2.25 0 0 1 3.25 17.5v-11A2.25 2.25 0 0 1 5.5 4.25M8.75 8.5h6.5a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5h-6.5A1.5 1.5 0 0 1 7.25 14v-4A1.5 1.5 0 0 1 8.75 8.5"/></svg></div><span class="nom">WSL et VM</span><span class="cle">ks-wsl</span></div><div class="ic-case"><div class="ic-paire"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-24" aria-hidden="true"><path d="M4.75 4.5h14.5a1.5 1.5 0 0 1 1.5 1.5v2.25a1.5 1.5 0 0 1-1.5 1.5H4.75a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5M5.25 9.75v7.75a2 2 0 0 0 2 2h9.5a2 2 0 0 0 2-2V9.75M10 13.25h4"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M4.75 4.5h14.5a1.5 1.5 0 0 1 1.5 1.5v2.25a1.5 1.5 0 0 1-1.5 1.5H4.75a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5M5.25 9.75v7.75a2 2 0 0 0 2 2h9.5a2 2 0 0 0 2-2V9.75M10 13.25h4"/></svg></div><span class="nom">Sauvegarde</span><span class="cle">ks-backup</span></div><div class="ic-case"><div class="ic-paire"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-24" aria-hidden="true"><path d="M4.25 4.75v14.5M8 7.75h11.75M8 12h11.75M8 16.25h7.5"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M4.25 4.75v14.5M8 7.75h11.75M8 12h11.75M8 16.25h7.5"/></svg></div><span class="nom">Journal</span><span class="cle">ks-journal</span></div><div class="ic-case"><div class="ic-paire"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-24" aria-hidden="true"><path d="M4 19.75V12A8 8 0 0 1 7.075 5.697M20 19.75V12A8 8 0 0 0 16.925 5.697M2.75 19.75h18.5"/></svg><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M4 19.75V12A8 8 0 0 1 7.075 5.697M20 19.75V12A8 8 0 0 0 16.925 5.697M2.75 19.75h18.5"/></svg></div><span class="nom">Premier lancement</span><span class="cle">ks-first</span></div></div>
+
+<h3>Ce qui a changé, et pourquoi</h3>
+<table>
+<tr><th>Icône</th><th>Avant</th><th>Maintenant</th><th>Raison</th></tr>
+<tr><td class="f">drift</td><td>trois filets de longueurs inégales</td>
+    <td>un filet de niveau qui décroche</td>
+    <td>Les trois filets disaient « une liste ». Un écart est un décrochement, et il se dessine.</td></tr>
+<tr><td class="f">backup</td><td>flèche descendante sur un filet</td><td>coffre à couvercle</td>
+    <td>C'était le dessin des mises à jour, au filet près : deux entrées du rail portaient la même image.</td></tr>
+<tr><td class="f">space</td><td>rectangle coupé d'un filet</td><td>volume à trois segments inégaux</td>
+    <td>Le rectangle coupé lisait « fenêtre ». Les segments inégaux sont l'attribution elle-même.</td></tr>
+<tr><td class="f">first</td><td>cercle et quatre crans</td><td>l'arc sans sa clé</td>
+    <td>Le cercle cranté lisait « réglages ». L'arc ouvert dit ce que le premier lancement constate : rien n'est encore déclaré.</td></tr>
+<tr><td class="f">journal</td><td>trois filets</td><td>registre à dos</td>
+    <td>Distinguer du dessin de la dérive, et rappeler que le journal est relié, donc chaîné.</td></tr>
+<tr><td class="f">overview</td><td>deux cercles concentriques</td><td>les mêmes, reproportionnés</td>
+    <td>Rien à réinventer : l'anneau est déjà le Health Ring. Rayons portés de 9 et 3,2 à 8,25 et 2,5, pour l'air.</td></tr>
+</table>
+
+<h3>En situation</h3>
+<div class="rang" style="align-items:flex-start"><nav class="rail" aria-label="Exemple de navigation"><div class="nav" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><circle cx="12" cy="12" r="8.25"/><circle cx="12" cy="12" r="2.5"/></svg><span>Vue d'ensemble</span></div><div class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M3.5 8h5.5l2.5 8h9"/></svg><span>Dérive</span><span class="tag">3</span></div><div class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M12 4.25v9.6M8.5 10.75 12 14.25l3.5-3.5M5 19.25h14"/></svg><span>Mises à jour</span><span class="tag">14</span></div><div class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M12 3.4 19 6.2v5.9c0 4.15-2.85 7.5-7 8.75-4.15-1.25-7-4.6-7-8.75V6.2Z"/></svg><span>Sécurité</span><span class="tag">—</span></div><div class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M5.25 6.5h13.5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5.25a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2M8.5 6.5v11M13 6.5v11"/></svg><span>Espace</span><span class="tag">72 %</span></div><div class="titre">Systèmes</div><div class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M4 19.75V12A8 8 0 0 1 7.075 5.697M20 19.75V12A8 8 0 0 0 16.925 5.697M2.75 19.75h18.5"/></svg><span>Premier lancement</span></div><div class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M5.5 4.25h13a2.25 2.25 0 0 1 2.25 2.25v11a2.25 2.25 0 0 1-2.25 2.25h-13A2.25 2.25 0 0 1 3.25 17.5v-11A2.25 2.25 0 0 1 5.5 4.25M8.75 8.5h6.5a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5h-6.5A1.5 1.5 0 0 1 7.25 14v-4A1.5 1.5 0 0 1 8.75 8.5"/></svg><span>WSL et VM</span></div><div class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M4.75 4.5h14.5a1.5 1.5 0 0 1 1.5 1.5v2.25a1.5 1.5 0 0 1-1.5 1.5H4.75a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5M5.25 9.75v7.75a2 2 0 0 0 2 2h9.5a2 2 0 0 0 2-2V9.75M10 13.25h4"/></svg><span>Sauvegarde</span></div><div class="nav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" class="ic-16" aria-hidden="true"><path d="M4.25 4.75v14.5M8 7.75h11.75M8 12h11.75M8 16.25h7.5"/></svg><span>Journal</span></div></nav>
+  <div class="col" style="max-width:40ch">
+    <p>Le rail à sa largeur réelle de 216 px, icônes à 16 px. C'est la seule
+    épreuve qui compte : une icône se juge dans sa rangée, pas sur une planche.</p>
+  </div>
+</div>
+
+<h2>Trois états illustrés</h2>
+<p class="intro">Un seul dessin, à trois degrés de connaissance. La clé est
+<b>absente</b> quand rien n'est déclaré, <b>pleine</b> quand elle a été relevée,
+<b>hachurée</b> quand elle est là mais qu'on n'a pas pu la lire. La forme porte
+le sens ; la couleur n'arrive qu'en troisième, après le dessin et le mot.</p>
+<div class="etats"><div class="etat"><div class="ill"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M8 88L8 52A40 40 0 0 1 25.193 19.139L32.035 28.997A28 28 0 0 0 20 52L20 88Z"/><path d="M88 88L88 52A40 40 0 0 0 70.807 19.139L63.965 28.997A28 28 0 0 1 76 52L76 88Z"/><path d="M5 89.2h86" stroke-linecap="round"/></svg></div><h4>Premier lancement</h4><p>Rien n'est encore déclaré. Keystone a lu la machine sans rien écrire.</p><span class="detail">312 items relevés · workstation.yaml proposé</span></div><div class="etat sain"><div class="ill"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M8 88L8 52A40 40 0 0 1 25.193 19.139L32.035 28.997A28 28 0 0 0 20 52L20 88Z"/><path d="M88 88L88 52A40 40 0 0 0 70.807 19.139L63.965 28.997A28 28 0 0 1 76 52L76 88Z"/><path d="M5 89.2h86" stroke-linecap="round"/><path class="ks-cle" d="M28.712 12.453A44 44 0 0 1 67.288 12.453L55.014 37.619A16 16 0 0 0 40.986 37.619Z" fill="currentColor"/></svg></div><h4>Aucun écart</h4><p>L'état réel correspond à l'état déclaré. Rien n'a changé depuis 19 h.</p><span class="detail">dernière mesure il y a 40 secondes</span></div><div class="etat"><div class="ill"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><defs><pattern id="ks-nonreleve" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="7" stroke="currentColor" stroke-width="1.15"/></pattern></defs><path d="M8 88L8 52A40 40 0 0 1 25.193 19.139L32.035 28.997A28 28 0 0 0 20 52L20 88Z"/><path d="M88 88L88 52A40 40 0 0 0 70.807 19.139L63.965 28.997A28 28 0 0 1 76 52L76 88Z"/><path d="M5 89.2h86" stroke-linecap="round"/><path class="ks-cle" d="M28.712 12.453A44 44 0 0 1 67.288 12.453L55.014 37.619A16 16 0 0 0 40.986 37.619Z" fill="url(#ks-nonreleve)"/></svg></div><h4>Lecture impossible</h4><p>Le relevé n'a pas pu avoir lieu. Ce n'est ni un écart, ni une conformité.</p><span class="detail">detail : 0x80070005 · ACCESS_DENIED</span></div></div>
+<p style="margin-top:var(--sp-4)"><b>Le troisième est le plus important.</b>
+« Lecture impossible » ne dit ni « rien à signaler » ni « écart constaté » : il
+dit que la mesure n'a pas eu lieu. Il ne prend donc <b>aucune couleur d'état</b>,
+et la hachure à 45° est celle que le dossier de design prescrit déjà en
+remplacement de la couleur — en dessin technique, elle signifie « zone non
+levée ». Un état de lecture peint en rouge affirmerait un constat qui n'a pas
+été fait.</p>
+
+<h2>Icône d'application</h2>
+<p class="intro">Plaque <code>--surface-1</code>, marque <code>--ink-1</code> :
+14,83:1. La plaque n'est pas décorative — une marque monochrome claire sur fond
+transparent disparaîtrait sur une barre des tâches en thème clair. Le fichier
+<code>keystone.ico</code> porte quatre images distinctes : le 16 px n'est pas un
+256 réduit, c'est le dessin de petite taille.</p>
+<div class="rang">
+  <div class="ech s0"><span class="lg">sur surface-0</span><div class="pile"><div class="item"><span class="mk" style="width:16px;height:16px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" role="img"><title>Keystone</title><rect width="16" height="16" rx="3.56" fill="#131A22"/><g transform="translate(2.08 2.08) scale(0.74)" fill="#E6EDF3"><path d="M1 15L1 8A7 7 0 0 1 3.667 2.502L5.06 4.269A4.75 4.75 0 0 0 3.25 8L3.25 15Z"/><path d="M4.714 1.819A7 7 0 0 1 11.286 1.819L9.479 5.219A3.15 3.15 0 0 0 6.521 5.219Z"/><path d="M15 15L15 8A7 7 0 0 0 12.333 2.502L10.94 4.269A4.75 4.75 0 0 1 12.75 8L12.75 15Z"/></g></svg></span><span class="n">16</span></div><div class="item"><span class="mk" style="width:24px;height:24px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img"><title>Keystone</title><rect width="48" height="48" rx="10.68" fill="#131A22"/><g transform="translate(7.2 7.2) scale(0.7)" fill="#E6EDF3"><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></g></svg></span><span class="n">24</span></div><div class="item"><span class="mk" style="width:32px;height:32px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img"><title>Keystone</title><rect width="48" height="48" rx="10.68" fill="#131A22"/><g transform="translate(7.2 7.2) scale(0.7)" fill="#E6EDF3"><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></g></svg></span><span class="n">32</span></div><div class="item"><span class="mk" style="width:48px;height:48px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img"><title>Keystone</title><rect width="48" height="48" rx="10.68" fill="#131A22"/><g transform="translate(7.2 7.2) scale(0.7)" fill="#E6EDF3"><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></g></svg></span><span class="n">48</span></div><div class="item"><span class="mk" style="width:256px;height:256px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img"><title>Keystone</title><rect width="48" height="48" rx="10.68" fill="#131A22"/><g transform="translate(7.2 7.2) scale(0.7)" fill="#E6EDF3"><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></g></svg></span><span class="n">256</span></div></div></div>
+  <div class="ech clair"><span class="lg">sur fond clair</span><div class="pile"><div class="item"><span class="mk" style="width:16px;height:16px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" role="img"><title>Keystone</title><rect width="16" height="16" rx="3.56" fill="#131A22"/><g transform="translate(2.08 2.08) scale(0.74)" fill="#E6EDF3"><path d="M1 15L1 8A7 7 0 0 1 3.667 2.502L5.06 4.269A4.75 4.75 0 0 0 3.25 8L3.25 15Z"/><path d="M4.714 1.819A7 7 0 0 1 11.286 1.819L9.479 5.219A3.15 3.15 0 0 0 6.521 5.219Z"/><path d="M15 15L15 8A7 7 0 0 0 12.333 2.502L10.94 4.269A4.75 4.75 0 0 1 12.75 8L12.75 15Z"/></g></svg></span><span class="n">16</span></div><div class="item"><span class="mk" style="width:24px;height:24px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img"><title>Keystone</title><rect width="48" height="48" rx="10.68" fill="#131A22"/><g transform="translate(7.2 7.2) scale(0.7)" fill="#E6EDF3"><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></g></svg></span><span class="n">24</span></div><div class="item"><span class="mk" style="width:32px;height:32px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img"><title>Keystone</title><rect width="48" height="48" rx="10.68" fill="#131A22"/><g transform="translate(7.2 7.2) scale(0.7)" fill="#E6EDF3"><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></g></svg></span><span class="n">32</span></div><div class="item"><span class="mk" style="width:48px;height:48px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img"><title>Keystone</title><rect width="48" height="48" rx="10.68" fill="#131A22"/><g transform="translate(7.2 7.2) scale(0.7)" fill="#E6EDF3"><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></g></svg></span><span class="n">48</span></div><div class="item"><span class="mk" style="width:256px;height:256px"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img"><title>Keystone</title><rect width="48" height="48" rx="10.68" fill="#131A22"/><g transform="translate(7.2 7.2) scale(0.7)" fill="#E6EDF3"><path d="M4 44L4 26A20 20 0 0 1 12.596 9.57L16.017 14.499A14 14 0 0 0 10 26L10 44Z"/><path d="M14.356 6.227A22 22 0 0 1 33.644 6.227L27.507 18.81A8 8 0 0 0 20.493 18.81Z"/><path d="M44 44L44 26A20 20 0 0 0 35.404 9.57L31.983 14.499A14 14 0 0 1 38 26L38 44Z"/></g></svg></span><span class="n">256</span></div></div></div>
+</div>
+
+<h2>Ce qu'il ne faut pas faire</h2>
+<div class="non">
+  <div><b>Ne pas incliner, ni retourner</b>Un arc a un haut et un bas. Renversé,
+       il ne tient plus rien.</div>
+  <div><b>Ne pas remplir la clé d'une autre couleur que l'encre</b>Sur la marque,
+       la clé n'est pas un indicateur d'état. Cet usage est réservé aux
+       illustrations d'état.</div>
+  <div><b>Ne pas ajouter de contour, d'ombre ni de lueur</b>La profondeur du
+       produit vient de la lumière, jamais d'une ombre portée noire.</div>
+  <div><b>Ne pas dégrader la marque</b>Un seul aplat, une seule couleur. Un
+       dégradé la rend inutilisable en contraste forcé et en impression.</div>
+  <div><b>Ne pas réduire le lockup sous 96 px</b>En dessous, le mot-symbole
+       casse. Utiliser le logomark seul.</div>
+  <div><b>Ne pas redessiner la marque à la main</b>La géométrie se régénère par
+       calcul. Une retouche à l'œil rompt la relation entre les rayons.</div>
+  <div><b>Ne pas répéter la marque dans un écran</b>Un asset signature par vue,
+       et la plupart des vues n'en portent aucun. La rareté est ce qui lui
+       garde sa charge.</div>
+  <div><b>Ne pas animer la marque</b>Rien ne clignote dans Keystone, et la
+       marque n'est pas un indicateur de chargement.</div>
+</div>
+
+<h2>Fichiers</h2>
+<table>
+<tr><th>Fichier</th><th>Rôle</th></tr>
+<tr><td class="f">logomark.svg</td><td>Dessin de référence, cadre 48, sans dimension imposée</td></tr>
+<tr><td class="f">logomark-16.svg</td><td>Taille optique 16 px — dessin distinct, joints élargis</td></tr>
+<tr><td class="f">logomark-24/32/64/256.svg</td><td>Référence, dimension fixée</td></tr>
+<tr><td class="f">lockup.svg</td><td>Marque et mot-symbole. Mot-symbole à vectoriser</td></tr>
+<tr><td class="f">icones.svg</td><td>Neuf symboles, à référencer par <code>&lt;use href="icones.svg#ks-drift"&gt;</code></td></tr>
+<tr><td class="f">etat-*.svg</td><td>Trois états illustrés, 96 × 96</td></tr>
+<tr><td class="f">app-icon.svg · app-icon-16.svg</td><td>Sources de l'icône d'application</td></tr>
+<tr><td class="f">keystone.ico</td><td>16 · 32 · 48 · 256, BMP et PNG. Destiné à <code>ui/ks-ui/icons/icon.ico</code></td></tr>
+<tr><td class="f">schema-construction.svg</td><td>Cotes du logomark</td></tr>
+</table>
+
+<hr>
+<p><b>Deux points à trancher, signalés plutôt que passés sous silence.</b></p>
+<p>Le contrôle de CI « Les maquettes et la coque ne dérivent pas de
+design/tokens.css » parcourt <code>design/*.html</code>, sans étoile double :
+il n'atteint pas <code>design/marque/index.html</code>. Les tokens recopiés en
+tête de cette page ne sont donc vérifiés par personne. Le motif du job gagnerait
+à devenir <code>design/*.html design/*/*.html</code>.</p>
+<p>Les deux valeurs de <code>app-icon.svg</code> — <code>#131A22</code> et
+<code>#E6EDF3</code> — sont écrites en clair parce qu'un fichier destiné à
+devenir un <code>.ico</code> n'a ni feuille de style ni variable. C'est une
+duplication assumée, notée dans l'en-tête du fichier : elle doit suivre à la
+main toute correction de <code>--surface-1</code> ou <code>--ink-1</code>.</p>
+
+</main>
+</body>
+</html>
