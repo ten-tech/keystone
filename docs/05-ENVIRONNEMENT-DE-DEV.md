@@ -162,7 +162,7 @@ ci-dessus et porte les siennes. Les trois mêmes, depuis `ui/` :
 
 ```powershell
 cd ui
-cargo test --workspace          # 21 tests, dont les barrières du poste de pilotage
+cargo test --workspace          # 28 tests, dont les barrières du poste de pilotage
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 cargo run -p ks-ui              # ouvre la fenêtre, collecte, affiche

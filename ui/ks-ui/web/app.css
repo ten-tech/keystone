@@ -54,6 +54,28 @@
   --font-sans: 'Inter', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
+  /* L'ÉCHELLE TYPOGRAPHIQUE, recopiée de design/tokens.css (brief §3.1).
+     Elle n'était pas déclarée ici, et la coque avait dérivé à quatorze tailles
+     rendues pour une échelle qui en promet huit — 9,5 px sur la pastille du
+     rail replié, plus petit texte de toute l'interface. Une échelle qu'on ne
+     nomme pas est une échelle qu'on n'applique pas : chaque `font-size` de ce
+     fichier passe désormais par l'un de ces paliers, et aucun autre.
+
+     `--fs-hero` n'a pas de porteur aujourd'hui : le chiffre héros de la
+     maquette se calcule contre une référence, et il n'y en a pas.
+
+     12,5 px sert ici la télémétrie ET la prose secondaire dense (notes,
+     légendes, commentaires de tuile). Le brief le range sous « télémétrie,
+     chemins » ; l'usage est plus large, et il vaut mieux le dire que
+     l'improviser palier par palier. */
+  --fs-display: 34px;
+  --fs-h1: 22px;
+  --fs-h2: 16px;
+  --fs-body: 14px;
+  --fs-sm: 13px;
+  --fs-mono: 12.5px;
+  --fs-label: 11px;
+
   /* Rythme */
   --t-micro: 120ms;
   --t-state: 200ms;
@@ -98,7 +120,7 @@ body {
   overflow: hidden;
   background: var(--surface-0);
   color: var(--ink-1);
-  font: 400 14px/1.55 var(--font-sans);
+  font: 400 var(--fs-body) / 1.55 var(--font-sans);
   -webkit-font-smoothing: antialiased;
   /* La coque n'est pas une page web : rien à faire glisser. Le rapport et les
      détails techniques restent sélectionnables, eux — voir plus bas. */
@@ -130,8 +152,23 @@ body::before {
 }
 
 code {
-  font: 12.5px/1.6 var(--font-mono);
+  font: var(--fs-mono) / 1.6 var(--font-mono);
   color: var(--ink-2);
+}
+
+/* Hors de l'écran, jamais hors de l'arbre d'accessibilité. `display: none` ou
+   `visibility: hidden` retireraient le texte des deux à la fois — c'est très
+   exactement le défaut que ce fichier portait sur les libellés du rail. */
+.hors-ecran {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ── Trame d'application ─────────────────────────────────────────────────── */
@@ -151,8 +188,18 @@ body[data-state='ready'] .app {
 }
 
 /* Rail replié : 60 px, de quoi loger une icône de 16 px dans une cible de
-   44 px. Les libellés quittent l'écran mais JAMAIS l'arbre d'accessibilité —
-   chaque bouton garde son texte accessible. */
+   44 px.
+
+   LES LIBELLÉS QUITTENT BEL ET BIEN L'ARBRE D'ACCESSIBILITÉ ICI. Le
+   `display: none` ci-dessous exclut `.lbl` du calcul du nom accessible
+   (accname, étape 2F) : le commentaire qui promettait le contraire à cet
+   endroit était faux, et cinq boutons sur neuf se retrouvaient sans nom dès
+   qu'on repliait le rail.
+
+   Ce qui tient la promesse, c'est l'`aria-label` que chaque bouton porte dans
+   index.html et que app.js recalcule avec son décompte. Une technique de
+   masquage visuel aurait rendu le nom au bouton, pas son contexte : « N »
+   n'apprend rien, « Sécurité, N items relevés » se comprend seul. */
 html[data-rail='replie'] {
   --rail-w: 60px;
 }
@@ -181,17 +228,22 @@ html[data-rail='replie'] .rail-label {
   background: var(--hairline);
 }
 /* Le décompte survit au pliage, en pastille sur l'icône : le rail doit pouvoir
-   dire combien d'items porte un écran sans être déplié. */
+   dire combien d'items porte un écran sans être déplié.
+
+   Il était écrit en 9,5 px, plus petit texte de toute l'interface et hors de
+   l'échelle du brief. Ramené au palier `--fs-label`, il emporte la pastille
+   avec lui : 16 px de haut, et l'ancrage remonte d'un pixel pour rester dans
+   le carré de 44 px de la cible. */
 html[data-rail='replie'] .nav .tag {
   position: absolute;
-  top: 3px;
-  right: 3px;
-  min-width: 14px;
-  padding: 0 3px;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  padding: 0 4px;
   border-radius: var(--r-pill);
   background: var(--surface-3);
-  font-size: 9.5px;
-  line-height: 14px;
+  font-size: var(--fs-label);
+  line-height: 16px;
   text-align: center;
 }
 
@@ -213,7 +265,7 @@ html[data-rail='replie'] .nav .tag {
   align-items: center;
   gap: 9px;
   margin: 0;
-  font: 600 12.5px var(--font-tight);
+  font: 600 var(--fs-mono) var(--font-tight);
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -221,18 +273,27 @@ html[data-rail='replie'] .nav .tag {
 /* La pastille de marque ne porte aucun état : si l'accent est dans le logo, il
    n'a plus de valeur d'alerte nulle part. */
 .brand .mk {
-  width: 13px;
-  height: 13px;
-  border: 2px solid var(--ink-3);
-  border-radius: 50%;
+  /* Le logomark validé. Monochrome et en `currentColor` : il survit au mode
+     contraste forcé, où une marque qui n'existe qu'en couleur disparaît. */
+  width: 15px;
+  height: 15px;
+  flex: none;
+  color: var(--ink-1);
 }
 
 .machine {
   margin: 0;
+  /* `min-width: 0` sur un élément de flex, et c'est tout ce qui manquait.
+     L'ellipse était déjà déclarée trois lignes plus bas, mais un élément de
+     flex ne rétrécit pas sous la taille minimale de son contenu tant que
+     cette propriété n'est pas posée : sous ~1150 px, le nom de machine
+     poussait le bouton de recherche hors de la barre. Le symptôme se lisait
+     comme un défaut de mise en page ; la cause est une règle de flex. */
+  min-width: 0;
   padding-left: var(--sp-5);
   border-left: 1px solid var(--hairline);
   color: var(--ink-2);
-  font: 12.5px var(--font-mono);
+  font: var(--fs-mono) var(--font-mono);
   font-variant-numeric: tabular-nums;
   overflow: hidden;
   white-space: nowrap;
@@ -255,7 +316,7 @@ html[data-rail='replie'] .nav .tag {
   border: 1px solid var(--hairline);
   border-radius: var(--r-pill);
   color: var(--ink-2);
-  font-size: 12.5px;
+  font-size: var(--fs-mono);
 }
 
 .spacer {
@@ -268,11 +329,13 @@ html[data-rail='replie'] .nav .tag {
   border-radius: 5px;
   background: var(--surface-1);
   color: var(--ink-2);
-  font: 11px var(--font-mono);
+  font: var(--fs-label) var(--font-mono);
   white-space: nowrap;
 }
 
 .cmdk {
+  /* Le champ de recherche ne rétrécit jamais : c'est lui qu'on rognait. */
+  flex: none;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -281,7 +344,7 @@ html[data-rail='replie'] .nav .tag {
   border-radius: var(--r-ctl);
   background: var(--surface-1);
   color: var(--ink-3);
-  font: 13px var(--font-sans);
+  font: var(--fs-sm) var(--font-sans);
   cursor: pointer;
   transition: border-color var(--t-micro) var(--e-out),
     color var(--t-micro) var(--e-out);
@@ -342,7 +405,7 @@ html[data-rail='replie'] .fold svg {
   margin: 0;
   padding: var(--sp-3) 10px var(--sp-1);
   color: var(--ink-3);
-  font-size: 11px;
+  font-size: var(--fs-label);
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
@@ -358,7 +421,7 @@ html[data-rail='replie'] .fold svg {
   border-radius: var(--r-ctl);
   background: none;
   color: var(--ink-2);
-  font: 13.5px var(--font-sans);
+  font: var(--fs-sm) var(--font-sans);
   text-align: left;
   cursor: pointer;
   transition: background var(--t-micro) var(--e-out),
@@ -373,6 +436,20 @@ html[data-rail='replie'] .fold svg {
 .nav[aria-current='page'] {
   background: var(--surface-2);
   color: var(--ink-1);
+}
+
+/* Le trait des icônes vit ici, et non dans le sprite.
+   Les propriétés de tracé — fill, stroke, stroke-width, linecap, linejoin —
+   sont héritées, donc elles traversent la frontière d'ombre de <use> depuis
+   l'élément hôte. Le fichier design/marque/icones.svg les porte dans un bloc
+   <style> interne qui ne s'applique qu'à lui : recopier les <symbol> sans
+   cette règle rendrait les neuf icônes en aplat noir. */
+.ic {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .nav .ic {
@@ -391,14 +468,14 @@ html[data-rail='replie'] .fold svg {
 .nav .tag {
   margin-left: auto;
   color: var(--ink-3);
-  font: 11px var(--font-mono);
+  font: var(--fs-label) var(--font-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .nav .tag-muet {
   font-family: var(--font-sans);
-  font-size: 11px;
+  font-size: var(--fs-label);
 }
 
 /* ── Zone de contenu ─────────────────────────────────────────────────────── */
@@ -437,20 +514,20 @@ html[data-rail='replie'] .fold svg {
 
 h1 {
   margin: 0 0 3px;
-  font: 500 22px/1.3 var(--font-tight);
+  font: 500 var(--fs-h1) / 1.3 var(--font-tight);
   letter-spacing: -0.01em;
 }
 
 h2 {
   margin: 0;
-  font: 500 16px/1.4 var(--font-tight);
+  font: 500 var(--fs-h2) / 1.4 var(--font-tight);
 }
 
 .sub {
   margin: 0 0 var(--sp-5);
   max-width: 78ch;
   color: var(--ink-2);
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
 }
 
 .note {
@@ -459,7 +536,7 @@ h2 {
   padding-left: var(--sp-4);
   border-left: 1px solid var(--hairline);
   color: var(--ink-3);
-  font-size: 12.5px;
+  font-size: var(--fs-mono);
   line-height: 1.6;
 }
 
@@ -540,7 +617,7 @@ h2 {
 .hero-u {
   margin: 0;
   color: var(--ink-3);
-  font-size: 12px;
+  font-size: var(--fs-label);
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
@@ -548,14 +625,14 @@ h2 {
 .hero-none {
   margin: var(--sp-1) 0 0;
   color: var(--ink-1);
-  font: 500 21px/1.25 var(--font-tight);
+  font: 500 var(--fs-h1) / 1.25 var(--font-tight);
   letter-spacing: -0.01em;
 }
 
 .hero-s {
   margin: 11px 0 0;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.45;
 }
 
@@ -571,7 +648,7 @@ h2 {
 .hero-t {
   margin: 6px 0 0;
   color: var(--ink-3);
-  font: 11.5px var(--font-mono);
+  font: var(--fs-mono) var(--font-mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
   user-select: text;
@@ -584,7 +661,7 @@ h2 {
   border-radius: var(--r-pill);
   background: none;
   color: var(--ink-2);
-  font: 12.5px var(--font-sans);
+  font: var(--fs-mono) var(--font-sans);
   cursor: pointer;
   transition: border-color var(--t-micro) var(--e-out),
     color var(--t-micro) var(--e-out);
@@ -603,7 +680,7 @@ h2 {
   border-radius: var(--r-ctl);
   background: var(--surface-0);
   color: var(--ink-2);
-  font-size: 12.5px;
+  font-size: var(--fs-mono);
   line-height: 1.6;
 }
 
@@ -652,7 +729,7 @@ h2 {
 
 .tile-l {
   color: var(--ink-3);
-  font-size: 11px;
+  font-size: var(--fs-label);
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
@@ -666,7 +743,7 @@ h2 {
   border: 1px solid var(--hairline);
   border-radius: var(--r-pill);
   color: var(--ink-2);
-  font-size: 11.5px;
+  font-size: var(--fs-label);
   white-space: nowrap;
 }
 
@@ -685,20 +762,20 @@ h2 {
   align-items: baseline;
   gap: 6px;
   margin: 0;
-  font: 500 34px/1.05 var(--font-tight);
+  font: 500 var(--fs-display) / 1.05 var(--font-tight);
   letter-spacing: -0.02em;
 }
 
 .tile-v span:last-child {
   color: var(--ink-2);
-  font: 400 13px var(--font-sans);
+  font: 400 var(--fs-sm) var(--font-sans);
   letter-spacing: 0;
 }
 
 .tile-none-v {
   margin: 0;
   color: var(--ink-1);
-  font: 500 16px/1.4 var(--font-tight);
+  font: 500 var(--fs-h2) / 1.4 var(--font-tight);
 }
 
 .counts {
@@ -707,13 +784,13 @@ h2 {
   gap: var(--sp-4);
   margin: 13px 0 10px;
   color: var(--ink-3);
-  font-size: 12.5px;
+  font-size: var(--fs-mono);
 }
 
 .counts b {
   margin-right: 3px;
   color: var(--ink-2);
-  font: 500 13px var(--font-mono);
+  font: 500 var(--fs-sm) var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
@@ -725,7 +802,7 @@ h2 {
 .tile-c {
   margin: 0;
   color: var(--ink-2);
-  font-size: 12.5px;
+  font-size: var(--fs-mono);
   line-height: 1.45;
 }
 
@@ -739,7 +816,7 @@ h2 {
   display: flex;
   align-items: baseline;
   gap: var(--sp-2);
-  font-size: 12.5px;
+  font-size: var(--fs-mono);
   color: var(--ink-2);
 }
 
@@ -751,7 +828,7 @@ h2 {
 .jauge-h .v {
   margin-left: auto;
   color: var(--ink-1);
-  font: 13px var(--font-mono);
+  font: var(--fs-sm) var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
@@ -780,7 +857,7 @@ h2 {
   margin: 0 0 var(--sp-3);
   max-width: 78ch;
   color: var(--ink-1);
-  font: 500 16px/1.45 var(--font-tight);
+  font: 500 var(--fs-h2) / 1.45 var(--font-tight);
 }
 
 .indispo-2 {
@@ -813,7 +890,7 @@ h2 {
   border-radius: var(--r-ctl);
   background: var(--surface-0);
   color: var(--ink-3);
-  font: 12px/1.5 var(--font-mono);
+  font: var(--fs-mono) / 1.5 var(--font-mono);
   user-select: text;
   word-break: break-word;
 }
@@ -841,13 +918,13 @@ h2 {
 table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 caption {
   padding: var(--sp-3) var(--sp-4);
   color: var(--ink-3);
-  font-size: 12.5px;
+  font-size: var(--fs-mono);
   line-height: 1.5;
   text-align: left;
 }
@@ -859,7 +936,7 @@ thead th {
   padding: var(--sp-2) var(--sp-4);
   border-bottom: 1px solid var(--hairline-strong);
   color: var(--ink-3);
-  font-size: 11px;
+  font-size: var(--fs-label);
   font-weight: 400;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -872,7 +949,7 @@ tbody th {
   padding: 9px var(--sp-4);
   border-bottom: 1px solid var(--hairline);
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 400;
   letter-spacing: normal;
   text-transform: none;
@@ -891,14 +968,14 @@ tbody tr:last-child th {
 
 td.num,
 th.num {
-  font: 13px var(--font-mono);
+  font: var(--fs-sm) var(--font-mono);
   font-variant-numeric: tabular-nums;
   text-align: right;
   color: var(--ink-1);
 }
 
 .chemin {
-  font: 12.5px/1.6 var(--font-mono);
+  font: var(--fs-mono) / 1.6 var(--font-mono);
   color: var(--ink-3);
   user-select: text;
   white-space: nowrap;
@@ -956,7 +1033,7 @@ body[data-state='failed'] #failure {
 }
 
 .overlay h1 {
-  font: 600 20px/1.3 var(--font-sans);
+  font: 600 var(--fs-h1) / 1.3 var(--font-sans);
 }
 
 .lede {
@@ -969,7 +1046,7 @@ body[data-state='failed'] #failure {
   margin: 0;
   min-width: 14ch;
   color: var(--ink-1);
-  font: 13px/1.4 var(--font-mono);
+  font: var(--fs-sm) / 1.4 var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
@@ -977,7 +1054,7 @@ body[data-state='failed'] #failure {
   max-width: 62ch;
   margin: var(--sp-4) 0 0;
   color: var(--ink-3);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 #failure .glyph {
@@ -993,7 +1070,7 @@ body[data-state='failed'] #failure {
   border-radius: var(--r-ctl);
   background: var(--surface-2);
   color: var(--ink-1);
-  font: 600 13px/1 var(--font-sans);
+  font: 600 var(--fs-sm) / 1 var(--font-sans);
   cursor: pointer;
   transition: background var(--t-micro) var(--e-out),
     border-color var(--t-micro) var(--e-out);
@@ -1069,9 +1146,22 @@ body[data-state='failed'] #failure {
   border-bottom: 1px solid var(--hairline);
   background: none;
   color: var(--ink-1);
-  font: 15px var(--font-sans);
-  outline: none;
+  font: var(--fs-h2) var(--font-sans);
   user-select: text;
+}
+
+/* Ce champ reçoit le focus à l'OUVERTURE de la palette : c'est le dernier
+   endroit du fichier où l'on pouvait se permettre `outline: none`, et c'est
+   celui qui le portait. Il est retiré.
+
+   L'anneau n'est pas simplement rendu à la règle globale : il se dessine vers
+   l'INTÉRIEUR. `.palette` est en `overflow: hidden`, et le champ occupe toute
+   sa largeur — un décalage positif serait rogné sur les deux bords, donc
+   invisible là où il compte. */
+.palette input:focus-visible {
+  outline: 2px solid var(--vital);
+  outline-offset: -3px;
+  border-radius: 0;
 }
 
 .palette input::placeholder {
@@ -1089,7 +1179,7 @@ body[data-state='failed'] #failure {
   margin: 0;
   padding: var(--sp-3) 18px 5px;
   color: var(--ink-3);
-  font-size: 11px;
+  font-size: var(--fs-label);
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
@@ -1103,7 +1193,7 @@ body[data-state='failed'] #failure {
   border: none;
   background: none;
   color: var(--ink-1);
-  font: 13.5px var(--font-sans);
+  font: var(--fs-sm) var(--font-sans);
   text-align: left;
   cursor: pointer;
 }
@@ -1117,12 +1207,12 @@ body[data-state='failed'] #failure {
   margin-left: auto;
   padding-left: var(--sp-3);
   color: var(--ink-3);
-  font: 11.5px var(--font-mono);
+  font: var(--fs-mono) var(--font-mono);
   white-space: nowrap;
 }
 
 .pitem .chemin {
-  font: 12.5px var(--font-mono);
+  font: var(--fs-mono) var(--font-mono);
   color: var(--ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1133,7 +1223,7 @@ body[data-state='failed'] #failure {
   margin: 0;
   padding: var(--sp-4) 18px;
   color: var(--ink-3);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .pfoot {
@@ -1141,7 +1231,7 @@ body[data-state='failed'] #failure {
   padding: 10px 18px;
   border-top: 1px solid var(--hairline);
   color: var(--ink-3);
-  font-size: 11.5px;
+  font-size: var(--fs-mono);
   line-height: 1.5;
 }
 
@@ -1190,6 +1280,18 @@ body[data-state='failed'] #failure {
   .meter,
   .meter > * {
     forced-color-adjust: none;
+  }
+
+  /* `forced-color-adjust: none` garde le remplissage, et fait disparaître le
+     CONTENEUR avec lui : sa piste est un blanc à 7 % qui ne survit à aucune
+     des deux palettes système. Sans contour, une jauge à 12 % devient
+     indiscernable d'une jauge absente — la longueur, seule information qui
+     survivait, n'était comparable à rien. La bordure lui rend sa frontière, et
+     les 2 px de hauteur compensent ce qu'elle prend au contenu, `box-sizing`
+     étant en `border-box`. */
+  .meter {
+    height: 6px;
+    border: 1px solid CanvasText;
   }
 
   .meter > * {

@@ -291,6 +291,281 @@ mod tests {
         }
     }
 
+    #[test]
+    fn aucun_bouton_de_navigation_ne_peut_rester_sans_nom_accessible() {
+        // LA BARRIÈRE D'ACCESSIBILITÉ CENTRALE DU RAIL.
+        //
+        // Le rail replié masque `.lbl` et `.tag-muet` en `display: none`. Un
+        // descendant en `display: none` est EXCLU du calcul du nom accessible
+        // (spécification accname, étape 2F) : sans `aria-label`, cinq boutons
+        // sur neuf deviennent des boutons sans nom dès qu'on replie le rail,
+        // et les quatre autres n'annoncent qu'un nombre nu.
+        //
+        // Le défaut est invisible à l'écran — le rail déplié se lit très bien —
+        // et invisible au code, l'attribut manquant ne cassant rien. D'où ce
+        // test. Éprouvé par falsification : retirer un seul `aria-label`
+        // d'index.html le fait échouer, en nommant le bouton fautif.
+        let mut boutons = 0;
+        for balise in balises_ouvrantes(INDEX, "<button") {
+            if !balise.contains("class=\"nav\"") {
+                continue;
+            }
+            boutons += 1;
+            let vue = valeur_dattribut(balise, "data-view").unwrap_or("sans vue");
+            let nom = valeur_dattribut(balise, "aria-label").unwrap_or_else(|| {
+                panic!(
+                    "l'entrée de rail « {vue} » n'a pas d'`aria-label` : repliée, \
+                     elle devient un bouton sans nom (accname, étape 2F)"
+                )
+            });
+            assert!(
+                !nom.trim().is_empty(),
+                "l'entrée de rail « {vue} » porte un `aria-label` vide, \
+                 ce qui ne vaut pas mieux qu'aucun"
+            );
+        }
+        assert!(
+            boutons >= 9,
+            "seulement {boutons} entrées de rail examinées : la barrière ne barre plus rien"
+        );
+
+        // Et le nom se RECALCULE avec le décompte : « Sécurité, 38 items
+        // relevés » plutôt que « 38 ». L'attribut statique est la position de
+        // repli tant que la collecte n'a pas abouti, pas la version finale.
+        assert!(
+            SCRIPT.contains("bouton.setAttribute(\"aria-label\", nom)"),
+            "app.js ne repose plus le nom accessible des entrées de rail"
+        );
+        assert!(
+            SCRIPT.matches("nommerLeRail();").count() >= 2,
+            "le nom accessible du rail ne se recalcule plus quand le décompte change"
+        );
+        assert!(
+            INDEX.contains("data-unite=\""),
+            "les décomptes du rail n'ont plus d'unité : un nombre nu n'apprend rien"
+        );
+    }
+
+    #[test]
+    fn la_palette_tient_la_promesse_de_aria_modal() {
+        // `aria-modal="true"` annonce que rien d'autre n'est atteignable. La
+        // palette le déclarait sans le tenir : en tabulant depuis le dernier
+        // résultat, le focus atteignait les boutons du rail, sous un voile
+        // translucide — donc invisible pour qui navigue au clavier. Et la
+        // fermeture ne rendait jamais le focus à l'élément déclencheur : il
+        // retombait au début du document.
+        assert!(
+            INDEX.contains("aria-modal=\"true\""),
+            "la palette ne se déclare plus modale"
+        );
+        assert!(
+            SCRIPT.contains("declencheur.focus()"),
+            "le focus ne revient plus à l'élément qui a ouvert la palette"
+        );
+        assert!(
+            SCRIPT.contains("fondsInertes(true)") && SCRIPT.contains("fondsInertes(false)"),
+            "le fond ne devient plus inerte pendant que la feuille est ouverte"
+        );
+        // `inert` est VÉRIFIÉ, pas supposé : la WebView2 du poste n'est pas le
+        // navigateur de développement. Là où il manque, le gestionnaire de
+        // `Tab` referme la boucle, et il reste posé dans les deux cas.
+        assert!(
+            SCRIPT.contains("\"inert\" in HTMLElement.prototype"),
+            "le soutien de `inert` est supposé au lieu d'être vérifié"
+        );
+        assert!(
+            SCRIPT.contains("evenement.key !== \"Tab\""),
+            "plus de repli d'enfermement du focus là où `inert` manque"
+        );
+    }
+
+    #[test]
+    fn aucun_anneau_de_focus_nest_retire_sans_remplacant() {
+        // « Jamais de retrait d'anneau sans alternative clavier » : la règle
+        // valait pour le fichier entier, et elle était tenue partout SAUF sur
+        // le champ de la palette, c'est-à-dire l'élément qui reçoit le focus à
+        // l'ouverture. Le remplaçant se dessine vers l'intérieur, la feuille
+        // étant en `overflow: hidden`.
+        //
+        // Le contrôle porte sur les DÉCLARATIONS, pas sur le texte du fichier :
+        // sa première version refusait aussi le commentaire qui explique
+        // pourquoi la déclaration a disparu, ce qui aurait forcé à taire la
+        // raison pour satisfaire la barrière.
+        for ligne in STYLE.lines() {
+            let regle = ligne.trim_start();
+            assert!(
+                !regle.starts_with("outline: none") && !regle.starts_with("outline:none"),
+                "app.css retire un anneau de focus : « {regle} » — \
+                 aucun retrait sans remplaçant explicite"
+            );
+        }
+        assert!(
+            STYLE.contains(".palette input:focus-visible"),
+            "le champ de la palette n'a plus d'anneau de focus qui lui soit propre"
+        );
+    }
+
+    #[test]
+    fn la_palette_designe_loption_courante_au_lecteur_decran() {
+        // Le focus reste sur le champ pendant que les flèches déplacent une
+        // sélection parmi des `role="option"`. Ce patron s'appelle `combobox`,
+        // et il n'existe que si `aria-activedescendant` désigne l'option
+        // courante par son `id` — sans quoi rien n'est annoncé pendant la
+        // navigation aux flèches. Les options n'avaient pas d'`id`.
+        for attendu in [
+            "role=\"combobox\"",
+            "aria-controls=\"presults\"",
+            "aria-expanded=\"false\"",
+        ] {
+            assert!(
+                INDEX.contains(attendu),
+                "la palette ne déclare plus « {attendu} » : le patron combobox est incomplet"
+            );
+        }
+        // La POSE de l'attribut, pas sa simple mention : la première version de
+        // ce contrôle cherchait « aria-activedescendant » n'importe où dans le
+        // fichier, et la falsification l'a traversée sans bruit — le retrait
+        // (`removeAttribute`) et le commentaire suffisaient à le satisfaire.
+        // Une barrière qu'on n'a pas essayé de franchir ne prouve rien.
+        assert!(
+            SCRIPT.contains("entree.setAttribute(\"aria-activedescendant\", plats[choix].id)"),
+            "l'option courante n'est plus désignée au lecteur d'écran"
+        );
+        assert!(
+            SCRIPT.contains("bouton.id = `popt-${rang}`"),
+            "les options n'ont plus d'`id` à désigner"
+        );
+        // Un `role="listbox"` n'admet que des options et des groupes : les
+        // intertitres de section vivent DANS un groupe, jamais en enfants
+        // directs de la liste.
+        assert!(
+            SCRIPT.contains("groupe.setAttribute(\"role\", \"group\")"),
+            "les sections de résultats ne sont plus des groupes"
+        );
+        assert!(
+            !SCRIPT.contains("resultats.append(el(\"p\", \"psec\""),
+            "un intertitre est reposé en enfant direct du `listbox`, \
+             ce que le modèle de contenu ARIA n'admet pas"
+        );
+    }
+
+    #[test]
+    fn le_compteur_dattente_nannonce_pas_chaque_seconde() {
+        // Correct au sens strict, et pourtant contraire à la thèse du produit :
+        // une région live rafraîchie toutes les secondes produit un flux verbal
+        // ininterrompu. L'affichage bat la seconde ; l'annonce parle par
+        // paliers. Deux éléments, une seule mesure.
+        let visible = balise_portant(INDEX, "id=\"elapsed\"");
+        assert!(
+            !visible.contains("aria-live") && !visible.contains("role=\"status\""),
+            "le compteur visible est redevenu une région live : « {visible} »"
+        );
+        let annonce = balise_portant(INDEX, "id=\"elapsed-annonce\"");
+        assert!(
+            annonce.contains("role=\"status\"") && annonce.contains("aria-live=\"polite\""),
+            "plus de région annoncée séparée : « {annonce} »"
+        );
+        assert!(
+            SCRIPT.contains("PALIERS_ANNONCE"),
+            "l'annonce d'attente n'est plus bornée à des paliers"
+        );
+    }
+
+    #[test]
+    fn la_jauge_garde_sa_frontiere_en_contraste_force() {
+        // `forced-color-adjust: none` sauve le remplissage et emporte le
+        // conteneur : sa piste est un blanc à 7 % qui ne survit à aucune des
+        // deux palettes système. Sans contour, une jauge à faible taux devient
+        // indiscernable d'une jauge absente.
+        let bloc = STYLE
+            .split_once("forced-colors: active")
+            .expect("le bloc de contraste forcé a disparu")
+            .1;
+        let regle = bloc
+            .split_once(".meter {")
+            .expect("aucune règle `.meter` dans le bloc de contraste forcé")
+            .1;
+        let corps = &regle[..regle.find('}').unwrap_or(regle.len())];
+        assert!(
+            corps.contains("border: 1px solid CanvasText"),
+            "la jauge n'a plus de contour en contraste forcé : « {corps} »"
+        );
+    }
+
+    #[test]
+    fn aucune_taille_de_texte_ne_sort_de_lechelle_typographique() {
+        // Le brief §3.1 déclare huit paliers ; la coque en rendait quatorze,
+        // dont un 9,5 px sur la pastille du rail replié — le plus petit texte
+        // de toute l'interface. Une taille écrite en dur est une taille que
+        // personne ne compare à l'échelle.
+        for (jeton, valeur) in [
+            ("--fs-display", "34px"),
+            ("--fs-h1", "22px"),
+            ("--fs-h2", "16px"),
+            ("--fs-body", "14px"),
+            ("--fs-sm", "13px"),
+            ("--fs-mono", "12.5px"),
+            ("--fs-label", "11px"),
+        ] {
+            assert!(
+                STYLE.contains(&format!("{jeton}: {valeur};")),
+                "le palier {jeton} ne vaut plus {valeur} : \
+                 l'échelle de la coque a divergé de design/tokens.css"
+            );
+        }
+        for ligne in STYLE.lines() {
+            let regle = ligne.trim_start();
+            if !regle.starts_with("font:") && !regle.starts_with("font-size:") {
+                continue;
+            }
+            let mut reste = regle;
+            while let Some(pos) = reste.find("px") {
+                assert!(
+                    !reste[..pos].ends_with(|c: char| c.is_ascii_digit()),
+                    "une taille de texte est écrite en dur, hors de l'échelle : « {regle} »"
+                );
+                reste = &reste[pos + 2..];
+            }
+        }
+    }
+
+    /// La balise ouvrante qui porte un motif, du `<` qui la commence au `>`.
+    fn balise_portant<'a>(source: &'a str, motif: &str) -> &'a str {
+        let pos = source
+            .find(motif)
+            .unwrap_or_else(|| panic!("aucune balise ne porte « {motif} »"));
+        let debut = source[..pos]
+            .rfind('<')
+            .expect("un attribut hors de toute balise");
+        let fin = source[debut..]
+            .find('>')
+            .unwrap_or_else(|| panic!("balise non fermée autour de « {motif} »"));
+        &source[debut..debut + fin + 1]
+    }
+
+    /// Toutes les balises ouvrantes d'un nom donné, attributs compris.
+    fn balises_ouvrantes<'a>(source: &'a str, ouverture: &str) -> Vec<&'a str> {
+        let mut sortie = Vec::new();
+        let mut reste = source;
+        while let Some(pos) = reste.find(ouverture) {
+            let apres = &reste[pos..];
+            let fin = apres
+                .find('>')
+                .unwrap_or_else(|| panic!("balise non fermée : {}", &apres[..60.min(apres.len())]));
+            sortie.push(&apres[..=fin]);
+            reste = &apres[fin..];
+        }
+        sortie
+    }
+
+    /// La valeur d'un attribut dans une balise ouvrante, s'il y figure.
+    fn valeur_dattribut<'a>(balise: &'a str, attribut: &str) -> Option<&'a str> {
+        let motif = format!("{attribut}=\"");
+        let pos = balise.find(&motif)? + motif.len();
+        let fin = balise[pos..].find('"')?;
+        Some(&balise[pos..pos + fin])
+    }
+
     /// Extrait les valeurs d'attribut qui suivent chaque occurrence d'un motif.
     fn motifs<'a>(source: &'a str, motif: &str) -> Vec<&'a str> {
         let mut sortie = Vec::new();

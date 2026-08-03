@@ -35,15 +35,43 @@ let minuterie = null;
 /* ── Le compteur d'attente ─────────────────────────────────────────────────
  * Il affiche le temps RÉELLEMENT écoulé, jamais une progression estimée : tant
  * que les collecteurs n'annoncent pas leur avancement, aucun pourcentage ne
- * serait honnête. */
+ * serait honnête.
+ *
+ * L'AFFICHAGE ET L'ANNONCE SONT DEUX CHOSES. Le premier bat la seconde ; la
+ * seconde ne parle que par paliers. Une région live rafraîchie toutes les
+ * secondes est correcte au sens strict de la spécification, et produit un flux
+ * verbal ininterrompu — soit l'exact contraire de ce que ce produit défend. Le
+ * calme est la fonctionnalité, y compris pour qui écoute l'écran.
+ *
+ * Les paliers : 10 s, puis toutes les 30 s. Assez pour dire que la lecture
+ * avance sur un poste lent, jamais assez pour couvrir autre chose. */
+
+const PALIERS_ANNONCE = [10, 30];
+const PERIODE_ANNONCE = 30;
+
+/** Le palier atteint à `secondes`, ou `null` si aucun ne l'est exactement. */
+function palierAtteint(secondes) {
+  if (PALIERS_ANNONCE.includes(secondes)) {
+    return secondes;
+  }
+  return secondes > PERIODE_ANNONCE && secondes % PERIODE_ANNONCE === 0
+    ? secondes
+    : null;
+}
 
 function demarrerCompteur() {
   arreterCompteur();
   const debut = Date.now();
   const cible = document.getElementById("elapsed");
+  const annonce = document.getElementById("elapsed-annonce");
+  annonce.textContent = "";
   const ecrire = () => {
     const secondes = Math.floor((Date.now() - debut) / 1000);
     cible.textContent = `Temps écoulé : ${secondes} s`;
+    const palier = palierAtteint(secondes);
+    if (palier !== null) {
+      annonce.textContent = `Lecture en cours depuis ${palier} secondes.`;
+    }
   };
   ecrire();
   minuterie = window.setInterval(ecrire, 1000);
@@ -102,6 +130,44 @@ function remplirMesures() {
     const valeur = valeurDe(noeud.dataset.mesure);
     noeud.textContent = valeur === null ? REPLI : valeur;
     noeud.classList.toggle("v-absent", valeur === null);
+  }
+  nommerLeRail();
+}
+
+/* Le nom accessible des entrées du rail.
+ *
+ * LE RAIL REPLIÉ MASQUE LES LIBELLÉS EN `display: none`, et un descendant en
+ * `display: none` est exclu du calcul du nom accessible (accname, étape 2F).
+ * Sans `aria-label`, cinq boutons sur neuf deviennent des boutons SANS NOM dès
+ * qu'on replie le rail, et les quatre autres n'annoncent qu'un nombre nu.
+ *
+ * L'attribut statique d'index.html donne le nom de base ; cette fonction le
+ * recompose avec le décompte et son unité — « Sécurité, N items relevés »
+ * plutôt que « N ». Un chiffre sans nom n'apprend rien à qui n'a pas l'écran
+ * sous les yeux, et le contexte est justement ce que le repli fait perdre.
+ *
+ * Elle tourne à chaque remplissage : le décompte change, le nom suit. */
+function nommerLeRail() {
+  for (const bouton of document.querySelectorAll(".nav")) {
+    const libelle = bouton.querySelector(".lbl");
+    if (libelle === null) {
+      continue;
+    }
+    const pastille = bouton.querySelector(".tag, .tag-muet");
+    let nom = libelle.textContent.trim();
+    if (pastille !== null) {
+      const valeur = pastille.textContent.trim();
+      /* Les pastilles muettes (« sans objet », « non collecté ») portent déjà
+       * une phrase : leur coller une unité en ferait un charabia. */
+      const unite = pastille.dataset.unite;
+      if (valeur !== "") {
+        nom =
+          unite !== undefined && valeur !== REPLI
+            ? `${nom}, ${valeur} ${unite}`
+            : `${nom}, ${valeur}`;
+      }
+    }
+    bouton.setAttribute("aria-label", nom);
   }
 }
 
@@ -481,6 +547,10 @@ for (const bouton of document.querySelectorAll(".nav")) {
   bouton.addEventListener("click", () => allerA(bouton.dataset.view));
 }
 
+/* Une première passe avant même la collecte : les pastilles muettes portent
+ * déjà leur phrase, et le rail peut être replié dès l'ouverture. */
+nommerLeRail();
+
 /* ── Rail repliable ────────────────────────────────────────────────────────
  * Un <button>, et pas un div : il doit être atteignable au clavier, annoncer
  * son état par aria-expanded et désigner ce qu'il commande par aria-controls.
@@ -537,6 +607,58 @@ const entree = document.getElementById("pinput");
 const resultats = document.getElementById("presults");
 let choix = 0;
 
+/* L'élément qui a ouvert la palette. Le focus lui revient à CHAQUE sortie —
+ * Échap, clic sur le voile, sélection d'un résultat. Sans cela il retombe au
+ * début du document, et qui navigue au clavier recommence sa traversée. */
+let declencheur = null;
+
+/* Les conteneurs qui doivent devenir inertes pendant que la feuille est
+ * ouverte. `aria-modal="true"` PROMET qu'ils ne sont plus atteignables ; sans
+ * ce geste, la promesse est fausse et le focus s'en va tabuler sur le rail,
+ * sous un voile translucide, donc invisible. */
+const FONDS = ["app", "waiting", "failure"];
+
+/* `inert` est vérifié, pas supposé : la coque tourne dans la WebView2 du
+ * poste, dont la version n'est pas celle du navigateur de développement.
+ * L'attribut est soutenu depuis Chromium 102 ; là où il ne l'est pas, le
+ * gestionnaire de `Tab` plus bas prend le relais, et il reste posé dans les
+ * deux cas — deux barrières valent mieux qu'une promesse. */
+const INERT_SOUTENU = "inert" in HTMLElement.prototype;
+
+/** Ce qui peut recevoir le focus dans la feuille, dans l'ordre du document.
+ *
+ * Tout y est visible tant que la feuille est ouverte : le champ, et les
+ * résultats que le rendu vient de poser. Rien à filtrer. */
+function focusablesDeLaPalette() {
+  return Array.from(
+    scrim.querySelectorAll("input, button:not([disabled]), [tabindex]:not([tabindex='-1'])")
+  );
+}
+
+function fondsInertes(inertes) {
+  for (const id of FONDS) {
+    const noeud = document.getElementById(id);
+    if (noeud === null) {
+      continue;
+    }
+    if (INERT_SOUTENU) {
+      /* `inert` retire à la fois le focus ET l'arbre d'accessibilité : rien
+       * d'autre n'est nécessaire, et poser `aria-hidden` par-dessus dirait
+       * deux fois la même chose. */
+      noeud.inert = inertes;
+      continue;
+    }
+    /* Sans `inert`, la même intention se joue en deux gestes incomplets :
+     * `aria-hidden` pour les lecteurs d'écran, et le gestionnaire de `Tab`
+     * plus bas pour le focus, qu'`aria-hidden` ne retire pas. */
+    if (inertes) {
+      noeud.setAttribute("aria-hidden", "true");
+    } else {
+      noeud.removeAttribute("aria-hidden");
+    }
+  }
+}
+
 function ecrans() {
   return Array.from(document.querySelectorAll(".nav")).map((bouton) => ({
     genre: "ecran",
@@ -582,13 +704,32 @@ function filtrer(requete) {
   return { vus, items };
 }
 
+/* Une SECTION de la liste : un `role="group"` qui porte son intitulé.
+ *
+ * Un `role="listbox"` n'admet que des options et des groupes. Les intertitres
+ * étaient posés en enfants directs, ce que le modèle de contenu ARIA ne
+ * prévoit pas — le lecteur d'écran se retrouve avec du texte là où il attend
+ * une option, et le décompte annoncé (« 3 sur 12 ») cesse d'être fiable.
+ *
+ * L'intitulé visible est marqué `aria-hidden` : c'est le nom du groupe qui le
+ * porte à l'oreille, l'annoncer deux fois n'ajoute rien. */
+function sectionDeResultats(titre) {
+  const groupe = el("div", "pgroupe");
+  groupe.setAttribute("role", "group");
+  groupe.setAttribute("aria-label", titre);
+  const intitule = el("p", "psec", titre);
+  intitule.setAttribute("aria-hidden", "true");
+  groupe.append(intitule);
+  return groupe;
+}
+
 function rendrePalette() {
   const { vus, items } = filtrer(entree.value);
   resultats.replaceChildren();
   const plats = [];
 
   if (vus.length > 0) {
-    resultats.append(el("p", "psec", "Écrans"));
+    const groupe = sectionDeResultats("Écrans");
     for (const e of vus) {
       const bouton = el("button", "pitem");
       bouton.type = "button";
@@ -598,13 +739,14 @@ function rendrePalette() {
         allerA(e.vue);
         fermerPalette();
       });
-      resultats.append(bouton);
+      groupe.append(bouton);
       plats.push(bouton);
     }
+    resultats.append(groupe);
   }
 
   if (items.length > 0) {
-    resultats.append(el("p", "psec", "Items relevés"));
+    const groupe = sectionDeResultats("Items relevés");
     for (const i of items) {
       const bouton = el("button", "pitem");
       bouton.type = "button";
@@ -620,9 +762,10 @@ function rendrePalette() {
         allerA(ecranDe(i.releve.path));
         fermerPalette();
       });
-      resultats.append(bouton);
+      groupe.append(bouton);
       plats.push(bouton);
     }
+    resultats.append(groupe);
   }
 
   if (plats.length === 0) {
@@ -631,24 +774,56 @@ function rendrePalette() {
     );
   }
 
+  /* LE FOCUS NE QUITTE JAMAIS LE CHAMP : ce sont les flèches qui déplacent la
+   * sélection. Ce patron n'existe que si `aria-activedescendant` désigne
+   * l'option courante par son `id` — sans lui, un lecteur d'écran n'annonce
+   * rien du tout pendant la navigation aux flèches, et les options n'avaient
+   * même pas d'`id` à désigner. */
   choix = Math.min(choix, Math.max(0, plats.length - 1));
   for (const [rang, bouton] of plats.entries()) {
+    bouton.id = `popt-${rang}`;
     bouton.classList.toggle("sel", rang === choix);
     bouton.setAttribute("aria-selected", String(rang === choix));
+  }
+  entree.setAttribute("aria-expanded", String(plats.length > 0));
+  if (plats.length > 0) {
+    entree.setAttribute("aria-activedescendant", plats[choix].id);
+  } else {
+    entree.removeAttribute("aria-activedescendant");
   }
   return plats;
 }
 
 function ouvrirPalette() {
+  if (scrim.classList.contains("on")) {
+    return;
+  }
+  /* Mémorisé AVANT que quoi que ce soit bouge : c'est à cet élément-là que le
+   * focus doit revenir, et à aucun autre. */
+  declencheur =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null;
   scrim.classList.add("on");
   entree.value = "";
   choix = 0;
   rendrePalette();
-  window.setTimeout(() => entree.focus(), 40);
+  /* Le focus part avant que le fond devienne inerte : l'ordre inverse
+   * laisserait le focus sur un élément qu'on vient de rendre inaccessible. */
+  entree.focus();
+  fondsInertes(true);
 }
 
 function fermerPalette() {
+  if (!scrim.classList.contains("on")) {
+    return;
+  }
   scrim.classList.remove("on");
+  entree.setAttribute("aria-expanded", "false");
+  entree.removeAttribute("aria-activedescendant");
+  fondsInertes(false);
+  if (declencheur !== null && declencheur.isConnected) {
+    declencheur.focus();
+  }
+  declencheur = null;
 }
 
 document.getElementById("open-palette").addEventListener("click", ouvrirPalette);
@@ -656,6 +831,31 @@ document.getElementById("open-palette").addEventListener("click", ouvrirPalette)
 scrim.addEventListener("click", (evenement) => {
   if (evenement.target === scrim) {
     fermerPalette();
+  }
+});
+
+/* L'enfermement du focus, posé sur la feuille elle-même.
+ *
+ * `inert` fait déjà le travail là où il existe ; ce gestionnaire est la seconde
+ * barrière, et la seule là où il manque. Il ne coûte rien quand `inert` opère :
+ * le fond n'est alors plus dans l'ordre de tabulation, et la boucle se referme
+ * de toute façon sur les deux mêmes bornes. */
+scrim.addEventListener("keydown", (evenement) => {
+  if (evenement.key !== "Tab") {
+    return;
+  }
+  const bornes = focusablesDeLaPalette();
+  if (bornes.length === 0) {
+    return;
+  }
+  const premier = bornes[0];
+  const dernier = bornes[bornes.length - 1];
+  if (evenement.shiftKey && document.activeElement === premier) {
+    evenement.preventDefault();
+    dernier.focus();
+  } else if (!evenement.shiftKey && document.activeElement === dernier) {
+    evenement.preventDefault();
+    premier.focus();
   }
 });
 

@@ -104,12 +104,12 @@ mécanismes répondent à cela, et aucun ne dépend de l'intégrité de la machi
 |---|---|---|---|---|
 | `ks-core` | vocabulaire : `Item`, `Drift`, `Plan`, `Action`, `Snapshot`, `JournalEntry` | portable | aucun | ✅ 30 tests unitaires |
 | `ks-collectors` | collecte **lecture seule** | portable ; matériel, inventaire logiciel, posture par le registre **et état effectif par WMI** — TPM, BitLocker et SMART restent hors de portée sans élévation (Phase 2) | aucun | ✅ 48 tests unitaires, 4 collecteurs |
-| `ks-cli` | la CLI `ks`, surface de référence | Windows (et Linux pour le dev) | aucun | ✅ `scan`/`status`/`explain`/`journal`/`report`, 24 tests unitaires + **7 d'intégration** (binaire lancé en sous-processus) |
+| `ks-cli` | la CLI `ks`, surface de référence | Windows (et Linux pour le dev) | aucun | ✅ `scan`/`status`/`explain`/`journal`/`report`, 26 tests unitaires + **7 d'intégration** (binaire lancé en sous-processus) |
 | `ks-broker` | service privilégié | Windows visé ; compile aussi ailleurs, sans effet | élevé | 🔨 verbes énumérés + **huit** barrières SEC-02 et SEC-03, 13 tests unitaires — aucun verbe implémenté |
 | `ks-agent-linux` | agent satellite | Linux musl | aucun | 🔨 scan local, 4 tests unitaires |
-| `ks-ui` | coque de bureau (ADR-0012) | Windows + WebView2 | aucun | ✅ affiche le **poste de pilotage** branché sur l'état réel, jamais les chiffres de la maquette · workspace **séparé**, 21 tests |
+| `ks-ui` | coque de bureau (ADR-0012) | Windows + WebView2 | aucun | ✅ affiche le **poste de pilotage** branché sur l'état réel, jamais les chiffres de la maquette · workspace **séparé**, 28 tests |
 
-**128 tests au total** dans le workspace principal — `ks-ui` vit dans un workspace séparé et porte les siens (21), tous portables et tous exécutés — `cargo test --workspace`,
+**128 tests au total** dans le workspace principal — `ks-ui` vit dans un workspace séparé et porte les siens (28), tous portables et tous exécutés — `cargo test --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings` et `cargo fmt --all --check`
 passent. Ce n'était pas le cas au premier commit : rien n'avait alors jamais été
 compilé, et les comptes annoncés étaient des déclarations.
@@ -183,14 +183,27 @@ catégorie depuis l'[ADR-0006](adr/0006-fermer-les-verbes-a-parametres-libres.md
 `ManagedService`, `ManagedSetting`, `StartupType` et `SettingValue` sont des
 énumérations **sans champ**, donc incapables de transporter un chemin.
 
-**Ce qui n'y est pas, contrairement à ce que ce paragraphe affirmait.**
-`Verb::AddDefenderExclusion` y figurait, à tort : ses trois champs sont des
-`String`. Le type garantit leur *présence*, pas leur *validité*. `reason: ""` et
-`expires: "hier"` compilent tous les deux, et le test censé le couvrir se
-contente de vérifier que le JSON porte les deux clés — ce que la définition de la
-structure garantit déjà. C'est exactement la sur-affirmation que `rust.md`
-interdit : ne jamais écrire « porté par le typage » pour ce qui ne l'est pas.
-La dette est nommée dans l'ADR-0006, avec son correctif.
+**Ce paragraphe a été faux deux fois, dans les deux sens.**
+
+Il a d'abord rangé `Verb::AddDefenderExclusion` parmi les verbes typés alors que
+ses trois champs étaient des `String` : le type garantissait leur *présence*, pas
+leur *validité*, et `expires: "hier"` compilait. C'était la sur-affirmation que
+`rust.md` interdit — ne jamais écrire « porté par le typage » pour ce qui ne
+l'est pas.
+
+Puis il a continué de le dire **après** la correction. Les chaînes libres ont été
+fermées : `ExclusionPath` et `Expiry` sont des newtypes à champ privé portant
+`#[serde(try_from = "String")]`, `Expiry::depuis("hier", …)` renvoie une erreur,
+et un test le vérifie. Le commit qui a payé cette dette a mis à jour
+l'ADR-0006 — dont la section s'intitule « La dette — payée » — mais pas ce
+document. Un seul document sur deux corrigé recrée exactement la contradiction
+que la règle « le code et sa documentation partent dans le même commit » existe
+pour empêcher.
+
+Ce qui reste en `String`, et pourquoi c'est légitime : `reason`, un motif écrit
+par un humain pour un humain, qu'aucun type ne saurait valider utilement, et
+`domain`, un filtre d'affichage sans effet. Le détail est dans
+[l'ADR-0006](adr/0006-fermer-les-verbes-a-parametres-libres.md).
 
 *Vérifiés à l'exécution, et testés* — les fonctions du tableau ci-dessous renvoient
 un `Result` ; elles refusent, elles n'empêchent pas d'appeler. `Capabilities` est une

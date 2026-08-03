@@ -156,6 +156,45 @@ jobs:
             echo "::error::aucune annonce « N tests au total » trouvée — le contrôle ne contrôle plus rien"
             ecarts=1
           fi
+
+          # Les décomptes PAR CRATE du tableau de docs/03-ARCHITECTURE.md.
+          #
+          # Le contrôle ci-dessus ne regardait que le total, jamais le détail.
+          # La ligne `ks-cli` a donc pu dériver sur trois commits, au point que
+          # le tableau se contredisait lui-même : la somme de ses propres
+          # chiffres donnait 126 quand il en annonçait 128.
+          #
+          # On ne mesure PAS chaque crate séparément — cinq `cargo test -p` de
+          # plus pour un gain nul. On exige que la somme des lignes égale le
+          # total, lequel est déjà mesuré face à cargo juste au-dessus. Les
+          # lignes deviennent donc justes par transitivité, et le contrôle
+          # reste une seule soustraction.
+          #
+          # `ks-ui` est exclu : il vit dans un workspace séparé (ADR-0012) et
+          # ses tests ne figurent pas dans ce total. La liste des membres est
+          # lue dans Cargo.toml, jamais recopiée.
+          membres=$(grep -oE '"crates/[a-z-]+"' Cargo.toml | sed -E 's|"crates/||; s|"||' | sort -u)
+          somme=0
+          lignes=0
+          while IFS= read -r ligne; do
+            crate=$(echo "$ligne" | grep -oE '`ks-[a-z-]+`' | head -1 | tr -d '`')
+            echo "$membres" | grep -qx "$crate" || continue
+            lignes=$((lignes + 1))
+            for n in $(echo "$ligne" | grep -oE "[0-9]+ (tests?|d'intégration)" | grep -oE '^[0-9]+'); do
+              somme=$((somme + n))
+            done
+          done <<< "$(grep '^| `ks-' docs/03-ARCHITECTURE.md)"
+
+          if [ "$lignes" -eq 0 ]; then
+            echo "::error::aucune ligne de crate lue dans le tableau — le contrôle ne contrôle plus rien"
+            ecarts=1
+          elif [ "$somme" != "$mesure" ]; then
+            echo "::error file=docs/03-ARCHITECTURE.md::les décomptes par crate totalisent $somme, la suite en compte $mesure"
+            ecarts=1
+          else
+            echo "✓ $lignes lignes de crate, somme $somme = total mesuré"
+          fi
+
           exit $ecarts
 
       # Cette étape n'est pas décorative : elle isole les BARRIÈRES DE CONCEPTION
