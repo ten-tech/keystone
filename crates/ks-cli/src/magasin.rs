@@ -30,12 +30,37 @@
 //! C'est acceptable **ici**, parce que c'est notre dossier. Ce serait
 //! inacceptable chez winget, d'où l'ouverture en lecture seule stricte du
 //! lecteur de ses bases de suivi.
+//!
+//! ## Deux tables, un seul fichier
+//!
+//! La table `observation` rejoint `journal` dans la même base (ADR-0014). Elles
+//! n'ont pourtant aucune propriété commune : le journal est **chaîné et jamais
+//! purgé**, la série d'observations est **indépendante, interrogeable par chemin
+//! et purgeable**. Un chaînage et une rétention ne peuvent pas coexister sur la
+//! même table — supprimer un maillon rompt la chaîne, et une chaîne qu'on
+//! accepte de rompre ne prouve plus rien.
+//!
+//! Ce qui les réunit est plus prosaïque, et suffisant : un seul fichier, un seul
+//! mode WAL, un seul cycle de vie, une seule chose à sauvegarder.
+//!
+//! ## L'encodage est par intervalles, pas par échantillons
+//!
+//! Un scan qui revoit la même valeur **avance `last_seen`** et n'insère rien ;
+//! un scan qui en voit une autre ferme l'intervalle et en ouvre un. La taille du
+//! magasin devient donc proportionnelle au **changement**, pas au temps.
+//!
+//! Ce n'est pas une élégance gratuite : l'intervalle *est* la donnée dont
+//! l'attribution a besoin. « Le changement a eu lieu entre 14 h 03 et 15 h 03 »
+//! est tout ce qu'un sondage sait dire, et c'est exactement ce que ces deux
+//! bornes portent. Toute présentation qui afficherait un instant unique
+//! mentirait.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use ks_core::{JournalEntry, GENESIS_DIGEST, GENESIS_SEQ};
-use rusqlite::{Connection, OpenFlags};
+use chrono::{DateTime, Utc};
+use ks_core::{ItemValue, JournalEntry, GENESIS_DIGEST, GENESIS_SEQ};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
 /// Le dossier de données de Keystone.
 ///
@@ -97,9 +122,35 @@ impl Magasin {
                      digest      TEXT NOT NULL,
                      payload     TEXT NOT NULL
                  );
-                 CREATE INDEX IF NOT EXISTS journal_at ON journal(at);",
+                 CREATE INDEX IF NOT EXISTS journal_at ON journal(at);
+
+                 CREATE TABLE IF NOT EXISTS observation (
+                     id         INTEGER PRIMARY KEY,
+                     path       TEXT    NOT NULL,
+                     value      TEXT    NOT NULL,   -- JSON d'ItemValue
+                     first_seen TEXT    NOT NULL,   -- premier scan qui a vu cette valeur
+                     last_seen  TEXT    NOT NULL,   -- dernier scan qui l'a CONFIRMÉE
+                     closed     INTEGER NOT NULL DEFAULT 0
+                 );
+                 -- Au plus un intervalle ouvert par chemin. L'invariant est
+                 -- porté par l'index, pas par la vigilance de l'appelant : une
+                 -- règle qu'on se contente de respecter finit par être oubliée
+                 -- une fois, et une seule fois suffit à dédoubler une série.
+                 CREATE UNIQUE INDEX IF NOT EXISTS observation_ouverte
+                     ON observation(path) WHERE closed = 0;
+                 CREATE INDEX IF NOT EXISTS observation_serie ON observation(path, first_seen);
+
+                 -- Ce qu'on n'a pas su lire, et pourquoi. C'est cette table qui
+                 -- rend un changement survenu pendant une cécité *expliqué*
+                 -- plutôt que faussement attribué.
+                 CREATE TABLE IF NOT EXISTS lecture_refusee (
+                     id     INTEGER PRIMARY KEY,
+                     at     TEXT NOT NULL,
+                     path   TEXT NOT NULL,
+                     raison TEXT NOT NULL
+                 );",
             )
-            .context("création du schéma du journal")?;
+            .context("création du schéma du journal et des observations")?;
 
         Ok(Self { connexion })
     }
@@ -246,6 +297,246 @@ impl Magasin {
         }
         Ok(None)
     }
+}
+
+/// Un intervalle d'observation : une valeur, et la fenêtre de scans qui l'ont
+/// confirmée.
+///
+/// **Un intervalle n'est pas un instant.** Entre le `last_seen` d'un intervalle
+/// et le `first_seen` du suivant, le magasin ne sait rien : il sait seulement
+/// que le changement s'est produit quelque part là-dedans. Cette fenêtre peut
+/// couvrir plusieurs jours si l'item est resté illisible entre les deux.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Intervalle {
+    /// Le chemin de l'item observé.
+    pub path: String,
+    /// La valeur relevée, telle qu'`ItemValue` la sérialise.
+    pub value: ItemValue,
+    /// Premier scan qui a vu cette valeur.
+    pub first_seen: DateTime<Utc>,
+    /// Dernier scan qui l'a **confirmée** — pas le dernier scan tout court.
+    pub last_seen: DateTime<Utc>,
+    /// L'intervalle est-il refermé, c'est-à-dire suivi d'une autre valeur ?
+    pub closed: bool,
+}
+
+/// La série d'observations, séparée du journal parce que ce sont deux choses.
+///
+/// `#[allow(dead_code)]` assumé et daté : le câblage depuis `ks scan --record`
+/// arrive dans un second temps. Sans cet attribut, le binaire — où les tests
+/// sont absents — signalerait ces méthodes comme mortes. L'attribut disparaît
+/// avec le premier appelant.
+#[allow(dead_code)]
+impl Magasin {
+    /// Enregistre ce qu'un scan a relevé pour **un** item.
+    ///
+    /// L'horodatage est un paramètre et non une lecture d'horloge interne : une
+    /// fonction qui appelle `Utc::now()` ne se teste pas deux fois de la même
+    /// façon, et une série dont les bornes ne sont pas reproductibles ne se
+    /// vérifie pas du tout.
+    ///
+    /// Trois issues, et une quatrième qui n'en est pas une :
+    ///
+    /// * même valeur que l'intervalle ouvert → `last_seen` avance, rien n'est
+    ///   inséré ;
+    /// * valeur différente → l'intervalle ouvert est fermé, un nouveau s'ouvre ;
+    /// * aucun intervalle ouvert → un s'ouvre, `first_seen = last_seen` ;
+    /// * **relevé qui n'est pas un constat** → rien n'est ni fermé ni avancé, et
+    ///   la lecture refusée est consignée. Voir [`Self::enregistrer_sous_point`]
+    ///   pour la raison, qui est la décision la plus importante de ce module.
+    pub fn enregistrer_observation(
+        &self,
+        path: &str,
+        observed: &ItemValue,
+        at: DateTime<Utc>,
+    ) -> Result<()> {
+        // Un `SAVEPOINT` plutôt qu'un `BEGIN` : il ouvre une transaction quand
+        // il n'y en a pas, et s'imbrique dans celle du scan entier le jour où
+        // l'appelant en ouvrira une. `BEGIN` échouerait dans ce second cas, et
+        // il échouerait à l'exécution, chez l'utilisateur.
+        self.connexion
+            .execute_batch("SAVEPOINT observation")
+            .context("ouverture du point de reprise d'observation")?;
+        match self.enregistrer_sous_point(path, observed, at) {
+            Ok(()) => {
+                self.connexion
+                    .execute_batch("RELEASE observation")
+                    .context("validation de l'observation")?;
+                Ok(())
+            }
+            Err(erreur) => {
+                // L'annulation ne doit pas masquer la cause première.
+                let _ = self
+                    .connexion
+                    .execute_batch("ROLLBACK TO observation; RELEASE observation");
+                Err(erreur)
+            }
+        }
+    }
+
+    /// L'enregistrement proprement dit, sous le point de reprise tenu par
+    /// [`Self::enregistrer_observation`].
+    fn enregistrer_sous_point(
+        &self,
+        path: &str,
+        observed: &ItemValue,
+        at: DateTime<Utc>,
+    ) -> Result<()> {
+        let horodatage = at.to_rfc3339();
+
+        // Un relevé qui n'est pas un constat ne confirme rien et ne dément
+        // rien : on ignore si l'item a changé, ce qui n'est pas la même chose
+        // que savoir qu'il n'a pas changé.
+        //
+        // Écrire l'illisible comme une valeur de la série fabriquerait DEUX
+        // changements — vers l'illisible, puis vers la valeur retrouvée — là où
+        // il y en a eu au plus un, à un instant qu'on ignore. Avancer
+        // `last_seen` serait plus discret et tout aussi faux : ce serait
+        // affirmer qu'on a vu la valeur alors qu'on n'a rien vu du tout.
+        //
+        // Le prix de ce refus est assumé : quand l'item redevient lisible avec
+        // une autre valeur, l'intervalle de changement s'étend du dernier relevé
+        // lisible au premier relevé lisible suivant, et peut couvrir plusieurs
+        // jours. Aucun événement daté ne s'y attribuera, donc le changement
+        // sortira sans auteur identifiable. C'est le résultat correct : un
+        // changement survenu pendant qu'on était aveugle n'a pas d'auteur connu.
+        if !observed.est_constat() {
+            self.connexion
+                .execute(
+                    "INSERT INTO lecture_refusee (at, path, raison) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![horodatage, path, raison_de(observed)],
+                )
+                .context("consignation d'une lecture refusée")?;
+            return Ok(());
+        }
+
+        let valeur =
+            serde_json::to_string(observed).context("sérialisation de la valeur observée")?;
+
+        let ouvert: Option<(i64, String)> = self
+            .connexion
+            .query_row(
+                "SELECT id, value FROM observation WHERE path = ?1 AND closed = 0",
+                [path],
+                |l| Ok((l.get(0)?, l.get(1)?)),
+            )
+            .optional()
+            .context("lecture de l'intervalle ouvert")?;
+
+        match ouvert {
+            // La même valeur : on avance la borne, on n'insère rien. C'est ce
+            // seul geste qui rend la taille du magasin proportionnelle au
+            // changement et non au temps.
+            Some((id, precedente)) if precedente == valeur => {
+                self.connexion
+                    .execute(
+                        "UPDATE observation SET last_seen = ?1 WHERE id = ?2",
+                        rusqlite::params![horodatage, id],
+                    )
+                    .context("avancement de l'intervalle ouvert")?;
+            }
+            Some((id, _)) => {
+                self.connexion
+                    .execute("UPDATE observation SET closed = 1 WHERE id = ?1", [id])
+                    .context("fermeture de l'intervalle précédent")?;
+                self.ouvrir_intervalle(path, &valeur, &horodatage)?;
+            }
+            None => self.ouvrir_intervalle(path, &valeur, &horodatage)?,
+        }
+        Ok(())
+    }
+
+    /// Ouvre un intervalle sur la valeur donnée, vue pour la première fois.
+    ///
+    /// `first_seen` et `last_seen` partagent le même paramètre : un intervalle
+    /// naissant a été vu une fois, donc ses deux bornes coïncident. Les laisser
+    /// diverger à l'ouverture reviendrait à prétendre avoir confirmé une valeur
+    /// qu'on vient de découvrir.
+    fn ouvrir_intervalle(&self, path: &str, valeur: &str, horodatage: &str) -> Result<()> {
+        self.connexion
+            .execute(
+                "INSERT INTO observation (path, value, first_seen, last_seen, closed)
+                 VALUES (?1, ?2, ?3, ?3, 0)",
+                rusqlite::params![path, valeur, horodatage],
+            )
+            .context("ouverture d'un intervalle d'observation")?;
+        Ok(())
+    }
+
+    /// Les intervalles d'un chemin, du plus ancien au plus récent.
+    pub fn serie(&self, path: &str) -> Result<Vec<Intervalle>> {
+        let mut requete = self.connexion.prepare(
+            "SELECT path, value, first_seen, last_seen, closed
+             FROM observation WHERE path = ?1 ORDER BY first_seen, id",
+        )?;
+        // `id` départage deux intervalles nés du même horodatage : sans lui,
+        // l'ordre serait celui que SQLite voudra bien rendre, donc instable.
+        let lignes = requete.query_map([path], |l| {
+            Ok((
+                l.get::<_, String>(0)?,
+                l.get::<_, String>(1)?,
+                l.get::<_, String>(2)?,
+                l.get::<_, String>(3)?,
+                l.get::<_, i64>(4)?,
+            ))
+        })?;
+
+        let mut serie = Vec::new();
+        for ligne in lignes {
+            let (chemin, valeur, debut, fin, ferme) = ligne.context("lecture d'un intervalle")?;
+            serie.push(Intervalle {
+                path: chemin,
+                value: serde_json::from_str(&valeur).context("valeur observée illisible")?,
+                first_seen: instant(&debut)?,
+                last_seen: instant(&fin)?,
+                closed: ferme != 0,
+            });
+        }
+        Ok(serie)
+    }
+
+    /// La date du dernier scan qui a **confirmé** une valeur pour ce chemin.
+    ///
+    /// Elle répond à une question que rien d'autre ne sait poser : « ce
+    /// collecteur a-t-il échoué toute la semaine sans que rien ne le signale ? ».
+    /// Un item dont la confirmation date de sept jours peut être parfaitement
+    /// stable ; il peut aussi être illisible depuis sept jours. Les deux se
+    /// ressemblent à l'écran, et seule cette date les sépare — un écran qui
+    /// afficherait « conforme » sur le second dirait une chose fausse.
+    ///
+    /// `None` signifie qu'aucun constat n'a jamais été enregistré pour ce
+    /// chemin, ce qui n'est pas la même chose qu'une confirmation ancienne.
+    pub fn derniere_confirmation(&self, path: &str) -> Result<Option<DateTime<Utc>>> {
+        // `max()` sur zéro ligne rend une ligne dont la colonne est NULL : c'est
+        // le `Option` interne qui porte l'absence, pas l'absence de ligne.
+        let brut: Option<String> = self
+            .connexion
+            .query_row(
+                "SELECT max(last_seen) FROM observation WHERE path = ?1",
+                [path],
+                |l| l.get::<_, Option<String>>(0),
+            )
+            .context("lecture de la dernière confirmation")?;
+        brut.map(|b| instant(&b)).transpose()
+    }
+}
+
+/// Le motif à consigner pour un relevé qui n'est pas un constat.
+fn raison_de(valeur: &ItemValue) -> String {
+    match valeur {
+        ItemValue::Illisible { raison } => raison.clone(),
+        // Aucune autre variante n'échoue à `est_constat` aujourd'hui. Si une
+        // s'ajoutait, sa forme lisible vaut mieux qu'un motif vide, qui
+        // laisserait la cécité sans explication.
+        autre => autre.to_string(),
+    }
+}
+
+/// Relit un horodatage RFC 3339 tel que le magasin l'écrit.
+fn instant(brut: &str) -> Result<DateTime<Utc>> {
+    Ok(DateTime::parse_from_rfc3339(brut)
+        .with_context(|| format!("horodatage illisible : « {brut} »"))?
+        .with_timezone(&Utc))
 }
 
 #[cfg(test)]
@@ -457,6 +748,256 @@ mod tests {
         let absent = std::env::temp_dir().join("ks-journal-jamais-cree.sqlite");
         let _ = std::fs::remove_file(&absent);
         assert!(Magasin::ouvrir_en_lecture(&absent).is_err());
+    }
+
+    // ————————————————————————————————————————————————————————————————
+    // La série d'observations
+    // ————————————————————————————————————————————————————————————————
+
+    /// Un horodatage de scan, reproductible.
+    ///
+    /// Pas de `Utc::now()` dans un chemin asserté : une borne d'intervalle qui
+    /// dépend de l'instant du test ne se compare à rien.
+    fn scan_a(minute: u32) -> chrono::DateTime<Utc> {
+        use chrono::TimeZone;
+        Utc.with_ymd_and_hms(2026, 8, 3, 14, minute, 0)
+            .single()
+            .expect("date fixe et valide, sans ambiguïté de fuseau en UTC")
+    }
+
+    /// Le nombre de lectures refusées consignées pour un chemin.
+    fn lectures_refusees(m: &Magasin, path: &str) -> i64 {
+        m.connexion
+            .query_row(
+                "SELECT count(*) FROM lecture_refusee WHERE path = ?1",
+                [path],
+                |l| l.get(0),
+            )
+            .expect("décompte des lectures refusées")
+    }
+
+    #[test]
+    fn dix_confirmations_de_la_meme_valeur_ne_font_quune_seule_ligne() {
+        // C'est la propriété qui rend la taille du magasin proportionnelle au
+        // changement et non au temps. Si elle cède, un scan par heure produit
+        // 19 320 lignes la première semaine pour une machine qui n'a pas bougé.
+        let (m, chemin) = magasin_neuf("observation-stable");
+        let voie = "security.defender.realtime";
+        for minute in 0..10 {
+            m.enregistrer_observation(voie, &ItemValue::Bool(true), scan_a(minute))
+                .expect("enregistrement");
+        }
+
+        let serie = m.serie(voie).expect("série");
+        assert_eq!(
+            serie.len(),
+            1,
+            "dix confirmations de la même valeur sont un seul intervalle, pas dix"
+        );
+        assert_eq!(serie[0].value, ItemValue::Bool(true));
+        assert_eq!(serie[0].first_seen, scan_a(0));
+        assert_eq!(
+            serie[0].last_seen,
+            scan_a(9),
+            "la borne haute doit AVANCER : sans elle, on ne sait plus depuis \
+             quand la valeur est confirmée"
+        );
+        assert!(!serie[0].closed, "l'intervalle courant reste ouvert");
+        assert_eq!(
+            m.derniere_confirmation(voie).expect("confirmation"),
+            Some(scan_a(9))
+        );
+        let _ = std::fs::remove_file(chemin);
+    }
+
+    #[test]
+    fn une_valeur_qui_change_ferme_lintervalle_et_en_ouvre_un_autre() {
+        let (m, chemin) = magasin_neuf("observation-changement");
+        let voie = "security.defender.realtime";
+        m.enregistrer_observation(voie, &ItemValue::Bool(true), scan_a(0))
+            .expect("premier relevé");
+        m.enregistrer_observation(voie, &ItemValue::Bool(true), scan_a(1))
+            .expect("confirmation");
+        m.enregistrer_observation(voie, &ItemValue::Bool(false), scan_a(2))
+            .expect("changement");
+
+        let serie = m.serie(voie).expect("série");
+        assert_eq!(serie.len(), 2, "un changement, donc deux intervalles");
+
+        assert_eq!(serie[0].value, ItemValue::Bool(true));
+        assert!(serie[0].closed, "l'intervalle précédent doit être refermé");
+        assert_eq!(
+            serie[0].last_seen,
+            scan_a(1),
+            "la dernière confirmation de l'ancienne valeur est le scan 1, \
+             pas celui qui l'a démentie"
+        );
+
+        assert_eq!(serie[1].value, ItemValue::Bool(false));
+        assert!(!serie[1].closed);
+        assert_eq!(
+            serie[1].first_seen,
+            scan_a(2),
+            "first_seen du nouvel intervalle est le scan qui l'a VU"
+        );
+        assert_eq!(serie[1].last_seen, scan_a(2));
+
+        // Et voilà la donnée que l'attribution réclame : le changement a eu lieu
+        // entre ces deux bornes, sans qu'on puisse dire où.
+        assert!(serie[0].last_seen < serie[1].first_seen);
+        let _ = std::fs::remove_file(chemin);
+    }
+
+    #[test]
+    fn un_releve_illisible_ne_ferme_rien_et_navance_rien() {
+        // Le point le plus important du module. Un aveu de lecture n'est pas une
+        // valeur : le traiter comme telle fabriquerait deux changements — vers
+        // l'illisible, puis vers la valeur retrouvée — là où il y en a eu au
+        // plus un. Les trois exclusions Defender sont illisibles à CHAQUE scan
+        // faute d'élévation ; le défaut serait donc quotidien, pas théorique.
+        let (m, chemin) = magasin_neuf("observation-illisible");
+        let voie = "security.defender.exclusions";
+        m.enregistrer_observation(voie, &ItemValue::Bool(true), scan_a(0))
+            .expect("premier relevé");
+        m.enregistrer_observation(voie, &ItemValue::Bool(true), scan_a(1))
+            .expect("confirmation");
+        m.enregistrer_observation(voie, &ItemValue::illisible("accès refusé"), scan_a(2))
+            .expect("relevé illisible");
+
+        let serie = m.serie(voie).expect("série");
+        assert_eq!(serie.len(), 1, "zéro fermeture, zéro ouverture");
+        assert!(!serie[0].closed, "rien n'a été fermé");
+        assert_eq!(serie[0].value, ItemValue::Bool(true));
+        assert_eq!(
+            serie[0].last_seen,
+            scan_a(1),
+            "last_seen doit rester où il était : on n'a rien confirmé au scan 2"
+        );
+        assert_eq!(
+            m.derniere_confirmation(voie).expect("confirmation"),
+            Some(scan_a(1)),
+            "la fraîcheur de la confirmation ne doit pas mentir sur une cécité"
+        );
+
+        // La cécité est consignée, avec son motif : c'est ce qui rend un
+        // changement survenu pendant l'aveuglement *expliqué* plutôt que
+        // silencieusement faux.
+        assert_eq!(lectures_refusees(&m, voie), 1);
+        let raison: String = m
+            .connexion
+            .query_row(
+                "SELECT raison FROM lecture_refusee WHERE path = ?1",
+                [voie],
+                |l| l.get(0),
+            )
+            .expect("motif consigné");
+        assert_eq!(raison, "accès refusé");
+        let _ = std::fs::remove_file(chemin);
+    }
+
+    #[test]
+    fn deux_intervalles_ouverts_pour_un_meme_chemin_sont_refuses_par_lindex() {
+        // La barrière, éprouvée en tentant de la franchir. Relire l'index dans
+        // le schéma ne prouve rien : un index partiel mal écrit se lit comme un
+        // index correct. On insère donc réellement la ligne interdite.
+        let (m, chemin) = magasin_neuf("observation-index");
+        let voie = "security.firewall.profil";
+        m.enregistrer_observation(voie, &ItemValue::Bool(true), scan_a(0))
+            .expect("premier intervalle");
+
+        let interdite = m.connexion.execute(
+            "INSERT INTO observation (path, value, first_seen, last_seen, closed)
+             VALUES (?1, ?2, ?3, ?3, 0)",
+            rusqlite::params![voie, "false", scan_a(1).to_rfc3339()],
+        );
+        let erreur = interdite.expect_err(
+            "un second intervalle OUVERT sur le même chemin doit être refusé \
+             par la base, pas par la vigilance de l'appelant",
+        );
+        assert!(
+            erreur.to_string().to_uppercase().contains("UNIQUE"),
+            "c'est bien la contrainte d'unicité qui doit refuser, pas un autre \
+             échec qui y ressemblerait : {erreur}"
+        );
+
+        // Et la moitié qui prouve que l'index est bien PARTIEL : un intervalle
+        // fermé sur le même chemin, lui, doit passer. Un index unique complet
+        // interdirait tout historique, ce qui casserait la série en silence.
+        m.connexion
+            .execute(
+                "INSERT INTO observation (path, value, first_seen, last_seen, closed)
+                 VALUES (?1, ?2, ?3, ?3, 1)",
+                rusqlite::params![voie, "false", scan_a(1).to_rfc3339()],
+            )
+            .expect("un intervalle fermé ne heurte pas un index partiel");
+        let _ = std::fs::remove_file(chemin);
+    }
+
+    #[test]
+    fn deux_chemins_ne_partagent_pas_leur_serie() {
+        let (m, chemin) = magasin_neuf("observation-cloison");
+        m.enregistrer_observation("a.b", &ItemValue::Int(1), scan_a(0))
+            .expect("a");
+        m.enregistrer_observation("c.d", &ItemValue::Int(2), scan_a(0))
+            .expect("c");
+        m.enregistrer_observation("a.b", &ItemValue::Int(3), scan_a(1))
+            .expect("a change");
+
+        assert_eq!(m.serie("a.b").expect("série a").len(), 2);
+        assert_eq!(
+            m.serie("c.d").expect("série c").len(),
+            1,
+            "le changement d'un chemin ne touche pas la série d'un autre"
+        );
+        assert_eq!(
+            m.derniere_confirmation("jamais.vu").expect("confirmation"),
+            None,
+            "aucun constat n'est autre chose qu'une confirmation ancienne"
+        );
+        let _ = std::fs::remove_file(chemin);
+    }
+
+    #[test]
+    fn les_observations_ne_perturbent_pas_le_chainage_du_journal() {
+        // Les deux tables vivent dans le même fichier ; c'est justement pour ça
+        // qu'il faut vérifier que la seconde n'abîme pas les garanties de la
+        // première. La série n'est PAS chaînée, et rien ici ne prétend le
+        // contraire — le journal, lui, doit rester intact.
+        let (m, chemin) = magasin_neuf("observation-et-journal");
+        for minute in 0..4 {
+            m.ajouter(entree("scan")).expect("ajout");
+            m.enregistrer_observation(
+                "space.volume[c].used_percent",
+                &ItemValue::Int(61),
+                scan_a(minute),
+            )
+            .expect("observation");
+            m.enregistrer_observation(
+                "security.defender.exclusions",
+                &ItemValue::illisible("accès refusé"),
+                scan_a(minute),
+            )
+            .expect("lecture refusée");
+        }
+
+        let lues = m.lire(None).expect("lecture");
+        assert_eq!(lues.len(), 4);
+        assert!(
+            JournalEntry::verify_chain(&lues),
+            "écrire des observations ne doit rien changer au chaînage"
+        );
+        assert_eq!(
+            m.premiere_empreinte_incoherente().expect("vérification"),
+            None
+        );
+        assert_eq!(
+            m.serie("space.volume[c].used_percent")
+                .expect("série")
+                .len(),
+            1
+        );
+        assert_eq!(lectures_refusees(&m, "security.defender.exclusions"), 4);
+        let _ = std::fs::remove_file(chemin);
     }
 
     #[test]
