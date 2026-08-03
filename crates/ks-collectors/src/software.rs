@@ -52,7 +52,7 @@
 //! `unqueryable_managers` le nomme, et le pourcentage se tait alors entièrement.
 
 use chrono::Utc;
-use ks_core::{Domain, Item, ItemValue, Provenance};
+use ks_core::{Domain, Item, ItemValue, Nature, Provenance};
 
 /// Qui met à jour cette application, si quelqu'un le fait.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -375,23 +375,34 @@ impl SoftwareCollector {
         let maintenant = Utc::now();
         let mut items = Vec::new();
 
-        let mut item = |chemin: String, valeur: ItemValue, but: &str, risque: &str| {
-            items.push(Item {
-                path: chemin,
-                domain: Domain::Inventory,
-                desired: None,
-                observed: valeur,
-                observed_at: maintenant,
-                // `Observed` et non `Keystone` : on relève, on ne produit pas.
-                provenance: Provenance::Observed,
-                purpose: but.to_owned(),
-                risk: risque.to_owned(),
-                reference: None,
-            });
-        };
+        // **Aucun item de ce collecteur ne se déclare** (ADR-0009). On subit la
+        // version de Chrome ; on ne l'écrit pas dans un fichier d'état désiré,
+        // et un verbe ne l'y ramènera pas. La nature reste malgré tout un
+        // paramètre obligatoire de cette fabrique : le jour où l'inventaire
+        // logiciel produira un item d'une autre vocation — un anneau de mise à
+        // jour, par exemple — la décision se prendra ici, item par item.
+        let mut item =
+            |chemin: String, nature: Nature, valeur: ItemValue, but: &str, risque: &str| {
+                items.push(Item {
+                    path: chemin,
+                    domain: Domain::Inventory,
+                    nature,
+                    desired: None,
+                    observed: valeur,
+                    observed_at: maintenant,
+                    // `Observed` et non `Keystone` : on relève, on ne produit pas.
+                    provenance: Provenance::Observed,
+                    purpose: but.to_owned(),
+                    risk: risque.to_owned(),
+                    reference: None,
+                });
+            };
 
         item(
             "inventory.software.total".to_owned(),
+            // Un compteur : il change à chaque installation comme à chaque
+            // désinstallation, sans que personne l'ait voulu de ce côté-ci.
+            Nature::Mesure,
             ItemValue::Int(i64::try_from(inv.applications.len()).unwrap_or(-1)),
             "Nombre d'applications installées, toutes sources confondues.",
             "Aucun — cet item est un constat.",
@@ -400,6 +411,7 @@ impl SoftwareCollector {
         let sans_gestionnaire = inv.non_attribuees();
         item(
             "inventory.software.unattributed".to_owned(),
+            Nature::Mesure,
             ItemValue::Int(i64::try_from(sans_gestionnaire.len()).unwrap_or(-1)),
             "Applications classiques qu'aucun gestionnaire de paquets ne suit. Deux \
              réserves : tant que l'attribution est incomplète, c'est un majorant ; \
@@ -411,6 +423,7 @@ impl SoftwareCollector {
 
         item(
             "inventory.software.packaged".to_owned(),
+            Nature::Mesure,
             ItemValue::Int(i64::try_from(inv.empaquetees().len()).unwrap_or(-1)),
             "Paquets MSIX dont le canal de service n'est pas identifiable : le Store \
              met à jour ceux qui en viennent, l'éditeur ceux qui ont été déposés à la \
@@ -425,6 +438,10 @@ impl SoftwareCollector {
         // travers est un item mal conçu, même si sa valeur est juste.
         item(
             "inventory.software.attribution".to_owned(),
+            // Constat, et non mesure : ce n'est pas un nombre qui dérive, c'est
+            // un aveu sur la qualité du relevé. On ne le déclare pas davantage —
+            // vouloir « complète » ne le rendrait pas complet.
+            Nature::Constat,
             ItemValue::Text(
                 if aveugles.is_empty() {
                     "complète"
@@ -443,6 +460,7 @@ impl SoftwareCollector {
         if !aveugles.is_empty() {
             item(
                 "inventory.software.unqueryable_managers".to_owned(),
+                Nature::Constat,
                 ItemValue::List(aveugles.iter().map(|g| g.libelle().to_owned()).collect()),
                 "Gestionnaires détectés qu'on ne sait pas encore interroger. Les \
                  applications qu'ils gèrent apparaissent à tort comme non attribuées.",
@@ -456,6 +474,7 @@ impl SoftwareCollector {
         if let Some(part) = inv.part_non_attribuees() {
             item(
                 "inventory.software.unattributed_percent".to_owned(),
+                Nature::Mesure,
                 ItemValue::Int(i64::from(part)),
                 "Part des applications sans gestionnaire identifié, en pourcentage.",
                 "Aucun — cet item est un constat.",
@@ -464,6 +483,10 @@ impl SoftwareCollector {
 
         item(
             "inventory.software.managers".to_owned(),
+            // Constat : la liste des gestionnaires présents décrit la machine
+            // telle qu'elle est. Déclarer quels gestionnaires doivent exister
+            // supposerait un verbe d'installation, qui n'est pas au programme.
+            Nature::Constat,
             ItemValue::List(
                 inv.gestionnaires
                     .iter()
@@ -488,6 +511,13 @@ impl SoftwareCollector {
                     "inventory.software[{}].version",
                     Application::clef(&app.nom)
                 ),
+                // **Le gros du lot : 54 items sur la machine de référence.** On
+                // subit la version de Chrome, on ne la déclare pas. Et le chemin
+                // lui-même porte parfois la version (`dbeaver2530currentuser`) :
+                // une mise à jour ne change pas la valeur, elle fait disparaître
+                // un item et en apparaître un autre. Déclarés, ces 54 items
+                // seraient une fabrique à faux positifs.
+                Nature::Constat,
                 valeur,
                 "Application installée dont le gestionnaire n'a pas été identifié.",
                 "Sa mise à jour dépend de toi, ou de l'application elle-même si elle \

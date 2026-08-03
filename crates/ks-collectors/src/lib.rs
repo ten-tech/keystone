@@ -59,7 +59,7 @@ pub mod virtualisation;
 pub mod winget;
 
 use chrono::Utc;
-use ks_core::{Domain, Item, ItemValue, Provenance};
+use ks_core::{Domain, Item, ItemValue, Nature, Provenance};
 pub use posture::PostureCollector;
 pub use software::{Application, Gestionnaire, Inventaire, SoftwareCollector};
 pub use virtualisation::{Distribution, VirtualisationCollector};
@@ -163,16 +163,31 @@ impl Inventory {
     }
 }
 
-/// Construit un item observé, avec sa provenance et son explication.
+/// Construit un item observé, avec sa provenance, sa vocation et son explication.
 ///
 /// Les champs `purpose` et `risk` ne sont pas décoratifs : l'exigence D1-10 interdit
 /// d'afficher un item sans provenance, et le principe P6 (explicabilité) interdit
 /// d'afficher un item que l'utilisateur ne peut pas comprendre. Le constructeur les
 /// rend donc obligatoires — on ne peut pas les oublier.
-fn observed(path: &str, domain: Domain, value: ItemValue, purpose: &str, risk: &str) -> Item {
+///
+/// `nature` obéit à la même règle, et pour la même raison (ADR-0009). Il n'y a
+/// **ni valeur par défaut, ni `Option`** : une valeur par défaut serait une
+/// décision qu'on n'a pas prise, et un collecteur ajouté sans elle verrait ses
+/// items silencieusement rangés parmi ceux qui ne se déclarent jamais. Le
+/// contributeur est arrêté par le compilateur, pas par une consigne de
+/// relecture.
+fn observed(
+    path: &str,
+    domain: Domain,
+    nature: Nature,
+    value: ItemValue,
+    purpose: &str,
+    risk: &str,
+) -> Item {
     Item {
         path: path.to_owned(),
         domain,
+        nature,
         desired: None,
         observed: value,
         observed_at: Utc::now(),
@@ -211,10 +226,16 @@ impl Collector for HardwareCollector {
         sys.refresh_memory();
         sys.refresh_cpu_all();
 
+        // Rien de ce collecteur ne se déclare. Le système, le noyau, le nom de
+        // la machine, le nombre de cœurs et la mémoire sont des faits qu'on
+        // subit — on ne « veut » pas seize cœurs, on en a seize. Le temps de
+        // fonctionnement et le taux d'occupation, eux, bougent seuls : les
+        // déclarer par égalité produirait un écart à chaque scan.
         let mut items = vec![
             observed(
                 "inventory.os.name",
                 Domain::Inventory,
+                Nature::Constat,
                 ItemValue::Text(System::long_os_version().unwrap_or_else(|| "inconnu".into())),
                 "Système et version, pour situer la machine dans la matrice de compatibilité.",
                 "Aucun — lecture seule.",
@@ -222,6 +243,7 @@ impl Collector for HardwareCollector {
             observed(
                 "inventory.os.kernel",
                 Domain::Inventory,
+                Nature::Constat,
                 ItemValue::Text(System::kernel_version().unwrap_or_else(|| "inconnu".into())),
                 "Version du noyau — sert à détecter une distro WSL en retard.",
                 "Aucun — lecture seule.",
@@ -229,6 +251,7 @@ impl Collector for HardwareCollector {
             observed(
                 "inventory.host.name",
                 Domain::Inventory,
+                Nature::Constat,
                 ItemValue::Text(System::host_name().unwrap_or_else(|| "inconnu".into())),
                 "Nom de la machine, clé de la surcouche de flotte (D13-01).",
                 "Aucun — lecture seule.",
@@ -236,6 +259,7 @@ impl Collector for HardwareCollector {
             observed(
                 "inventory.cpu.cores",
                 Domain::Inventory,
+                Nature::Constat,
                 ItemValue::Int(i64::try_from(sys.cpus().len()).unwrap_or(-1)),
                 "Nombre de cœurs logiques, base des plafonds de ressources des VM.",
                 "Aucun — lecture seule.",
@@ -243,6 +267,7 @@ impl Collector for HardwareCollector {
             observed(
                 "inventory.memory.total_bytes",
                 Domain::Inventory,
+                Nature::Constat,
                 ItemValue::Int(i64::try_from(sys.total_memory()).unwrap_or(-1)),
                 "Mémoire totale, contrainte des profils WSL et Hyper-V.",
                 "Aucun — lecture seule.",
@@ -250,6 +275,8 @@ impl Collector for HardwareCollector {
             observed(
                 "inventory.uptime_seconds",
                 Domain::Inventory,
+                // Il augmente d'une seconde par seconde : l'archétype de la mesure.
+                Nature::Mesure,
                 ItemValue::Int(i64::try_from(System::uptime()).unwrap_or(-1)),
                 "Temps depuis le dernier démarrage — utile pour les correctifs en attente.",
                 "Aucun — lecture seule.",
@@ -274,6 +301,11 @@ impl Collector for HardwareCollector {
             items.push(observed(
                 &format!("space.volume[{mount}].used_percent"),
                 Domain::Space,
+                // Le seul cas d'usage réel d'une mesure contrainte (« au plus
+                // 85 »). Un seul ne suffit pas à écrire le vocabulaire qui
+                // permettrait de la déclarer : c'est la dette prise par
+                // l'ADR-0009, et sa condition de remboursement.
+                Nature::Mesure,
                 ItemValue::Int(pct),
                 "Taux d'occupation du volume, base de la projection de saturation.",
                 "Aucun — lecture seule.",
@@ -349,6 +381,47 @@ mod tests {
             assert!(
                 !item.risk.is_empty(),
                 "« {} » sans risque documenté",
+                item.path
+            );
+        }
+    }
+
+    #[test]
+    fn aucun_item_dinventaire_ni_despace_na_vocation_a_etre_declare() {
+        // La moitié « ce qui ne se déclare pas » de l'ADR-0009, éprouvée là où
+        // elle porte le plus : ces deux collecteurs produisent 62 des 115 items
+        // de la machine de référence, dont les 54 versions d'applications.
+        //
+        // Les y déclarer donnerait un `workstation.yaml` que personne ne relit,
+        // et un écart par mise à jour de navigateur — pire, un écart que la
+        // valeur ne montre même pas, la version vivant dans le CHEMIN de l'item
+        // (`inventory.software[dbeaver2530currentuser].version`).
+        let items: Vec<Item> = HardwareCollector
+            .collect()
+            .into_iter()
+            .chain(SoftwareCollector::items())
+            .collect();
+        assert!(!items.is_empty(), "sans item, ce test n'éprouve rien");
+
+        for item in &items {
+            // Le `match` exhaustif sans bras `_` est la barrière : ajouter une
+            // variante à `Nature` casse ici la COMPILATION, donc la CI, avant
+            // qu'un test s'exécute. Le contributeur doit venir décider ce que
+            // sa nouvelle nature fait de ces items-là.
+            let attendu = match item.nature {
+                Nature::Constat | Nature::Mesure => false,
+                Nature::Reglage | Nature::Objectif => true,
+            };
+            assert!(
+                !attendu,
+                "« {} » : {:?} — l'inventaire logiciel et l'espace se constatent, \
+                 ils ne se déclarent pas",
+                item.path, item.nature
+            );
+            assert_eq!(item.nature.est_declarable(), attendu);
+            assert!(
+                !item.nature.est_convergeable(),
+                "« {} » : aucun verbe n'écrira la version d'une application",
                 item.path
             );
         }

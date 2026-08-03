@@ -188,7 +188,7 @@ impl DriftSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Domain, ItemValue, Provenance};
+    use crate::{Domain, ItemValue, Nature, Provenance};
     use chrono::{Duration, Utc};
 
     fn drift(status: DriftStatus, provenance: Provenance) -> Drift {
@@ -197,6 +197,9 @@ mod tests {
             item: Item {
                 path: "services.Fax.startupType".into(),
                 domain: Domain::Configuration,
+                // Un type de démarrage de service a un état désirable, et un
+                // verbe l'écrira : c'est un réglage.
+                nature: Nature::Reglage,
                 desired: Some(ItemValue::Text("Disabled".into())),
                 observed: ItemValue::Text("Manual".into()),
                 observed_at: now,

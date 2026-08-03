@@ -32,6 +32,85 @@ pub enum Domain {
     DevEnv,
 }
 
+/// Ce qu'un item a **vocation** à devenir dans le fichier d'état désiré (ADR-0009).
+///
+/// # Pourquoi une propriété de l'item, et pas une table dans l'importateur
+///
+/// Les 115 items d'un scan n'ont pas la même vocation, et les traiter à égalité
+/// coûte deux fois. `ks import` verserait 115 lignes dans `workstation.yaml`,
+/// c'est-à-dire un fichier que personne ne relit ; et le suivi de dérive
+/// publierait un écart par scan sur tout ce qui bouge de lui-même — le temps de
+/// fonctionnement, le taux d'occupation d'un volume, la date des dernières
+/// signatures de Defender.
+///
+/// Une table de chemins déclarables tenue à part serait une seconde source de
+/// vérité : un collecteur qui ajoute un item le verrait **silencieusement**
+/// classé non déclarable. La nature vit donc avec l'item, décidée dans le
+/// collecteur qui le fabrique, et nulle part ailleurs.
+///
+/// # Ce que le préfixe du chemin ne dit pas
+///
+/// La déduire du préfixe est faux dès la première ligne :
+/// `security.firmware.version` est un [`Nature::Constat`] — on subit la version
+/// du firmware — tandis que `virtualization.wsl[*].interop` est un
+/// [`Nature::Reglage`]. Il n'existe pas de raccourci ; il n'y a qu'une décision
+/// par item.
+///
+/// # Volontairement pas `#[non_exhaustive]`
+///
+/// L'énumération est fermée pour que le `match` **exhaustif sans bras `_`**
+/// reste possible chez ses consommateurs, y compris hors de ce crate. Ajouter
+/// une variante doit casser la compilation partout où l'on décide quelque chose
+/// d'une nature, plutôt que de tomber dans un fourre-tout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Nature {
+    /// Un réglage : il a un état désirable, et un verbe du broker l'écrira.
+    Reglage,
+    /// Un état qu'on peut vouloir vrai, qu'aucun verbe n'écrit directement.
+    ///
+    /// Déclarable, suivi, mais **jamais convergeable**. C'est la position
+    /// honnête sur Secure Boot, la protection DMA et l'exécution effective de
+    /// VBS : on peut les vouloir, les mesurer et les signaler sans savoir agir.
+    Objectif,
+    /// Un nombre qui évolue de lui-même. Ni déclaré ni suivi en Phase 1.
+    ///
+    /// Faute d'un vocabulaire de contrainte (« au plus 85 », « plus récent que
+    /// sept jours »), une mesure déclarée le serait par égalité — donc en écart
+    /// à chaque scan. Ce vocabulaire s'écrira le jour où un second cas d'usage
+    /// apparaîtra, et pas avant (ADR-0009).
+    Mesure,
+    /// Un fait sur la machine. Ne se déclare jamais.
+    Constat,
+}
+
+impl Nature {
+    /// L'item a-t-il vocation à figurer dans le fichier d'état désiré ?
+    ///
+    /// C'est ce que `ks import` retiendra du scan, et rien d'autre.
+    #[must_use]
+    pub const fn est_declarable(self) -> bool {
+        match self {
+            Self::Reglage | Self::Objectif => true,
+            Self::Mesure | Self::Constat => false,
+        }
+    }
+
+    /// Keystone saura-t-il un jour **écrire** cet item ?
+    ///
+    /// À terme, la Phase 2 refusera de faire converger un [`Nature::Objectif`] :
+    /// on ne prétend pas écrire ce qu'aucun verbe n'écrit. Aujourd'hui rien ne
+    /// converge — les phases 0 et 1 sont en lecture seule — et cette méthode ne
+    /// sert qu'à nommer la frontière avant qu'un exécuteur existe.
+    #[must_use]
+    pub const fn est_convergeable(self) -> bool {
+        match self {
+            Self::Reglage => true,
+            Self::Objectif | Self::Mesure | Self::Constat => false,
+        }
+    }
+}
+
 /// D'où vient l'information — ou, pour un changement, **qui l'a fait**.
 ///
 /// C'est le champ le plus important du modèle. Une dérive dont l'auteur est
@@ -230,6 +309,12 @@ pub struct Item {
     pub path: String,
     /// Domaine fonctionnel.
     pub domain: Domain,
+    /// Ce que cet item a vocation à devenir dans le fichier d'état désiré.
+    ///
+    /// Obligatoire, comme [`Item::purpose`] et [`Item::risk`] : une valeur par
+    /// défaut serait une décision qu'on n'a pas prise, et elle se prendrait
+    /// alors sur quarante items d'un coup.
+    pub nature: Nature,
     /// Valeur déclarée dans `workstation.yaml`. `None` = non déclarée, donc non contrainte.
     pub desired: Option<ItemValue>,
     /// Valeur réellement constatée sur la machine.
@@ -347,6 +432,9 @@ mod tests {
         Item {
             path: "security.defender.realtime".into(),
             domain: Domain::Security,
+            // La protection en temps réel a un état désirable, et un verbe
+            // l'écrira : c'est le réglage archétypal.
+            nature: Nature::Reglage,
             desired,
             observed,
             observed_at: chrono::Utc::now(),
@@ -556,6 +644,107 @@ mod tests {
         let relu: Item = serde_json::from_str(&json).expect(&json);
         assert_eq!(relu.verdict(), Verdict::Ecart);
         assert_eq!(i.verdict(), relu.verdict());
+    }
+
+    /// Toutes les natures, une par variante.
+    ///
+    /// Même mécanique que [`toutes_les_valeurs`] : le `match` exhaustif sans
+    /// bras `_` casse la **compilation** le jour où une variante s'ajoute sans
+    /// rejoindre cette liste. Une liste d'échantillons écrite à la main ne
+    /// détecte jamais ce qu'on a oublié d'y mettre ; le compilateur, si.
+    fn toutes_les_natures() -> Vec<Nature> {
+        let echantillons = vec![
+            Nature::Reglage,
+            Nature::Objectif,
+            Nature::Mesure,
+            Nature::Constat,
+        ];
+        for n in &echantillons {
+            match n {
+                Nature::Reglage | Nature::Objectif | Nature::Mesure | Nature::Constat => {}
+            }
+        }
+        echantillons
+    }
+
+    #[test]
+    fn une_nature_dit_ce_qui_se_declare_et_ce_qui_ne_se_converge_jamais() {
+        // La table complète, parce que c'est elle qui décide de deux mécanismes
+        // de la Phase 1 : ce que `ks import` écrit, et ce que le suivi de
+        // dérive regarde.
+        for (nature, declarable, convergeable) in [
+            (Nature::Reglage, true, true),
+            (Nature::Objectif, true, false),
+            (Nature::Mesure, false, false),
+            (Nature::Constat, false, false),
+        ] {
+            assert_eq!(
+                nature.est_declarable(),
+                declarable,
+                "{nature:?} : vocation à être déclaré"
+            );
+            assert_eq!(
+                nature.est_convergeable(),
+                convergeable,
+                "{nature:?} : vocation à être écrit"
+            );
+        }
+
+        // Le cas qui justifie la quatrième variante plutôt que deux. Sans
+        // `Objectif`, `vbs_running` serait soit non déclarable — donc jamais
+        // suivi —, soit un réglage — donc la Phase 2 tenterait de le faire
+        // converger, sans qu'aucun verbe sache l'écrire.
+        assert!(Nature::Objectif.est_declarable());
+        assert!(
+            !Nature::Objectif.est_convergeable(),
+            "on ne prétend pas écrire ce qu'aucun verbe n'écrit"
+        );
+
+        // Et rien de convergeable n'échappe à la déclaration : un item que
+        // Keystone saurait écrire sans qu'on ait pu le vouloir serait une
+        // écriture sans mandat.
+        for nature in toutes_les_natures() {
+            assert!(
+                !nature.est_convergeable() || nature.est_declarable(),
+                "{nature:?} : convergeable sans être déclarable"
+            );
+        }
+    }
+
+    #[test]
+    fn aucune_nature_ne_se_confond_avec_une_autre_apres_un_aller_retour() {
+        // La nature voyage dans `ks scan --json` et, demain, dans le fichier
+        // d'état désiré : deux natures qui s'écriraient pareil feraient d'un
+        // constat un réglage au premier aller-retour.
+        let mut vues = Vec::new();
+        for nature in toutes_les_natures() {
+            let json = serde_json::to_string(&nature).expect("sérialisation");
+            let relue: Nature = serde_json::from_str(&json).expect(&json);
+            assert_eq!(relue, nature, "aller-retour cassé : {json}");
+            vues.push(json);
+        }
+
+        let avant = vues.len();
+        vues.sort();
+        vues.dedup();
+        assert_eq!(
+            avant,
+            vues.len(),
+            "deux natures s'écrivent pareil : {vues:?}"
+        );
+
+        // La forme est nommée, pas positionnelle : un entier d'index se
+        // décalerait au premier réordonnancement des variantes.
+        assert_eq!(
+            serde_json::to_string(&Nature::Reglage).expect("sérialisation"),
+            r#""reglage""#
+        );
+
+        // Et l'item entier survit à l'aller-retour sans changer de vocation.
+        let i = item(Some(ItemValue::Bool(true)), ItemValue::Bool(true));
+        let json = serde_json::to_string(&i).expect("sérialisation");
+        let relu: Item = serde_json::from_str(&json).expect(&json);
+        assert_eq!(relu.nature, i.nature);
     }
 
     #[test]

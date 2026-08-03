@@ -14,7 +14,8 @@
 //! précisément ce qui fait croire à une garantie qu'on n'a pas.
 //!
 //! **Rendu impossible par le typage.** Ces états ne compilent pas : un [`Item`]
-//! sans provenance ni horodatage est inconstructible, une acceptation d'écart
+//! sans provenance, sans horodatage ni sans [`Nature`] décidée est
+//! inconstructible, une acceptation d'écart
 //! sans motif ni expiration n'existe pas ([`DriftStatus::Accepted`]), un
 //! [`Snapshot`] ne peut pas être passé là où un [`BackupSet`] est attendu.
 //!
@@ -39,7 +40,7 @@ pub mod plan;
 pub mod snapshot;
 
 pub use drift::{Drift, DriftStatus, DriftSummary, Severity};
-pub use item::{Domain, Item, ItemValue, Provenance};
+pub use item::{Domain, Item, ItemValue, Nature, Provenance};
 pub use journal::Heartbeat;
 pub use journal::{Actor, JournalEntry, Outcome, GENESIS_DIGEST, GENESIS_SEQ};
 pub use plan::{Action, Capabilities, Plan, Wave};

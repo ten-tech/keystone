@@ -1,6 +1,10 @@
 # ADR-0009 — Ce qui a vocation à être déclaré, et ce qui n'est qu'un constat
 
-- **Statut** : Proposé
+- **Statut** : Accepté — implémentée le 2026-08-03 (`ks_core::Nature`, paramètre
+  obligatoire de `observed` et `item_posture`). Mesuré sur la machine de
+  référence : **115 items, dont 34 déclarables** — 28 `Reglage` et 6 `Objectif`,
+  contre 14 `Mesure` et 67 `Constat`. Les décomptes de familles annoncés
+  ci-dessous se retrouvent un à un.
 - **Date** : 2026-08-02
 - **Exigences concernées** : D2-02, D2-04, P6, moment de vérité M1
 
@@ -20,13 +24,21 @@ apparaissent, et elles ne se déclarent pas de la même façon :
 
 | Famille | Exemples relevés | Combien |
 |---|---|---|
-| Faits sur la machine | `inventory.cpu.cores`, `security.firmware.version`, les 54 `inventory.software[*].version` | ~69 |
-| Nombres qui bougent seuls | `inventory.uptime_seconds`, `space.volume[C:\].used_percent`, `security.defender.signatures_applied_at` | ~10 |
+| Faits sur la machine | `inventory.cpu.cores`, `security.firmware.version`, les 54 `inventory.software[*].version` | 67 |
+| Nombres qui bougent seuls | `inventory.uptime_seconds`, `space.volume[C:\].used_percent`, `security.defender.signatures_applied_at` | 14 |
 | États qu'on peut vouloir, qu'aucun verbe n'écrit | `security.platform.vbs_running`, `dma_protection_available`, `secure_boot` | 6 |
 | Réglages | `security.services.windefend.startup`, `security.firewall.public.enabled`, `security.defender.realtime` | 28 |
 
 **34 items déclarables sur 115.** Un fichier d'une trentaine de lignes, qu'un
 humain relit en une minute. C'est le livrable de M1.
+
+Les deux premières lignes portaient « ~69 » et « ~10 » tant que le classement
+n'était qu'estimé. Le classement effectif donne 67 et 14 : les six décomptes de
+l'inventaire logiciel, du pare-feu et de WSL — `software.total`,
+`software.unattributed`, `software.packaged`, `software.unattributed_percent`,
+`firewall.inbound_allow_rules`, `wsl.distro_count` — sont bien des nombres qui
+bougent seuls, et non des faits. Le total et les deux lignes qui décident de M1,
+elles, n'ont pas bougé d'une unité.
 
 ### Le second usage, qui décide de l'affaire
 

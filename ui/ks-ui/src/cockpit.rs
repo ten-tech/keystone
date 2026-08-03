@@ -613,12 +613,16 @@ impl Cockpit {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ks_core::Provenance;
+    use ks_core::{Nature, Provenance};
 
     fn item(chemin: &str, domaine: Domain, valeur: ItemValue) -> Item {
         Item {
             path: chemin.to_owned(),
             domain: domaine,
+            // Le poste de pilotage ne distingue pas encore les natures : il
+            // compte et répartit tout ce qui a été observé. Ce lot ne change
+            // pas ce que l'écran dit.
+            nature: Nature::Reglage,
             desired: None,
             observed: valeur,
             observed_at: chrono::Utc::now(),

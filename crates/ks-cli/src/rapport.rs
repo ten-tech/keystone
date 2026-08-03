@@ -393,12 +393,17 @@ footer { margin-top: var(--sp-7); padding-top: var(--sp-4);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ks_core::Provenance;
+    use ks_core::{Nature, Provenance};
 
     fn item(chemin: &str, domaine: Domain, valeur: ItemValue) -> Item {
         Item {
             path: chemin.to_owned(),
             domain: domaine,
+            // Le rapport ne lit pas encore la nature : il montre tout ce qui a
+            // été observé, déclarable ou non. Une valeur fixe suffit donc ici,
+            // et le jour où le rapport la distinguera, ce champ devra devenir
+            // un paramètre de cette fabrique.
+            nature: Nature::Reglage,
             desired: None,
             observed: valeur,
             observed_at: chrono::Utc::now(),

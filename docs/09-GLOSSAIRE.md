@@ -55,8 +55,9 @@ parce que son coût est réel.
 | **Couloir sécurité** | mécanisme par lequel une vulnérabilité critique et activement exploitée court-circuite les anneaux. |
 | **Dérive acceptée** | écart volontairement toléré, avec **raison et date d'expiration obligatoires**. Sans expiration, un fichier d'état pourrit en trois ans. |
 | **État désiré** | ce que `workstation.yaml` déclare. Unique source de vérité. |
-| **Item** | unité de configuration observée. Porte toujours sa provenance, sa finalité et son risque. |
+| **Item** | unité de configuration observée. Porte toujours sa provenance, sa nature, sa finalité et son risque. |
 | **Moment de vérité** | instant d'usage explicitement conçu, où le produit gagne ou perd la confiance de son utilisateur. Les huit sont au §5 du brief. |
+| **Nature** | ce qu'un item a **vocation** à devenir dans `workstation.yaml`, décidé par le collecteur qui le fabrique (ADR-0009). `Reglage` se déclare et se converge ; `Objectif` se déclare et se suit, mais aucun verbe ne l'écrit ; `Mesure` bouge seule, donc ni déclarée ni suivie en Phase 1 ; `Constat` ne se déclare jamais. Le préfixe du chemin ne la décide pas : `security.firmware.version` est un constat, `virtualization.wsl[*].interop` un réglage. |
 | **Oscillation** | item repoussé par la MDM à chaque cycle. Identifié comme tel plutôt que reconverti en boucle. |
 | **Plan** | ensemble ordonné de vagues, montré intégralement avant d'être appliqué. |
 | **Provenance** | qui a produit la valeur constatée. `Observed` dit « relevé, sans prétention sur l'auteur » ; `Unknown` dit « un changement a eu lieu et personne n'en est l'auteur » — c'est **le** signal du produit, et confondre les deux le rend muet. |

@@ -55,11 +55,11 @@
 use chrono::{DateTime, Utc};
 use ks_core::{Item, ItemValue};
 
-// `Domain` et `Provenance` ne servent qu'à fabriquer un item, ce que seule la
-// branche Windows fait : hors Windows, ce collecteur ne produit rien plutôt que
-// d'inventer des protections qui n'existent pas ailleurs.
+// `Domain`, `Nature` et `Provenance` ne servent qu'à fabriquer un item, ce que
+// seule la branche Windows fait : hors Windows, ce collecteur ne produit rien
+// plutôt que d'inventer des protections qui n'existent pas ailleurs.
 #[cfg(windows)]
-use ks_core::{Domain, Provenance};
+use ks_core::{Domain, Nature, Provenance};
 
 /// Type de démarrage d'un service Windows, tel que le registre l'encode.
 ///
@@ -411,10 +411,16 @@ impl PostureCollector {
     }
 }
 
-/// Fabrique un item de posture, avec sa finalité et son risque (principe P6).
+/// Fabrique un item de posture, avec sa vocation, sa finalité et son risque.
+///
+/// `nature` est un paramètre **obligatoire**, au même titre que `but` et
+/// `risque` (principe P6, ADR-0009). Le préfixe `security.` ne la décide pas :
+/// ce module produit les quatre natures, et `security.firmware.version` est un
+/// constat à trois lignes d'un réglage.
 #[cfg(windows)]
 pub(crate) fn item_posture(
     chemin: &str,
+    nature: Nature,
     valeur: ItemValue,
     but: &str,
     risque: &str,
@@ -423,6 +429,7 @@ pub(crate) fn item_posture(
     Item {
         path: chemin.to_owned(),
         domain: Domain::Security,
+        nature,
         desired: None,
         observed: valeur,
         observed_at: Utc::now(),
@@ -486,7 +493,7 @@ mod windows_impl {
         application_integrite_code, classer, date_firmware_certaine, demarrage_service, drapeau,
         est_autorisation_entrante_active, etat_vbs, filetime_vers_horodatage, item_posture, liste,
         mode_asr, protection_verrouillable, service_vbs, service_vbs_present, texte, Lecture,
-        ACCES_REFUSE, SERVICES_SURVEILLES,
+        Nature, ACCES_REFUSE, SERVICES_SURVEILLES,
     };
     use ks_core::{Item, ItemValue};
     use windows_registry::{Type, LOCAL_MACHINE};
@@ -556,6 +563,10 @@ mod windows_impl {
         // ─── Secure Boot ────────────────────────────────────────────────────
         let mut items = vec![item_posture(
             "security.platform.secure_boot",
+            // **Objectif, et pas réglage** : on peut vouloir Secure Boot actif,
+            // mais aucun verbe du broker n'écrit dans le firmware. Le classer
+            // réglage promettrait une convergence qui n'arrivera jamais.
+            Nature::Objectif,
             drapeau(&u32_registre(
                 r"SYSTEM\CurrentControlSet\Control\SecureBoot\State",
                 "UEFISecureBootEnabled",
@@ -581,6 +592,7 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.platform.hvci_policy",
+            Nature::Reglage,
             drapeau(&u32_registre(
                 &format!(r"{DEVICE_GUARD}\Scenarios\HypervisorEnforcedCodeIntegrity"),
                 "Enabled",
@@ -595,6 +607,10 @@ mod windows_impl {
         // configuration verrouillée survit à une réécriture du registre.
         items.push(item_posture(
             "security.platform.hvci_uefi_lock",
+            // Réglage, malgré une asymétrie assumée : le verrou se pose, il ne
+            // se retire pas. Sa convergence sera donc à sens unique, ce qui
+            // relève du verbe, pas de la vocation de l'item (ADR-0009).
+            Nature::Reglage,
             drapeau(&u32_registre(
                 &format!(r"{DEVICE_GUARD}\Scenarios\HypervisorEnforcedCodeIntegrity"),
                 "Locked",
@@ -607,6 +623,9 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.platform.vbs_policy",
+            // La STRATÉGIE s'écrit au registre — donc un réglage. Son exécution,
+            // trente lignes plus bas, ne s'écrit nulle part : c'est un objectif.
+            Nature::Reglage,
             drapeau(&u32_registre(
                 DEVICE_GUARD,
                 "EnableVirtualizationBasedSecurity",
@@ -628,6 +647,7 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.platform.lsa_protection",
+            Nature::Reglage,
             protection_verrouillable(&u32_registre(LSA, "RunAsPPL")),
             "La protection LSA empêche un processus non protégé de lire la mémoire du \
              service qui détient les secrets d'authentification.",
@@ -638,6 +658,7 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.platform.credential_guard",
+            Nature::Reglage,
             protection_verrouillable(&u32_registre(LSA, "LsaCfgFlags")),
             "Credential Guard isole les secrets d'authentification dans un espace que \
              le noyau ne peut pas lire. **Absent ne veut pas dire éteint** : depuis \
@@ -653,6 +674,9 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.defender.engine_version",
+            // Defender met à jour son moteur seul, plusieurs fois par mois. Une
+            // version déclarée par égalité serait en écart au premier correctif.
+            Nature::Mesure,
             texte(texte_registre(
                 &format!(r"{DEFENDER}\Signature Updates"),
                 "EngineVersion",
@@ -664,6 +688,7 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.defender.signature_version",
+            Nature::Mesure,
             texte(texte_registre(
                 &format!(r"{DEFENDER}\Signature Updates"),
                 "AVSignatureVersion",
@@ -690,6 +715,10 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.defender.signatures_applied_at",
+            // Elle change tous les jours — c'est même ce qu'on lui demande.
+            // Ce qu'on voudra un jour contraindre est son ÂGE, ce qui suppose
+            // un vocabulaire (« plus récent que sept jours ») qui n'existe pas.
+            Nature::Mesure,
             date_signatures.map_or(ItemValue::Absent, |d| ItemValue::Text(d.to_rfc3339())),
             "Date d'application des dernières signatures.",
             "C'est l'âge, pas le numéro de version, qui dit si la protection suit.",
@@ -709,6 +738,12 @@ mod windows_impl {
             // et « 0 élément » y serait un mensonge.
             items.push(item_posture(
                 &format!("security.defender.exclusions.{categorie}"),
+                // Réglage, bien que ces trois items soient les seuls illisibles
+                // en permanence sur la machine de référence. **L'illisibilité
+                // est une propriété de la lecture, pas de l'item** : une
+                // exclusion se déclare, se veut, et s'écrira. Ce qu'on n'a pas
+                // su lire aujourd'hui ne change pas ce à quoi l'item sert.
+                Nature::Reglage,
                 liste(noms_des_valeurs(&format!(
                     r"{DEFENDER}\Exclusions\{chemin}"
                 ))),
@@ -744,6 +779,7 @@ mod windows_impl {
 
             items.push(item_posture(
                 &format!("security.defender.asr_rules.{source}"),
+                Nature::Reglage,
                 liste(regles),
                 "Règles de réduction de la surface d'attaque, avec leur mode. Une \
                  règle en audit journalise sans bloquer.",
@@ -763,6 +799,10 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.platform.vbs_running",
+            // Le cas qui justifie l'existence d'`Objectif`. On peut vouloir VBS
+            // en cours d'exécution, et le suivre ; aucun verbe ne l'écrit —
+            // l'exécution dépend du matériel, des pilotes et de l'hyperviseur.
+            Nature::Objectif,
             etat_vbs(&plateforme.vbs),
             "Sécurité basée sur la virtualisation, telle qu'elle TOURNE. À lire \
              avec `vbs_policy` : « configurée, mais pas en cours d'exécution » est \
@@ -775,6 +815,7 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.platform.hvci_running",
+            Nature::Objectif,
             service_vbs_present(&plateforme.services_actifs, service_vbs::INTEGRITE_MEMOIRE),
             "Intégrité mémoire réellement en cours d'exécution.",
             "Sans elle, un pilote non signé ou détourné s'exécute en anneau 0.",
@@ -783,6 +824,7 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.platform.credential_guard_running",
+            Nature::Objectif,
             service_vbs_present(&plateforme.services_actifs, service_vbs::CREDENTIAL_GUARD),
             "Credential Guard réellement en cours d'exécution. Lève l'ambiguïté du \
              registre, où l'absence recouvrait « éteint » et « actif par défaut \
@@ -794,6 +836,9 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.platform.code_integrity_enforcement",
+            // L'état d'application constaté, pas la stratégie qui le demande :
+            // il se lit par WMI et ne s'écrit par aucun verbe.
+            Nature::Objectif,
             application_integrite_code(&plateforme.integrite_code),
             "Mode d'application de la stratégie d'intégrité du code.",
             "En mode audit, la stratégie journalise sans bloquer : ce n'est pas une \
@@ -803,6 +848,7 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.platform.dma_protection_available",
+            Nature::Objectif,
             crate::etat_effectif::propriete_disponible(
                 &plateforme,
                 crate::etat_effectif::propriete_materielle::PROTECTION_DMA,
@@ -842,6 +888,11 @@ mod windows_impl {
         ] {
             items.push(item_posture(
                 &format!("security.defender.{suffixe}"),
+                // Ces trois-là se lisent par WMI comme les objectifs ci-dessus,
+                // mais ce sont bien des réglages : `Set-MpPreference` les écrit,
+                // donc un verbe le pourra. La source de lecture ne décide pas de
+                // la vocation.
+                Nature::Reglage,
                 match valeur {
                     Lecture::Trouvee(v) => ItemValue::Bool(*v),
                     Lecture::Absente => ItemValue::Absent,
@@ -864,6 +915,7 @@ mod windows_impl {
         ] {
             items.push(item_posture(
                 &format!("security.firewall.{profil}.enabled"),
+                Nature::Reglage,
                 drapeau(&u32_registre(
                     &format!(r"{PARE_FEU}\{clef}"),
                     "EnableFirewall",
@@ -880,6 +932,11 @@ mod windows_impl {
         let regles = valeurs_de(&format!(r"{PARE_FEU}\FirewallRules"));
         items.push(item_posture(
             "security.firewall.inbound_allow_rules",
+            // Un décompte, pas une règle. Chaque installeur en ajoute ; le
+            // déclarer par égalité produirait un écart à la première
+            // installation. Ce qui se déclarera un jour, ce sont les règles
+            // elles-mêmes, item par item.
+            Nature::Mesure,
             match regles {
                 Lecture::Trouvee(v) => ItemValue::Int(
                     i64::try_from(
@@ -909,6 +966,11 @@ mod windows_impl {
         ] {
             items.push(item_posture(
                 &format!("security.firmware.{suffixe}"),
+                // **Constat, sous un chemin `security.`** : c'est l'exemple qui
+                // interdit de déduire la nature du préfixe. On subit la version
+                // du firmware ; aucun état n'y est désirable, et rien ne
+                // l'écrira jamais depuis le système.
+                Nature::Constat,
                 texte(texte_registre(BIOS, valeur)),
                 but,
                 "Un firmware ancien porte des vulnérabilités corrigées depuis, en \
@@ -920,6 +982,7 @@ mod windows_impl {
         let date_brute = texte_registre(BIOS, "BIOSReleaseDate");
         items.push(item_posture(
             "security.firmware.release_date",
+            Nature::Constat,
             match &date_brute {
                 Lecture::Trouvee(brut) => {
                     ItemValue::Text(date_firmware_certaine(brut).unwrap_or_else(|| brut.clone()))
@@ -938,6 +1001,7 @@ mod windows_impl {
         // l'hexadécimal brut plutôt qu'une interprétation inventée.
         items.push(item_posture(
             "security.firmware.microcode_revision",
+            Nature::Constat,
             match LOCAL_MACHINE
                 .open(r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
                 .ok()
@@ -968,6 +1032,7 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.clock.ntp_server",
+            Nature::Reglage,
             texte(texte_registre(W32TIME, "NtpServer")),
             "Source de temps configurée. Ce n'est PAS une mesure de dérive : la \
              cohérence de l'horloge (D1-09) se compare à une référence externe.",
@@ -978,6 +1043,7 @@ mod windows_impl {
 
         items.push(item_posture(
             "security.clock.timezone",
+            Nature::Reglage,
             texte(texte_registre(
                 r"SYSTEM\CurrentControlSet\Control\TimeZoneInformation",
                 "TimeZoneKeyName",
@@ -997,6 +1063,7 @@ mod windows_impl {
             );
             items.push(item_posture(
                 &format!("security.services.{}.startup", service.to_lowercase()),
+                Nature::Reglage,
                 match depart {
                     Lecture::Trouvee(v) => ItemValue::Text(demarrage_service(v).to_owned()),
                     Lecture::Absente => ItemValue::Absent,
@@ -1307,6 +1374,81 @@ mod tests {
         assert_eq!(mode_asr(" 1 "), "bloque", "le registre pad ses chaînes");
         assert_eq!(mode_asr(""), "mode inconnu");
         assert_eq!(mode_asr("42"), "mode inconnu");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn la_posture_repartit_ses_items_en_quatre_natures() {
+        // Ce collecteur pousse toujours les mêmes 38 chemins, quelle que soit
+        // la machine : ce qui varie est la VALEUR, jamais la liste. Les quatre
+        // décomptes ci-dessous sont donc reproductibles partout, y compris sur
+        // un agent d'intégration continue où rien n'est configuré.
+        //
+        // C'est ce qui en fait une barrière et non un constat : reclasser un
+        // item — ou en ajouter un sans décider de sa vocation — fait échouer
+        // ce test avec le nom de la nature fautive.
+        let items = PostureCollector::items();
+        let (mut reglages, mut objectifs, mut mesures, mut constats) = (0, 0, 0, 0);
+        for item in &items {
+            // `match` exhaustif sans bras `_` : une variante de plus casse la
+            // compilation ici même.
+            match item.nature {
+                Nature::Reglage => reglages += 1,
+                Nature::Objectif => objectifs += 1,
+                Nature::Mesure => mesures += 1,
+                Nature::Constat => constats += 1,
+            }
+        }
+
+        assert_eq!(
+            (reglages, objectifs, mesures, constats),
+            (24, 6, 4, 4),
+            "répartition des natures de posture : {} items",
+            items.len()
+        );
+
+        // Les arbitrages nommés par l'ADR-0009, un par un. Le premier est le
+        // seul qui décide vraiment quelque chose : classer Secure Boot en
+        // réglage promettrait une convergence qu'aucun verbe ne sait tenir,
+        // faute de pouvoir écrire dans le firmware.
+        let nature = |chemin: &str| {
+            items
+                .iter()
+                .find(|i| i.path == chemin)
+                .unwrap_or_else(|| panic!("« {chemin} » n'est pas produit"))
+                .nature
+        };
+
+        assert_eq!(nature("security.platform.secure_boot"), Nature::Objectif);
+        assert!(!nature("security.platform.secure_boot").est_convergeable());
+        assert_eq!(nature("security.platform.vbs_running"), Nature::Objectif);
+        assert_eq!(nature("security.platform.hvci_uefi_lock"), Nature::Reglage);
+        assert_eq!(
+            nature("security.services.windefend.startup"),
+            Nature::Reglage
+        );
+
+        // Le préfixe ne décide de rien : un constat au milieu du domaine
+        // `security.`, à côté d'un réglage et d'une mesure.
+        assert_eq!(nature("security.firmware.version"), Nature::Constat);
+        assert!(!nature("security.firmware.version").est_declarable());
+        assert_eq!(
+            nature("security.defender.signatures_applied_at"),
+            Nature::Mesure
+        );
+
+        // Et les trois items illisibles en permanence gardent leur vocation :
+        // la clé des exclusions est protégée par ACL, la CLI n'est pas élevée
+        // (SEC-01), mais une exclusion se déclare et s'écrira quand même.
+        for categorie in ["paths", "extensions", "processes"] {
+            let chemin = format!("security.defender.exclusions.{categorie}");
+            assert_eq!(
+                nature(&chemin),
+                Nature::Reglage,
+                "« {chemin} » : l'illisibilité est une propriété de la lecture, \
+                 pas de l'item"
+            );
+        }
     }
 
     #[cfg(windows)]

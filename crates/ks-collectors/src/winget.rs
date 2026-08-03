@@ -296,6 +296,11 @@ fn colonne_texte(connexion: &rusqlite::Connection, requete: &str) -> Result<Vec<
 ///
 /// `SQLITE_OPEN_READ_ONLY` **sans** `CREATE` : c'est ce qui garantit qu'aucun
 /// journal ni fichier `-wal` n'apparaît à côté de la base d'un autre logiciel.
+///
+/// `cfg(windows)` comme tout ce qui touche à `rusqlite` : la dépendance vit sous
+/// `[target.'cfg(windows)'.dependencies]`, donc son type n'existe pas ailleurs.
+/// Sans ce garde, le crate entier cessait de compiler pour la cible Linux.
+#[cfg(windows)]
 const OUVERTURE_LECTURE_SEULE: rusqlite::OpenFlags =
     rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY.union(rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX);
 
@@ -515,6 +520,9 @@ mod tests {
     /// un code produit du suivi ; l'application correspondante tombait en « non
     /// attribuée », et `est_complet()` répondait pourtant vrai. Le majorant que
     /// ce module existe pour tenir devenait un minorant, en silence.
+    /// Windows seulement : `rusqlite`, `base_de_test` et `lire_depuis` n'y
+    /// existent pas ailleurs.
+    #[cfg(windows)]
     #[test]
     fn une_ligne_non_textuelle_rend_la_base_illisible() {
         use rusqlite::Connection;
@@ -550,6 +558,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&racine);
     }
 
+    /// Windows seulement : `base_de_test` et `lire_depuis` n'y existent pas ailleurs.
+    #[cfg(windows)]
     #[test]
     fn la_lecture_ne_cree_aucun_fichier_annexe() {
         // La règle du crate couvre les fichiers annexes, pas seulement la donnée.

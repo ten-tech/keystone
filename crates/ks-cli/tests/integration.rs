@@ -62,6 +62,10 @@ fn le_json_est_analysable_et_seul_sur_sa_sortie() {
         for champ in [
             "path",
             "domain",
+            // `nature` fait partie du contrat de sortie : c'est elle qui dira
+            // pourquoi un item figure — ou non — dans `workstation.yaml`
+            // (ADR-0009). Un item sans elle n'est pas explicable.
+            "nature",
             "observed",
             "purpose",
             "risk",

@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keystone — état de PC-DU-DUC</title>
+<style>
+:root {
+  --surface-0: #0B0F14; --surface-1: #131A22; --surface-2: #1B242F;
+  --hairline: rgba(255,255,255,.07); --hairline-strong: rgba(255,255,255,.12);
+  --ink-1: #E6EDF3; --ink-2: #9FB0C0; --ink-3: #798C9D;
+  --vital: #4FD1C5; --attention: #E8A33D;
+  --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px; --sp-7: 48px;
+  --r-card: 10px;
+  --font-sans: 'Inter','Segoe UI',system-ui,sans-serif;
+  --font-mono: 'JetBrains Mono',ui-monospace,'Cascadia Mono',monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--surface-0); color: var(--ink-1);
+  font: 14px/1.55 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+/* Le bandeau cadre la page depuis les bords ; le corps reste une colonne
+   centrée, plus étroite. Les deux ne partagent jamais le même conteneur. */
+.bandeau {
+  width: 100%; border-bottom: 1px solid var(--hairline-strong);
+  background: var(--surface-1);
+}
+.bandeau-inner {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--sp-4); padding: var(--sp-4) var(--sp-6);
+}
+.marque { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+.sous { margin: 0; color: var(--ink-2); font-size: 13px; }
+main { max-width: 1080px; margin: 0 auto; padding: var(--sp-7) var(--sp-5) var(--sp-7); }
+.chapeau { color: var(--ink-2); margin: 0 0 var(--sp-5); max-width: 68ch; }
+.note {
+  margin: 0 0 var(--sp-6); padding: var(--sp-3) var(--sp-4);
+  border-left: 3px solid var(--attention); background: var(--surface-1);
+  border-radius: 0 var(--r-card) var(--r-card) 0; color: var(--ink-2);
+  max-width: 68ch;
+}
+section { margin-bottom: var(--sp-7); }
+h2 {
+  font-size: 16px; font-weight: 600; margin: 0 0 var(--sp-3);
+  padding-bottom: var(--sp-2); border-bottom: 1px solid var(--hairline);
+}
+.compte { color: var(--ink-3); font-weight: 400; font-size: 13px; }
+/* Le tableau défile dans SON CONTENEUR, pas lui-même.
+   `display:block` posé sur <table> retirait la sémantique de tableau de l'arbre
+   d'accessibilité : le lecteur d'écran cessait de proposer la navigation par
+   ligne et par colonne, et lisait chaque cellule comme du texte plat. Le
+   commentaire d'origine — « le tableau défile dans son propre conteneur » —
+   décrivait donc un effet visuel juste et une conséquence non dite. */
+.cadre-table {
+  overflow-x: auto; background: var(--surface-1); border-radius: var(--r-card);
+}
+.cadre-table:focus-visible { outline: 2px solid var(--vital); outline-offset: 2px; }
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  text-align: left; font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 600; padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--hairline-strong); white-space: nowrap;
+}
+tbody th, tbody td {
+  padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--hairline);
+  text-align: left; font-weight: 400; vertical-align: top;
+}
+tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--surface-2); }
+code { font: 12.5px/1.6 var(--font-mono); color: var(--ink-2); }
+.but { color: var(--ink-3); max-width: 46ch; }
+.v-normale { color: var(--ink-1); }
+.v-vital { color: var(--vital); }
+.v-absent { color: var(--ink-3); }
+.v-illisible { color: var(--attention); }
+footer { margin-top: var(--sp-7); padding-top: var(--sp-4);
+  border-top: 1px solid var(--hairline); color: var(--ink-3); font-size: 13px; }
+.sr {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+/* Contraste imposé par le système : on rend la main aux couleurs de l'OS
+   plutôt que d'imposer les nôtres. */
+@media (forced-colors: active) {
+  .v-vital, .v-illisible, .v-absent { color: CanvasText; }
+  table, .note { border: 1px solid CanvasText; }
+}
+/* Le rapport est fait pour être transmis et imprimé. Encore faut-il qu'il
+   s'imprime.
+   Les classes de valeur portent une couleur explicite, qui l'emporte sur le
+   `color: #000` du corps : sans les repeindre, `.v-normale` — la valeur par
+   défaut de la plupart des items — sortait à **1,18:1 sur papier blanc**,
+   c'est-à-dire invisible. Recalculé, pas estimé.
+   Même chose pour les filets, en blanc translucide : sur fond blanc, le
+   tableau perdait toutes ses séparations. */
+@media print {
+  body { background: #fff; color: #111; }
+  .bandeau, .cadre-table, .note { background: transparent; }
+  .v-normale, .v-vital, .v-illisible, .v-absent { color: #111; }
+  .but, .compte, code, .sous, thead th, footer { color: #333; }
+  table, tbody th, tbody td, thead th, h2, footer, .note {
+    border-color: #ccc;
+  }
+  .note { border-left: 3px solid #666; }
+}
+</style>
+</head>
+<body>
+<header class="bandeau">
+<div class="bandeau-inner">
+<p class="marque">Keystone</p>
+<p class="sous">PC-DU-DUC · <time datetime="2026-08-03T07:58:46.609788700+00:00">3 août 2026 à 09:58</time></p>
+</div>
+</header>
+<main>
+<p class="chapeau">115 items relevés, en lecture seule. Aucune écriture système n'a eu lieu pendant ce scan.</p>
+<p class="note">3 item(s) n'ont pas pu être lus : la clé correspondante exige des privilèges élevés. Ils sont marqués « illisible » et non « absent » — l'outil ne sait pas ce qu'ils valent, et ne le suppose pas.</p>
+<section aria-labelledby="d-Security">
+<h2 id="d-Security">Posture de sécurité <span class="compte">38 item(s)</span></h2>
+<div class="cadre-table" role="group" aria-labelledby="d-Security" tabindex="0">
+<table>
+<caption class="sr">Items observés du domaine Posture de sécurité</caption>
+<thead><tr><th scope="col">Item</th><th scope="col">Valeur constatée</th><th scope="col">À quoi ça sert</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>security.platform.secure_boot</code></th><td class="v-vital">activé</td><td class="but">Secure Boot n&#39;autorise au démarrage que du code signé par une autorité reconnue du firmware.</td></tr>
+<tr><th scope="row"><code>security.platform.hvci_policy</code></th><td class="v-vital">activé</td><td class="but">Intégrité du code imposée par l&#39;hyperviseur, telle que CONFIGURÉE. L&#39;état réellement en vigueur se lit ailleurs et n&#39;est pas encore collecté.</td></tr>
+<tr><th scope="row"><code>security.platform.hvci_uefi_lock</code></th><td class="v-absent">absent</td><td class="but">Verrou UEFI de la configuration HVCI.</td></tr>
+<tr><th scope="row"><code>security.platform.vbs_policy</code></th><td class="v-absent">absent</td><td class="but">Sécurité basée sur la virtualisation, telle qu&#39;imposée par stratégie. Absente ne veut pas dire inactive : aucune valeur de registre n&#39;atteste l&#39;exécution.</td></tr>
+<tr><th scope="row"><code>security.platform.lsa_protection</code></th><td class="v-normale">activée, sans verrou UEFI</td><td class="but">La protection LSA empêche un processus non protégé de lire la mémoire du service qui détient les secrets d&#39;authentification.</td></tr>
+<tr><th scope="row"><code>security.platform.credential_guard</code></th><td class="v-absent">absent</td><td class="but">Credential Guard isole les secrets d&#39;authentification dans un espace que le noyau ne peut pas lire. **Absent ne veut pas dire éteint** : depuis Windows 11 22H2, il s&#39;active par défaut sur les machines éligibles sans qu&#39;aucune valeur ne soit écrite.</td></tr>
+<tr><th scope="row"><code>security.defender.engine_version</code></th><td class="v-normale">1.1.26060.3008</td><td class="but">Version du moteur d&#39;analyse de Defender.</td></tr>
+<tr><th scope="row"><code>security.defender.signature_version</code></th><td class="v-normale">1.455.482.0</td><td class="but">Version des signatures antivirus.</td></tr>
+<tr><th scope="row"><code>security.defender.signatures_applied_at</code></th><td class="v-normale">2026-08-02T23:23:36+00:00</td><td class="but">Date d&#39;application des dernières signatures.</td></tr>
+<tr><th scope="row"><code>security.defender.exclusions.paths</code></th><td class="v-illisible">illisible — accès refusé sans élévation</td><td class="but">Exclusions Defender déclarées à l&#39;échelle de la machine. La clé exige des privilèges élevés : sans eux, l&#39;item dit « illisible », jamais zéro.</td></tr>
+<tr><th scope="row"><code>security.defender.exclusions.extensions</code></th><td class="v-illisible">illisible — accès refusé sans élévation</td><td class="but">Exclusions Defender déclarées à l&#39;échelle de la machine. La clé exige des privilèges élevés : sans eux, l&#39;item dit « illisible », jamais zéro.</td></tr>
+<tr><th scope="row"><code>security.defender.exclusions.processes</code></th><td class="v-illisible">illisible — accès refusé sans élévation</td><td class="but">Exclusions Defender déclarées à l&#39;échelle de la machine. La clé exige des privilèges élevés : sans eux, l&#39;item dit « illisible », jamais zéro.</td></tr>
+<tr><th scope="row"><code>security.defender.asr_rules.policy</code></th><td class="v-absent">absent</td><td class="but">Règles de réduction de la surface d&#39;attaque, avec leur mode. Une règle en audit journalise sans bloquer.</td></tr>
+<tr><th scope="row"><code>security.defender.asr_rules.local</code></th><td class="v-normale">0 élément(s)</td><td class="but">Règles de réduction de la surface d&#39;attaque, avec leur mode. Une règle en audit journalise sans bloquer.</td></tr>
+<tr><th scope="row"><code>security.platform.vbs_running</code></th><td class="v-normale">en cours d&#39;exécution</td><td class="but">Sécurité basée sur la virtualisation, telle qu&#39;elle TOURNE. À lire avec `vbs_policy` : « configurée, mais pas en cours d&#39;exécution » est un état réel, et le registre ne sait pas le distinguer de l&#39;exécution.</td></tr>
+<tr><th scope="row"><code>security.platform.hvci_running</code></th><td class="v-normale">en cours d&#39;exécution</td><td class="but">Intégrité mémoire réellement en cours d&#39;exécution.</td></tr>
+<tr><th scope="row"><code>security.platform.credential_guard_running</code></th><td class="v-normale">à l&#39;arrêt</td><td class="but">Credential Guard réellement en cours d&#39;exécution. Lève l&#39;ambiguïté du registre, où l&#39;absence recouvrait « éteint » et « actif par défaut depuis Windows 11 22H2 ».</td></tr>
+<tr><th scope="row"><code>security.platform.code_integrity_enforcement</code></th><td class="v-normale">imposée</td><td class="but">Mode d&#39;application de la stratégie d&#39;intégrité du code.</td></tr>
+<tr><th scope="row"><code>security.platform.dma_protection_available</code></th><td class="v-normale">disponible sur ce matériel</td><td class="but">Protection DMA **disponible sur ce matériel**. Ne dit pas qu&#39;elle est active : cette activation n&#39;est lisible par aucune source accessible sans élévation.</td></tr>
+<tr><th scope="row"><code>security.defender.realtime</code></th><td class="v-vital">activé</td><td class="but">Protection en temps réel de Defender, telle qu&#39;elle tourne.</td></tr>
+<tr><th scope="row"><code>security.defender.tamper_protection</code></th><td class="v-vital">activé</td><td class="but">Protection contre l&#39;altération des réglages de Defender.</td></tr>
+<tr><th scope="row"><code>security.defender.behavior_monitoring</code></th><td class="v-vital">activé</td><td class="but">Surveillance comportementale de Defender.</td></tr>
+<tr><th scope="row"><code>security.firewall.domain.enabled</code></th><td class="v-vital">activé</td><td class="but">Pare-feu actif pour ce profil de réseau. Le profil public est celui qui compte : c&#39;est lui qui s&#39;applique en déplacement.</td></tr>
+<tr><th scope="row"><code>security.firewall.private.enabled</code></th><td class="v-vital">activé</td><td class="but">Pare-feu actif pour ce profil de réseau. Le profil public est celui qui compte : c&#39;est lui qui s&#39;applique en déplacement.</td></tr>
+<tr><th scope="row"><code>security.firewall.public.enabled</code></th><td class="v-vital">activé</td><td class="but">Pare-feu actif pour ce profil de réseau. Le profil public est celui qui compte : c&#39;est lui qui s&#39;applique en déplacement.</td></tr>
+<tr><th scope="row"><code>security.firewall.inbound_allow_rules</code></th><td class="v-normale">197</td><td class="but">Règles autorisant une connexion entrante, et réellement actives. Le décompte total des règles n&#39;est pas publié : il mélange l&#39;entrant et le sortant, l&#39;actif et l&#39;inactif, et ne se déplie donc en rien.</td></tr>
+<tr><th scope="row"><code>security.firmware.vendor</code></th><td class="v-normale">LENOVO</td><td class="but">Fabricant du firmware.</td></tr>
+<tr><th scope="row"><code>security.firmware.version</code></th><td class="v-normale">P0CN20WW</td><td class="but">Version du firmware installé.</td></tr>
+<tr><th scope="row"><code>security.firmware.release_date</code></th><td class="v-normale">2024-10-21</td><td class="but">Date de publication du firmware. Normalisée en AAAA-MM-JJ uniquement quand l&#39;ordre jour/mois est certain ; sinon publiée telle quelle, car un mois d&#39;écart sur l&#39;âge d&#39;un firmware serait une invention.</td></tr>
+<tr><th scope="row"><code>security.firmware.microcode_revision</code></th><td class="v-normale">23410000</td><td class="but">Révision du microcode du processeur, en hexadécimal brut. Aucune source officielle n&#39;en documente le format : on ne l&#39;interprète pas.</td></tr>
+<tr><th scope="row"><code>security.clock.ntp_server</code></th><td class="v-normale">time.windows.com,0x9</td><td class="but">Source de temps configurée. Ce n&#39;est PAS une mesure de dérive : la cohérence de l&#39;horloge (D1-09) se compare à une référence externe.</td></tr>
+<tr><th scope="row"><code>security.clock.timezone</code></th><td class="v-normale">Romance Standard Time</td><td class="but">Fuseau horaire du poste, nécessaire pour corréler des journaux provenant de plusieurs machines.</td></tr>
+<tr><th scope="row"><code>security.services.windefend.startup</code></th><td class="v-normale">automatique</td><td class="but">Antivirus Microsoft Defender</td></tr>
+<tr><th scope="row"><code>security.services.mpssvc.startup</code></th><td class="v-normale">automatique</td><td class="but">Pare-feu Windows Defender</td></tr>
+<tr><th scope="row"><code>security.services.eventlog.startup</code></th><td class="v-normale">automatique</td><td class="but">Journal des événements — sa perte efface la piste d&#39;audit</td></tr>
+<tr><th scope="row"><code>security.services.sense.startup</code></th><td class="v-absent">absent</td><td class="but">Defender for Endpoint, quand il est déployé</td></tr>
+<tr><th scope="row"><code>security.services.wscsvc.startup</code></th><td class="v-normale">automatique</td><td class="but">Centre de sécurité Windows</td></tr>
+<tr><th scope="row"><code>security.services.bits.startup</code></th><td class="v-normale">automatique</td><td class="but">Transfert intelligent en arrière-plan, utilisé par les mises à jour</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<section aria-labelledby="d-Inventory">
+<h2 id="d-Inventory">Inventaire <span class="compte">66 item(s)</span></h2>
+<div class="cadre-table" role="group" aria-labelledby="d-Inventory" tabindex="0">
+<table>
+<caption class="sr">Items observés du domaine Inventaire</caption>
+<thead><tr><th scope="col">Item</th><th scope="col">Valeur constatée</th><th scope="col">À quoi ça sert</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>inventory.os.name</code></th><td class="v-normale">Windows 11 Home</td><td class="but">Système et version, pour situer la machine dans la matrice de compatibilité.</td></tr>
+<tr><th scope="row"><code>inventory.os.kernel</code></th><td class="v-normale">26200</td><td class="but">Version du noyau — sert à détecter une distro WSL en retard.</td></tr>
+<tr><th scope="row"><code>inventory.host.name</code></th><td class="v-normale">PC-DU-DUC</td><td class="but">Nom de la machine, clé de la surcouche de flotte (D13-01).</td></tr>
+<tr><th scope="row"><code>inventory.cpu.cores</code></th><td class="v-normale">12</td><td class="but">Nombre de cœurs logiques, base des plafonds de ressources des VM.</td></tr>
+<tr><th scope="row"><code>inventory.memory.total_bytes</code></th><td class="v-normale">16857817088</td><td class="but">Mémoire totale, contrainte des profils WSL et Hyper-V.</td></tr>
+<tr><th scope="row"><code>inventory.uptime_seconds</code></th><td class="v-normale">319300</td><td class="but">Temps depuis le dernier démarrage — utile pour les correctifs en attente.</td></tr>
+<tr><th scope="row"><code>inventory.software.total</code></th><td class="v-normale">150</td><td class="but">Nombre d&#39;applications installées, toutes sources confondues.</td></tr>
+<tr><th scope="row"><code>inventory.software.unattributed</code></th><td class="v-normale">54</td><td class="but">Applications classiques qu&#39;aucun gestionnaire de paquets ne suit. Deux réserves : tant que l&#39;attribution est incomplète, c&#39;est un majorant ; et certaines se mettent à jour seules (navigateurs, éditeurs), donc « non attribuée » ne se lit pas « jamais mise à jour ». Distinguer les deux est une tâche de la Phase 1.</td></tr>
+<tr><th scope="row"><code>inventory.software.packaged</code></th><td class="v-normale">86</td><td class="but">Paquets MSIX dont le canal de service n&#39;est pas identifiable : le Store met à jour ceux qui en viennent, l&#39;éditeur ceux qui ont été déposés à la main, et le registre ne les distingue pas. Comptés à part des non attribuées, parce qu&#39;ils ne sont pas à l&#39;abandon pour autant.</td></tr>
+<tr><th scope="row"><code>inventory.software.attribution</code></th><td class="v-normale">complète</td><td class="but">L&#39;attribution couvre-t-elle tous les gestionnaires présents ? Tant qu&#39;elle est partielle, « non attribué » ne veut pas dire « sans gestionnaire ».</td></tr>
+<tr><th scope="row"><code>inventory.software.unattributed_percent</code></th><td class="v-normale">36</td><td class="but">Part des applications sans gestionnaire identifié, en pourcentage.</td></tr>
+<tr><th scope="row"><code>inventory.software.managers</code></th><td class="v-normale">2 élément(s)</td><td class="but">Gestionnaires de paquets présents sur la machine.</td></tr>
+<tr><th scope="row"><code>inventory.software[androidstudio].version</code></th><td class="v-normale">2024.3</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[brave].version</code></th><td class="v-normale">151.1.93.129</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[dbeaver2530currentuser].version</code></th><td class="v-normale">25.3.0</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[dockerdesktop].version</code></th><td class="v-normale">4.55.0</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[drawio2478].version</code></th><td class="v-normale">24.7.8</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[eclipsetemurinjdkavechotspot170156x64].version</code></th><td class="v-normale">17.0.15.6</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[eclipsetemurinjdkavechotspot20029x64].version</code></th><td class="v-normale">20.0.2.9</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[expoapplicationservices].version</code></th><td class="v-normale">1.0</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[figma].version</code></th><td class="v-normale">126.2.10</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[figmaagent].version</code></th><td class="v-normale">126.1.2</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[githubdesktop].version</code></th><td class="v-normale">3.5.4</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[googlechrome].version</code></th><td class="v-normale">150.0.7871.187</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[iis100express].version</code></th><td class="v-normale">10.0.11304</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[lenovovantageservice].version</code></th><td class="v-normale">5.1.2606.17</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[linear12813].version</code></th><td class="v-normale">1.28.13</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[logioptions].version</code></th><td class="v-normale">2.5.926888</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[logipluginservice].version</code></th><td class="v-normale">6.4.0.3079</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[microsoftgameinput].version</code></th><td class="v-normale">3.3.221.0</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[microsoftnetsdk100101x64].version</code></th><td class="v-normale">10.1.125.57005</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[microsoftnetsdk100302x64fromvisualstudio].version</code></th><td class="v-normale">40.11.44881</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[microsoftodbcdriver17forsqlserver].version</code></th><td class="v-normale">17.10.6.1</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[microsoftonedrive].version</code></th><td class="v-normale">26.129.0706.0003</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[microsoftsqlserver2025localdb].version</code></th><td class="v-normale">17.0.4025.3</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[microsoftsystemclrtypespoursqlserver2019].version</code></th><td class="v-normale">15.0.2000.5</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[microsoftteamsmeetingaddinformicrosoftoffice].version</code></th><td class="v-normale">1.26.16801</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[microsoftupdatehealthtools].version</code></th><td class="v-normale">5.72.0.0</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[microsoftvisualc2013redistributablex6412040664].version</code></th><td class="v-normale">12.0.40664.0</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[microsoftvisualcv14redistributablex64145136247].version</code></th><td class="v-normale">14.51.36247.0</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[microsoftvisualcv14redistributablex86145136247].version</code></th><td class="v-normale">14.51.36247.0</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[microsoftvisualstudiocodeuser].version</code></th><td class="v-normale">1.131.0</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[microsoftwebdeploy40].version</code></th><td class="v-normale">10.0.9419</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[microsoftwindowsdesktopruntime907x64].version</code></th><td class="v-normale">9.0.7.35017</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[migrationtoolkit55701].version</code></th><td class="v-normale">55.7.0-1</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[mongodb8212008r2plusssl64bit].version</code></th><td class="v-normale">8.2.1</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[mongodbcompass].version</code></th><td class="v-normale">1.49.11</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[mozillafirefoxx64fr].version</code></th><td class="v-normale">146.0.1</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[mozillamaintenanceservice].version</code></th><td class="v-normale">146.0</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[mysqlworkbench80ce].version</code></th><td class="v-normale">8.0.47</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[nodejs].version</code></th><td class="v-normale">22.16.0</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[npgsql326].version</code></th><td class="v-normale">3.2.6-3</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[obsidian].version</code></th><td class="v-normale">1.12.7</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[openvpnconnect].version</code></th><td class="v-normale">3.8.0</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[pemhttpd2465].version</code></th><td class="v-normale">2.4.65-1</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[pgbouncer1241].version</code></th><td class="v-normale">1.24.1-1</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[pgjdbc4272].version</code></th><td class="v-normale">42.7.2-1</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[postgisbundle361forpostgresqlx6418removeonly].version</code></th><td class="v-absent">absent</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[postmanx6411795].version</code></th><td class="v-normale">11.79.5</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[proxymadataindexingmanager].version</code></th><td class="v-normale">2.1.0</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[psqlodbc13020000].version</code></th><td class="v-normale">13.02.0000-1</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[visualstudiocommunity2026].version</code></th><td class="v-normale">18.8.2</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[vscoreeditorfonts].version</code></th><td class="v-normale">17.7.40001</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[windowssdkaddon].version</code></th><td class="v-normale">10.1.0.0</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[windowssoftwaredevelopmentkitwindows100261008249].version</code></th><td class="v-normale">10.1.26100.8249</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+<tr><th scope="row"><code>inventory.software[xdbreplicationserver770].version</code></th><td class="v-normale">7.7.0-1</td><td class="but">Application installée dont le gestionnaire n&#39;a pas été identifié.</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<section aria-labelledby="d-Virtualization">
+<h2 id="d-Virtualization">Virtualisation <span class="compte">9 item(s)</span></h2>
+<div class="cadre-table" role="group" aria-labelledby="d-Virtualization" tabindex="0">
+<table>
+<caption class="sr">Items observés du domaine Virtualisation</caption>
+<thead><tr><th scope="col">Item</th><th scope="col">Valeur constatée</th><th scope="col">À quoi ça sert</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>virtualization.wsl.distro_count</code></th><td class="v-normale">2</td><td class="but">Nombre de distributions WSL déclarées sur ce poste. Zéro veut dire « aucune », et rien d&#39;autre : une clé qu&#39;on n&#39;a pas pu lire se dit « illisible », une clé qui n&#39;existe pas se dit « absent ».</td></tr>
+<tr><th scope="row"><code>virtualization.wsl[debian].version</code></th><td class="v-normale">2</td><td class="but">Génération du sous-système. Une distribution restée en version 1 n&#39;a ni noyau réel ni disque virtuel.</td></tr>
+<tr><th scope="row"><code>virtualization.wsl[debian].disk_bytes</code></th><td class="v-normale">56143904768</td><td class="but">Taille RÉELLE du disque virtuel sur l&#39;hôte, et non ce que la distribution croit occuper. Un « ext4.vhdx » grossit et ne se réduit jamais seul : supprimer des données à l&#39;intérieur ne rend aucun octet à Windows.</td></tr>
+<tr><th scope="row"><code>virtualization.wsl[debian].interop</code></th><td class="v-vital">activé</td><td class="but">Exécution de binaires Windows depuis la distribution.</td></tr>
+<tr><th scope="row"><code>virtualization.wsl[debian].drive_mounting</code></th><td class="v-vital">activé</td><td class="but">Montage automatique des lecteurs Windows dans la distribution.</td></tr>
+<tr><th scope="row"><code>virtualization.wsl[dockerdesktop].version</code></th><td class="v-normale">2</td><td class="but">Génération du sous-système. Une distribution restée en version 1 n&#39;a ni noyau réel ni disque virtuel.</td></tr>
+<tr><th scope="row"><code>virtualization.wsl[dockerdesktop].disk_bytes</code></th><td class="v-normale">100663296</td><td class="but">Taille RÉELLE du disque virtuel sur l&#39;hôte, et non ce que la distribution croit occuper. Un « ext4.vhdx » grossit et ne se réduit jamais seul : supprimer des données à l&#39;intérieur ne rend aucun octet à Windows.</td></tr>
+<tr><th scope="row"><code>virtualization.wsl[dockerdesktop].interop</code></th><td class="v-vital">activé</td><td class="but">Exécution de binaires Windows depuis la distribution.</td></tr>
+<tr><th scope="row"><code>virtualization.wsl[dockerdesktop].drive_mounting</code></th><td class="v-vital">activé</td><td class="but">Montage automatique des lecteurs Windows dans la distribution.</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<section aria-labelledby="d-Space">
+<h2 id="d-Space">Espace <span class="compte">2 item(s)</span></h2>
+<div class="cadre-table" role="group" aria-labelledby="d-Space" tabindex="0">
+<table>
+<caption class="sr">Items observés du domaine Espace</caption>
+<thead><tr><th scope="col">Item</th><th scope="col">Valeur constatée</th><th scope="col">À quoi ça sert</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>space.volume[C:\].used_percent</code></th><td class="v-normale">60</td><td class="but">Taux d&#39;occupation du volume, base de la projection de saturation.</td></tr>
+<tr><th scope="row"><code>space.volume[D:\].used_percent</code></th><td class="v-normale">29</td><td class="but">Taux d&#39;occupation du volume, base de la projection de saturation.</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+<footer><p>Rapport autonome : il ne contacte aucun serveur pour s'afficher.</p>
+<p>Avant de le transmettre : il porte le nom de cette machine et la liste des logiciels installés avec leur version exacte. Aucun secret, aucun chemin d'exclusion — mais de quoi savoir ce qui est à jour et ce qui ne l'est pas.</p></footer>
+</main>
+</body>
+</html>

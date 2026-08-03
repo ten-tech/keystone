@@ -36,7 +36,7 @@
 //! réintroduit ici mot pour mot — d'où l'emploi du même type [`Lecture`], et du
 //! même classement, plutôt qu'une seconde version de la règle.
 
-use ks_core::{Domain, Item, ItemValue, Provenance};
+use ks_core::{Domain, Item, ItemValue, Nature, Provenance};
 
 use crate::posture::Lecture;
 
@@ -133,10 +133,14 @@ fn items_depuis(lecture: &Lecture<Vec<Distribution>>) -> Vec<Item> {
     let maintenant = chrono::Utc::now();
     let mut items = Vec::new();
 
-    let mut item = |chemin: String, valeur: ItemValue, but: &str, risque: &str| {
+    // Ce module produit trois natures sous un seul préfixe, ce qui est la
+    // meilleure démonstration que `virtualization.` ne décide de rien :
+    // `interop` est un réglage, `disk_bytes` une mesure, `version` un constat.
+    let mut item = |chemin: String, nature: Nature, valeur: ItemValue, but: &str, risque: &str| {
         items.push(Item {
             path: chemin,
             domain: Domain::Virtualization,
+            nature,
             desired: None,
             observed: valeur,
             observed_at: maintenant,
@@ -149,6 +153,10 @@ fn items_depuis(lecture: &Lecture<Vec<Distribution>>) -> Vec<Item> {
 
     item(
         "virtualization.wsl.distro_count".to_owned(),
+        // Un décompte : il suit les installations et les suppressions de
+        // distributions. Ce qui se déclarera un jour, ce sont les réglages de
+        // chaque distribution, pas leur nombre.
+        Nature::Mesure,
         match lecture {
             Lecture::Trouvee(d) => ItemValue::Int(i64::try_from(d.len()).unwrap_or(-1)),
             Lecture::Absente => ItemValue::Absent,
@@ -169,6 +177,11 @@ fn items_depuis(lecture: &Lecture<Vec<Distribution>>) -> Vec<Item> {
 
             item(
                 format!("virtualization.wsl[{clef}].version"),
+                // Constat : la génération est celle sous laquelle la
+                // distribution a été enregistrée. La convertir n'est pas un
+                // réglage qu'on écrit, c'est une migration de disque, et aucun
+                // verbe ne la portera sans une ADR à elle.
+                Nature::Constat,
                 d.version
                     .map_or(ItemValue::Absent, |v| ItemValue::Int(i64::from(v))),
                 "Génération du sous-système. Une distribution restée en version 1 \
@@ -178,6 +191,8 @@ fn items_depuis(lecture: &Lecture<Vec<Distribution>>) -> Vec<Item> {
 
             item(
                 format!("virtualization.wsl[{clef}].disk_bytes"),
+                // Il grossit tout seul, et ne redescend jamais : la mesure type.
+                Nature::Mesure,
                 d.disque_octets
                     .and_then(|o| i64::try_from(o).ok())
                     .map_or(ItemValue::Absent, ItemValue::Int),
@@ -191,6 +206,10 @@ fn items_depuis(lecture: &Lecture<Vec<Distribution>>) -> Vec<Item> {
 
             item(
                 format!("virtualization.wsl[{clef}].interop"),
+                // **Réglage, sous un chemin `virtualization.`** : le pendant de
+                // `security.firmware.version`. Un drapeau du registre, un état
+                // désirable, un verbe qui l'écrira.
+                Nature::Reglage,
                 d.interop.map_or(ItemValue::Absent, ItemValue::Bool),
                 "Exécution de binaires Windows depuis la distribution.",
                 "L'intégration élargit la surface entre les deux systèmes : un \
@@ -199,6 +218,7 @@ fn items_depuis(lecture: &Lecture<Vec<Distribution>>) -> Vec<Item> {
 
             item(
                 format!("virtualization.wsl[{clef}].drive_mounting"),
+                Nature::Reglage,
                 d.montage_lecteurs
                     .map_or(ItemValue::Absent, ItemValue::Bool),
                 "Montage automatique des lecteurs Windows dans la distribution.",
@@ -397,6 +417,55 @@ mod tests {
         let jamais_installe = decompte(&Lecture::Absente);
         assert_eq!(jamais_installe.observed, ItemValue::Absent);
         assert_ne!(jamais_installe.observed, ItemValue::Int(0));
+    }
+
+    #[test]
+    fn un_item_illisible_garde_sa_nature_et_le_prefixe_ne_la_decide_pas() {
+        // Deux règles de l'ADR-0009, éprouvées ensemble parce que ce module
+        // les porte toutes les deux.
+        //
+        // **L'illisibilité est une propriété de la lecture, pas de l'item.**
+        // Un décompte qu'on n'a pas su lire reste une mesure : le classer
+        // autrement le ferait entrer ou sortir du fichier d'état désiré selon
+        // qu'une clé était ouvrable ce jour-là.
+        for lecture in [
+            Lecture::Trouvee(Vec::new()),
+            Lecture::Trouvee(vec![distro("Debian", Some(56_043_241_472))]),
+            Lecture::Absente,
+            Lecture::Refusee,
+        ] {
+            assert_eq!(
+                decompte(&lecture).nature,
+                Nature::Mesure,
+                "le décompte change de vocation selon ce que la lecture a donné"
+            );
+        }
+
+        // **Le préfixe du chemin ne décide de rien.** Trois natures sous le
+        // même `virtualization.wsl[…]`, et la plus parlante est `interop` : un
+        // réglage hors du domaine `security.`, exactement comme
+        // `security.firmware.version` est un constat dedans.
+        let items = items_depuis(&Lecture::Trouvee(vec![distro("Debian", Some(1))]));
+        let nature = |suffixe: &str| {
+            items
+                .iter()
+                .find(|i| i.path.ends_with(suffixe))
+                .unwrap_or_else(|| panic!("« {suffixe} » n'est pas produit"))
+                .nature
+        };
+
+        assert_eq!(nature(".interop"), Nature::Reglage);
+        assert_eq!(nature(".drive_mounting"), Nature::Reglage);
+        assert_eq!(nature(".disk_bytes"), Nature::Mesure);
+        assert_eq!(nature(".version"), Nature::Constat);
+
+        // Et seuls les deux réglages ont vocation à être déclarés : sur les
+        // cinq items d'une distribution, trois n'ont jamais prétendu être
+        // stables.
+        assert_eq!(
+            items.iter().filter(|i| i.nature.est_declarable()).count(),
+            2
+        );
     }
 
     #[test]
