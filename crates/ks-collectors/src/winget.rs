@@ -219,12 +219,16 @@ fn lire_depuis(racine: &Path) -> SuiviWinget {
 /// l'appelant n'a qu'une décision à prendre — déclarer l'attribution incomplète.
 #[cfg(windows)]
 fn lire_une_base(chemin: &Path) -> Result<(Vec<String>, Vec<String>), String> {
-    use rusqlite::{Connection, OpenFlags};
+    use rusqlite::Connection;
 
     // Sans `SQLITE_OPEN_CREATE`, et sans droit d'écriture : ni base créée, ni
     // journal, ni `-wal`. C'est ce qui rend l'appel compatible avec la règle
     // « aucun collecteur n'écrit », fichiers annexes compris.
-    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    // Constante nommée, et non une expression jetée dans l'appel : c'est elle
+    // que la barrière `les_drapeaux_douverture_interdisent_toute_ecriture` va
+    // interroger. Un drapeau vérifiable est un drapeau qu'on ne peut pas
+    // élargir sans qu'un test le dise.
+    let flags = OUVERTURE_LECTURE_SEULE;
     let connexion = Connection::open_with_flags(chemin, flags)
         .map_err(|e| format!("ouverture refusée ({e})"))?;
 
@@ -248,6 +252,21 @@ fn lire_une_base(chemin: &Path) -> Result<(Vec<String>, Vec<String>), String> {
 }
 
 /// Ramène une colonne de texte, normalisée en minuscules.
+///
+/// Une ligne que SQLite ne rend pas en texte — un `BLOB`, un `NULL` — fait
+/// **échouer la lecture entière**, et ne disparaît plus en silence.
+///
+/// Le code employait `flatten()`, qui jette les `Err` sans rien dire. Une ligne
+/// perdue ainsi retirait un code produit du suivi ; l'application correspondante
+/// tombait alors en « non attribuée », et `SuiviWinget::est_complet()` répondait
+/// pourtant vrai. Le majorant que tout ce module existe pour tenir devenait un
+/// minorant sans le dire — exactement le défaut que l'attribution winget vient
+/// de corriger ailleurs.
+///
+/// La probabilité réelle est faible : l'affinité `TEXT` de la colonne convertit
+/// les entiers, il faut un blob ou un `NULL` pour y arriver. Le principe, lui,
+/// ne dépend pas de la probabilité. Une base qu'on ne sait pas lire entièrement
+/// est une base illisible, et c'est ce que l'appelant doit entendre.
 #[cfg(windows)]
 fn colonne_texte(connexion: &rusqlite::Connection, requete: &str) -> Result<Vec<String>, String> {
     let mut preparee = connexion
@@ -257,12 +276,28 @@ fn colonne_texte(connexion: &rusqlite::Connection, requete: &str) -> Result<Vec<
         .query_map([], |ligne| ligne.get::<_, String>(0))
         .map_err(|e| format!("lecture refusée ({e})"))?;
 
-    Ok(lignes
-        .flatten()
-        .map(|s| s.trim().to_lowercase())
-        .filter(|s| !s.is_empty())
-        .collect())
+    let mut valeurs = Vec::new();
+    for ligne in lignes {
+        let brut = ligne.map_err(|e| format!("ligne non textuelle dans la base ({e})"))?;
+        let normalise = brut.trim().to_lowercase();
+        if !normalise.is_empty() {
+            valeurs.push(normalise);
+        }
+    }
+    Ok(valeurs)
 }
+
+/// Les drapeaux d'ouverture de la base de winget, et rien d'autre.
+///
+/// Constante nommée au niveau du module, et non une expression jetée dans
+/// l'appel : c'est elle qu'interroge la barrière
+/// `les_drapeaux_douverture_interdisent_toute_ecriture`. Un drapeau qu'on peut
+/// nommer est un drapeau qu'on ne peut pas élargir en silence.
+///
+/// `SQLITE_OPEN_READ_ONLY` **sans** `CREATE` : c'est ce qui garantit qu'aucun
+/// journal ni fichier `-wal` n'apparaît à côté de la base d'un autre logiciel.
+const OUVERTURE_LECTURE_SEULE: rusqlite::OpenFlags =
+    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY.union(rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX);
 
 #[cfg(test)]
 mod tests {
@@ -411,11 +446,126 @@ mod tests {
     }
 
     #[cfg(windows)]
+    /// La permission, et non son résidu.
+    ///
+    /// Deux barrières superposées, parce qu'elles ne couvrent pas la même
+    /// chose. La première interroge la constante réellement passée à SQLite :
+    /// elle prouve que **cette** ouverture est en lecture seule. La seconde lit
+    /// le fichier source et refuse que le moindre drapeau d'écriture y
+    /// apparaisse **où que ce soit** — donc aussi dans une ouverture qu'on
+    /// ajouterait demain sans penser à ce test.
+    ///
+    /// C'est la différence entre vérifier un appel et fermer une classe
+    /// d'appels. La règle du crate — « aucun collecteur n'écrit, jamais, nulle
+    /// part » — porte sur la classe.
+    #[test]
+    fn les_drapeaux_douverture_interdisent_toute_ecriture() {
+        use rusqlite::OpenFlags;
+
+        // Ce que la constante autorise, et rien d'autre.
+        assert!(
+            OUVERTURE_LECTURE_SEULE.contains(OpenFlags::SQLITE_OPEN_READ_ONLY),
+            "la base de winget doit s'ouvrir en lecture seule"
+        );
+        for interdit in [
+            OpenFlags::SQLITE_OPEN_READ_WRITE,
+            OpenFlags::SQLITE_OPEN_CREATE,
+        ] {
+            assert!(
+                !OUVERTURE_LECTURE_SEULE.intersects(interdit),
+                "un drapeau d'écriture est passé à SQLite : {interdit:?}"
+            );
+        }
+
+        // Et qu'aucun autre appel du module n'en réintroduise un.
+        const SOURCE: &str = include_str!("winget.rs");
+
+        // Le module de tests est retiré du champ : il NOMME les drapeaux
+        // interdits pour les refuser, et un contrôle qui échouerait sur sa
+        // propre formulation serait ingérable — c'est le même piège que le
+        // glossaire, qui doit pouvoir citer le vocabulaire qu'il proscrit.
+        // La coupure se fait sur `#[cfg(test)]`, et le test le vérifie plus
+        // bas : sans elle, le contrôle ne porterait plus sur rien.
+        let production = SOURCE
+            .split_once("#[cfg(test)]")
+            .map_or(SOURCE, |(avant, _)| avant);
+        assert!(
+            production.len() < SOURCE.len(),
+            "la coupure sur #[cfg(test)] n'a rien retiré — le contrôle porterait              sur le fichier entier, tests compris, et ne pourrait que échouer"
+        );
+        let code = production
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            );
+        for interdit in ["SQLITE_OPEN_READ_WRITE", "SQLITE_OPEN_CREATE"] {
+            assert!(
+                !code.contains(interdit),
+                "« {interdit} » apparaît dans winget.rs :                  un collecteur n'ouvre jamais la base d'un autre logiciel en écriture"
+            );
+        }
+    }
+
+    /// Une ligne non textuelle rend la base illisible, elle ne s'efface pas.
+    ///
+    /// `flatten()` jetait les `Err` sans un mot. Une ligne perdue ainsi retirait
+    /// un code produit du suivi ; l'application correspondante tombait en « non
+    /// attribuée », et `est_complet()` répondait pourtant vrai. Le majorant que
+    /// ce module existe pour tenir devenait un minorant, en silence.
+    #[test]
+    fn une_ligne_non_textuelle_rend_la_base_illisible() {
+        use rusqlite::Connection;
+
+        let racine = std::env::temp_dir().join("ks-winget-blob");
+        let _ = std::fs::remove_dir_all(&racine);
+        let dossier = racine.join("Source.Test");
+        let base = base_de_test(&dossier, SCHEMA_MAJEUR_CONNU);
+
+        // Un blob dans une colonne d'affinité TEXT : SQLite le conserve tel
+        // quel, et `get::<_, String>` le refuse.
+        let c = Connection::open(&base).expect("base de test");
+        c.execute(
+            "INSERT INTO productcodes (productcode) VALUES (?1)",
+            [vec![0xFF_u8, 0x00]],
+        )
+        .expect("insertion du blob");
+        drop(c);
+
+        let issue = lire_depuis(&racine);
+        assert!(
+            issue
+                .bases_illisibles
+                .iter()
+                .any(|raison| raison.contains("non textuelle")),
+            "la base doit se déclarer illisible, pas rendre une liste amputée : {:?}",
+            issue.bases_illisibles
+        );
+        assert!(
+            !issue.est_complet(),
+            "un suivi bâti sur une base illisible ne peut pas se dire complet"
+        );
+        let _ = std::fs::remove_dir_all(&racine);
+    }
+
     #[test]
     fn la_lecture_ne_cree_aucun_fichier_annexe() {
         // La règle du crate couvre les fichiers annexes, pas seulement la donnée.
         // Une ouverture SQLite ordinaire déposerait un journal ou un `-wal` à côté
         // de la base de winget — une écriture, dans le dossier d'un autre logiciel.
+        //
+        // **Ce test ne prouve pas le droit d'écriture, et il faut le savoir.**
+        // Il inspecte le dossier APRÈS fermeture de la connexion, or SQLite
+        // nettoie ses fichiers annexes en se fermant proprement. Éprouvé : il
+        // passe avec `SQLITE_OPEN_READ_WRITE | CREATE`, et il passe encore avec
+        // la base en mode WAL. Il mesure un résidu, pas une permission.
+        //
+        // Il reste ici parce qu'il attrape une régression grossière — un fichier
+        // laissé derrière soi — mais ce qui garde réellement la règle, c'est
+        // `les_drapeaux_douverture_interdisent_toute_ecriture` ci-dessous, qui
+        // interroge la permission elle-même.
         let racine = std::env::temp_dir().join("ks-winget-annexes");
         let _ = std::fs::remove_dir_all(&racine);
         let dossier = racine.join("Source.Test");
