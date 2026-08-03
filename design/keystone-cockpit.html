@@ -368,9 +368,12 @@ h2{font:500 16px/1.4 var(--font-tight);margin:0}
 .pill.cve{color:var(--attention);border-color:rgba(232,163,61,.35)}
 .pill.ring{color:var(--s1);border-color:rgba(43,170,160,.35)}
 
+/* Pas de filet d'accent : le bloc est RECESSÉ, et son icône suffit à le
+   qualifier. Un liseré coloré ici dépenserait une couleur de série pour
+   décorer, ce que la palette interdit explicitement. */
 .safety{display:flex;gap:11px;align-items:flex-start;background:var(--surface-0);
-  border:1px solid var(--hairline);border-left:2px solid var(--s1);border-radius:var(--r-ctl);
-  padding:13px 15px;margin:16px 0;font-size:13px;color:var(--ink-2);line-height:1.5}
+  box-shadow:inset 0 1px 0 rgba(0,0,0,.28);border-radius:var(--r-ctl);
+  padding:13px 17px;margin:16px 0;font-size:13px;color:var(--ink-2);line-height:1.5}
 .safety b{color:var(--ink-1);font-weight:500}
 .smoke{display:flex;align-items:center;gap:9px;padding:8px 0;font-size:13px;border-bottom:1px solid var(--hairline)}
 .smoke:last-child{border-bottom:none}
@@ -388,8 +391,11 @@ h2{font:500 16px/1.4 var(--font-tight);margin:0}
 .foot .hint{font-size:12.5px;color:var(--ink-3);margin-left:auto;text-align:right;line-height:1.4}
 
 /* ─── Bandeau de rollback : un succès, pas une erreur ─────── */
-.rollback{background:var(--surface-2);border:1px solid var(--hairline);
-  border-left:2px solid var(--good);border-radius:var(--r-card);padding:17px 19px;margin-bottom:20px}
+/* Un succès se dit par son titre et son icône, pas par un liseré vert. Le
+   bloc est SURÉLEVÉ — ce qui a réussi remonte — là où un aveu de lecture
+   s'enfonce. La direction de la lumière porte le sens, pas la couleur. */
+.rollback{background:var(--surface-2);box-shadow:var(--elev-1);
+  border-radius:var(--r-card);padding:17px 19px;margin-bottom:20px}
 .rollback h3{font:500 15px/1.4 var(--font-tight);margin:0 0 9px;display:flex;align-items:center;gap:9px}
 .rollback h3 svg{width:15px;height:15px;color:var(--good)}
 .rollback dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:13.5px}

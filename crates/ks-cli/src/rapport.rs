@@ -279,10 +279,21 @@ body {
 .sous { margin: 0; color: var(--ink-2); font-size: 13px; }
 main { max-width: 1080px; margin: 0 auto; padding: var(--sp-7) var(--sp-5) var(--sp-7); }
 .chapeau { color: var(--ink-2); margin: 0 0 var(--sp-5); max-width: 68ch; }
+/* Pas de filet d'accent a gauche : c'est le tic de la boite d'alerte
+   generique, il ne dit rien que le texte ne dise deja, et il depense une
+   couleur d'etat pour decorer. A la place, la notation du dessin technique
+   — hachure a 45 degres, pas de 7 px, trait de 1,15 px, les valeurs exactes
+   du motif de la marque — qui signifie « zone non levee ». Monochrome, donc
+   lisible a l'impression comme en contraste force. Le bloc est RECESSE : ce
+   qu'on n'a pas pu lire s'enfonce, il ne saute pas aux yeux. */
 .note {
-  margin: 0 0 var(--sp-6); padding: var(--sp-3) var(--sp-4);
-  border-left: 3px solid var(--attention); background: var(--surface-1);
-  border-radius: 0 var(--r-card) var(--r-card) 0; color: var(--ink-2);
+  margin: 0 0 var(--sp-6); padding: var(--sp-3) var(--sp-4) var(--sp-3) var(--sp-5);
+  background: var(--surface-0);
+  box-shadow: inset 0 1px 0 rgba(0,0,0,.28);
+  background-image: repeating-linear-gradient(45deg,
+    var(--hairline) 0 1.15px, transparent 1.15px 7px);
+  background-repeat: no-repeat; background-size: 7px 100%;
+  border-radius: var(--r-card); color: var(--ink-2);
   max-width: 68ch;
 }
 section { margin-bottom: var(--sp-7); }
@@ -347,7 +358,15 @@ footer { margin-top: var(--sp-7); padding-top: var(--sp-4);
   table, tbody th, tbody td, thead th, h2, footer, .note {
     border-color: #ccc;
   }
-  .note { border-left: 3px solid #666; }
+  /* A l'impression, ni fond ni ombre ne survivent : la hachure est redessinee
+     en noir, et c'est elle seule qui marque le bloc. */
+  .note {
+    background: #fff;
+    box-shadow: none;
+    background-image: repeating-linear-gradient(45deg,
+      #444 0 1.15px, transparent 1.15px 7px);
+    background-repeat: no-repeat; background-size: 7px 100%;
+  }
 }
 "#;
 

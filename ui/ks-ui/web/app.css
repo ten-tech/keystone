@@ -849,8 +849,34 @@ h2 {
 
 /* ── Ce qui n'est pas calculable ─────────────────────────────────────────── */
 
+/* ── Blocs annotés : pourquoi il n'y a plus de filet coloré à gauche ──────
+   Le liseré d'accent sur le bord gauche est le tic de la boîte d'alerte
+   générique. Il ne dit rien que le libellé ne dise déjà, il consomme du budget
+   de couleur d'état pour un usage décoratif, et il n'appartient à aucun des
+   langages de ce projet.
+
+   À sa place, la notation du DESSIN TECHNIQUE, que la marque emploie déjà pour
+   l'état « lecture impossible » : une hachure à 45°, pas de 7 px, trait de
+   1,15 px — les valeurs exactes du motif `ks-nonreleve` de
+   design/marque/etat-lecture-impossible.svg. Elle veut dire « zone non
+   levée », ce qui est précisément le propos de ces blocs.
+
+   Elle est MONOCHROME, en `--hairline` : elle survit au contraste forcé, elle
+   ne dépense pas d'accent, et elle ne porte aucun sens que le texte ne porte
+   pas (NF-05). Le bloc est par ailleurs RECESSÉ — posé sur --surface-0 avec
+   une arête sombre en haut — au lieu d'être surélevé : ce qu'on n'a pas pu
+   lire s'enfonce, il ne saute pas aux yeux.                                  */
 .indispo {
-  border-left: 2px solid var(--attention);
+  background: var(--surface-0);
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.28);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hairline) 0 1.15px,
+    transparent 1.15px 7px
+  );
+  background-repeat: no-repeat;
+  background-size: 7px 100%;
+  padding-left: var(--sp-5);
 }
 
 .indispo-1 {
