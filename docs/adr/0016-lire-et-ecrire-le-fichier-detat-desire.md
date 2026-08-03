@@ -1,6 +1,6 @@
 # ADR-0016 — Lire et écrire le fichier d'état désiré
 
-- **Statut** : Proposé
+- **Statut** : Accepté le 2026-08-03
 - **Date** : 2026-08-03
 - **Exigences concernées** : D2-01, D2-02, D2-10, P2, P6
 - **Précise** : ADR-0010 (dont la décision n° 3 est corrigée sur un point de forme)
@@ -225,17 +225,42 @@ double, qui est le vecteur classique de pourrissement, est refusée sans effort.
 
 ### Ce que ça nous coûte
 
-**Dix crates de plus.** `features = ["deserialize"]` tire obligatoirement
-`num-traits`, `annotate-snippets`, `granit-parser`, `smallvec` et
-`encoding_rs_io` — donc aussi `encoding_rs`, `anstyle`, `unicode-width`,
-`arraydeque`, `cfg-if`. C'est beaucoup pour lire une table plate, et
-`encoding_rs` contient du code `unsafe` qui entre ainsi dans l'arbre de
-`ks-cli`, lequel déclare pourtant `unsafe_code = "forbid"` pour son propre code.
-Le `forbid` n'a jamais couvert les dépendances ; ce coût est réel et il est
-consigné ici pour qu'on cesse de le découvrir.
+**Sept crates de plus — mesuré à la mise en œuvre, contre dix annoncés ici.**
+`features = ["deserialize"]` tire `num-traits`, `annotate-snippets`,
+`granit-parser`, `smallvec` et `encoding_rs_io`, donc aussi `encoding_rs`,
+`anstyle`, `unicode-width`, `arraydeque` et `cfg-if`. Mais quatre d'entre elles
+— `num-traits`, `smallvec`, `anstyle`, `cfg-if` — étaient **déjà dans l'arbre**.
+Le verrou de la racine passe donc de 123 à 130 entrées, et les sept nouvelles
+sont : `annotate-snippets`, `arraydeque`, `encoding_rs`, `encoding_rs_io`,
+`granit-parser`, `serde-saphyr`, `unicode-width`. Le chiffre de dix était compté
+sur la liste des dépendances de la fonctionnalité, pas sur le verrou : c'est la
+différence entre lire un manifeste et résoudre un graphe.
+
+C'est beaucoup pour lire une table plate, et `encoding_rs` contient du code
+`unsafe` qui entre ainsi dans l'arbre de `ks-cli`, lequel déclare pourtant
+`unsafe_code = "forbid"` pour son propre code. Le `forbid` n'a jamais couvert les
+dépendances ; ce coût est réel et il est consigné ici pour qu'on cesse de le
+découvrir.
+
+**Le verrou de la coque gagne les mêmes sept entrées**, de 465 à 472, et ce
+n'était pas prévu : `ks-ui` consomme `ks-cli` par chemin pour son générateur de
+rapport, donc l'arbre de lecture du yaml entre chez elle même si elle ne lit
+aucun yaml. La dépendance ne va que dans un sens, mais elle transporte tout ce
+qui est en dessous.
 
 **Une MSRV relevée**, donc un job de CI à mettre à jour et une promesse à
-réécrire dans `Cargo.toml` avec son motif, comme les trois précédentes.
+réécrire dans `Cargo.toml` avec son motif, comme les trois précédentes. **Et
+dans `ui/Cargo.toml` aussi**, pour la raison ci-dessus : la coque ne peut pas
+promettre moins que ce qu'elle consomme. Mesuré des deux côtés là aussi —
+`cargo +1.87.0 check --ignore-rust-version` échoue sur les mêmes let-chains,
+`cargo +1.88.0 check` compile.
+
+Le contrôle par `cargo +VERSION` seul ne suffit pas à mesurer un plancher :
+dès que `rust-version` est relevé, cargo refuse la compilation **avant** de
+compiler (« rustc 1.87.0 is not supported by the following packages »), ce qui
+ressemble à un échec de compilation sans en être un. Encadrer le plancher exige
+`--ignore-rust-version` sur la version basse, faute de quoi on mesure sa propre
+déclaration.
 
 **Un crate de trois jours** dans le chemin qui lit la source de vérité. Épinglé
 à l'exact, en lecture seule, et surveillé par `cargo audit` et `cargo deny`

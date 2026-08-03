@@ -70,7 +70,7 @@ env:
 # où une version est écrite deux fois ; les deux se déplacent ensemble, ou pas
 # du tout.
 #
-# Seul le job `msrv` s'en écarte, volontairement, via `cargo +1.85.0`.
+# Seul le job `msrv` s'en écarte, volontairement, via `cargo +1.88.0`.
 
 jobs:
   # ── Le socle portable ──────────────────────────────────────────────────
@@ -338,10 +338,10 @@ jobs:
         os: [ubuntu-24.04, windows-2025]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@8641a17e25bf5b40c118d48fe0f81e8655731839 # branche 1.85.0
+      - uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # branche 1.88.0
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Le workspace compile sur la MSRV déclarée
-        run: cargo +1.85.0 check --locked --workspace --all-targets
+        run: cargo +1.88.0 check --locked --workspace --all-targets
 
       # La coque de bureau déclare la même MSRV, et il faut la mesurer pour la
       # même raison. Elle en est même le cas le plus tendu : `tauri` annonce
@@ -350,11 +350,19 @@ jobs:
       # occurrence de ce piège sur ce projet ; celle-ci n'a pas mordu, et ce
       # job est ce qui garantit qu'elle ne mordra pas demain non plus.
       #
+      # Le relèvement à 1.88 (ADR-0016) l'a rendue OBLIGATOIRE ici, et pas par
+      # symétrie : `ks-ui` consomme `ks-cli` par chemin, donc l'arbre de
+      # `serde-saphyr` entre dans son verrou — sept entrées de plus, de 465 à
+      # 472 — alors que la coque ne lit aucun yaml. Elle ne peut donc plus
+      # compiler à 1.85. Mesuré des deux côtés : `cargo +1.87.0 check
+      # --ignore-rust-version` échoue sur les let-chains de `serde-saphyr`,
+      # `cargo +1.88.0 check` compile en 2 min 47.
+      #
       # Windows seulement : `tauri` ne compile pas sans WebView2.
       - name: La coque de bureau compile sur la MSRV déclarée
         if: runner.os == 'Windows'
         working-directory: ui
-        run: cargo +1.85.0 check --locked --workspace --all-targets
+        run: cargo +1.88.0 check --locked --workspace --all-targets
 
   # ── Chaîne d'approvisionnement ─────────────────────────────────────────
   # Sur un composant privilégié, chaque crate ajoutée est une surface ajoutée

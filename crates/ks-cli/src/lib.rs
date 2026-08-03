@@ -29,5 +29,6 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod etat_desire;
 pub mod lisible;
 pub mod rapport;

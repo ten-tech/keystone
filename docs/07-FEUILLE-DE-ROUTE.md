@@ -240,10 +240,15 @@ Si tu ouvres le projet demain matin.
 1. **Persister les valeurs observées.** La dérive sur sept jours — critère de
    sortie de la Phase 1 — n'est pas mesurable tant qu'aucun relevé n'est
    comparé au précédent. Le magasin existe, il ne stocke que le journal.
-2. **Charger `workstation.yaml`.** Sans état désiré, `Item::verdict()` répond
-   `NonContraint` sur les 116 items, la posture du poste de pilotage reste « pas
-   encore calculable », et la vue Dérive n'a rien à comparer. C'est le verrou
-   qui bloque le plus d'écrans à la fois.
+2. **Charger `workstation.yaml`** — **le lecteur existe** (ADR-0016) : le type du
+   document, la table `desired` en scalaires bruts, le refus d'une clé racine
+   inconnue et d'une clé en double, et surtout le typage du scalaire par la
+   **forme de la valeur constatée**, qui neutralise les huit conversions muettes
+   de YAML sur vingt et un scalaires mesurés. Restent `ks import`, qui écrira le
+   fichier avec un émetteur maison, et `ks diff`, qui confrontera la table à un
+   scan. Tant qu'ils manquent, `Item::verdict()` répond `NonContraint` sur les
+   116 items, la posture du poste de pilotage reste « pas encore calculable », et
+   la vue Dérive n'a rien à comparer.
 3. **Réconciliation d'inventaire logiciel** — livrée pour l'essentiel, mais
    l'attribution reste incomplète : 54 applications sur 150 sans gestionnaire
    identifié, et le module le déclare lui-même plutôt que d'arrondir.

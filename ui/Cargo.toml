@@ -9,12 +9,17 @@
 # La dépendance ne va que dans un sens : `ks-ui` consomme `crates/ks-cli` et
 # `crates/ks-collectors` par chemin. Aucun crate de la racine ne connaît `ui/`.
 [workspace]
-# Résolveur 3, pour la même raison qu'à la racine — et ici c'est ce qui rend la
-# compilation possible sous la MSRV du projet. L'arbre transitif de Tauri 2.11
-# contient `darling_macro` (rust-version 1.88) et `icu_collections` (1.86) ; en
-# résolveur 2 ils sont sélectionnés et la compilation échoue sous 1.85. Le
-# résolveur 3 lit leur `rust-version` et retient des versions antérieures.
-# Vérifié en compilant sous cargo 1.85.0, pas déduit.
+# Résolveur 3, pour la même raison qu'à la racine. Il a d'abord servi à tenir la
+# MSRV 1.85 : l'arbre transitif de Tauri 2.11 contient `darling_macro`
+# (rust-version 1.88) et `icu_collections` (1.86) ; en résolveur 2 ils étaient
+# sélectionnés et la compilation échouait sous 1.85. Le résolveur 3 lit leur
+# `rust-version` et retient des versions antérieures. Vérifié en compilant sous
+# cargo 1.85.0, pas déduit.
+#
+# Depuis l'ADR-0016, la MSRV du projet est 1.88 et ces deux crates ne sont donc
+# plus une contrainte. Le résolveur 3 reste : il n'a pas cessé d'écarter tout ce
+# qui déclare au-dessus de 1.88, et le retirer rouvrirait la porte à l'instant
+# où une dépendance passera 1.99.
 resolver = "3"
 members = ["ks-ui"]
 
@@ -23,7 +28,14 @@ version = "0.1.0"
 edition = "2021"
 # Alignée sur celle du workspace principal : `ks-ui` consomme ses crates, il ne
 # peut pas exiger moins. Elle se mesure ici aussi, elle ne s'estime pas.
-rust-version = "1.85"
+#
+# Passée de 1.85 à 1.88 avec elle (ADR-0016), et pas par symétrie : `ks-ui`
+# consomme `ks-cli`, qui lit `workstation.yaml` avec `serde-saphyr`. Cet arbre
+# entre donc ici, et il fait entrer avec lui les let-chains stabilisées en 1.88.
+# Mesuré des deux côtés, comme à la racine : `cargo +1.87.0 check --locked
+# --workspace --all-targets --ignore-rust-version` échoue sur ces let-chains,
+# `cargo +1.88.0 check --locked --workspace --all-targets` compile.
+rust-version = "1.88"
 license = "Apache-2.0"
 authors = ["Projet Keystone"]
 repository = "https://github.com/ten-tech/keystone"

@@ -233,7 +233,13 @@ pub enum ItemValue {
 /// côté Rust — voir la note de forme sur [`ItemValue`]. `deny_unknown_fields`
 /// n'est pas décoratif : c'est lui qui empêche cette forme d'avaler un
 /// `{"raison": "…"}` quel que soit l'ordre de déclaration des variantes.
-mod absent_objet {
+///
+/// `pub(crate)` parce que [`crate::Desire`] et [`crate::ScalaireBrut`] portent
+/// **la même** forme d'absence et doivent la porter par le même code. Deux
+/// copies de ces vingt lignes divergeraient au premier correctif, et le jour où
+/// elles divergent, `{ absent: true }` écrit dans `workstation.yaml` cesse de se
+/// relire comme l'`Absent` que le modèle compare.
+pub(crate) mod absent_objet {
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     /// L'objet effectivement écrit et relu. Un seul champ, et aucun autre toléré.
@@ -245,7 +251,7 @@ mod absent_objet {
     }
 
     /// Écrit `{"absent": true}`.
-    pub(super) fn serialize<S: Serializer>(serialiseur: S) -> Result<S::Ok, S::Error> {
+    pub(crate) fn serialize<S: Serializer>(serialiseur: S) -> Result<S::Ok, S::Error> {
         Forme { absent: true }.serialize(serialiseur)
     }
 
@@ -253,7 +259,7 @@ mod absent_objet {
     ///
     /// `absent: false` n'a pas de sens : ce serait une absence qui n'en est pas
     /// une. On la refuse plutôt que de la traduire, faute de savoir en quoi.
-    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserialiseur: D) -> Result<(), D::Error> {
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(deserialiseur: D) -> Result<(), D::Error> {
         let forme = Forme::deserialize(deserialiseur)?;
         if forme.absent {
             Ok(())

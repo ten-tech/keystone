@@ -22,7 +22,23 @@ clap.workspace = true
 # s'ouvre en ecriture et en mode WAL, a l'inverse du lecteur des bases de
 # winget, qui n'a le droit de deposer aucun fichier annexe.
 rusqlite.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
+
+# Lecture de `workstation.yaml` (ADR-0016). Le crate n'entre QUE dans ce crate-ci :
+# `ks-core` porte les types du désir, `ks-cli` porte le fichier.
+#
+# **Ce que cette ligne coûte, et qu'il faut avoir sous les yeux.** La
+# fonctionnalité `deserialize` tire `num-traits`, `annotate-snippets`,
+# `granit-parser`, `smallvec` et `encoding_rs_io` — donc aussi `encoding_rs`,
+# `anstyle`, `unicode-width`, `arraydeque`, `cfg-if`. C'est beaucoup pour lire
+# une table plate, et `encoding_rs` contient du code `unsafe` qui entre ainsi
+# dans l'arbre de ce crate, lequel déclare pourtant `unsafe_code = "forbid"`
+# pour son propre code. Le `forbid` n'a jamais couvert les dépendances ; le coût
+# est réel, il est consigné par l'ADR-0016, et il est répété ici pour qu'on
+# cesse de le redécouvrir.
+serde-saphyr.workspace = true
 
 [lints.rust]
 unsafe_code = "forbid"

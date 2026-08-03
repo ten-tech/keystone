@@ -33,12 +33,14 @@
 
 #![forbid(unsafe_code)]
 
+pub mod desire;
 pub mod drift;
 pub mod item;
 pub mod journal;
 pub mod plan;
 pub mod snapshot;
 
+pub use desire::{Desire, ErreurDeTypage, FormeAttendue, ScalaireBrut};
 pub use drift::{Drift, DriftStatus, DriftSummary, Severity};
 pub use item::{Domain, Item, ItemValue, Nature, Provenance};
 pub use journal::Heartbeat;

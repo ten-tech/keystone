@@ -44,12 +44,27 @@ exclude = ["ui"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-# Version minimale mesurée, pas estimée : `cargo +1.80 check` échoue, parce que
-# `clap_lex` exige la fonctionnalité `edition2024`, stabilisée en Rust 1.85.
-# La valeur 1.80 déclarée initialement n'avait jamais été éprouvée — aucun job
-# de CI ne la vérifiait. Il en existe un maintenant (« MSRV » dans ci.yml).
-# Relever ce nombre est une décision : il ferme la porte à des postes plus anciens.
-rust-version = "1.85"
+# Version minimale mesurée, pas estimée, et **encadrée des deux côtés** :
+# `cargo +1.87.0 check --locked --workspace --all-targets` échoue, `cargo +1.88.0`
+# compile. La version juste en dessous du plancher échoue : c'est ce qui
+# distingue une mesure d'une déduction.
+#
+# Le plancher vient de `serde-saphyr` 1.0.0 (ADR-0016), qui emploie des
+# let-chains, stabilisées en Rust 1.88, et qui ne déclare **aucun**
+# `rust-version` — le résolveur 3 n'a donc rien à comparer, donc rien à écarter.
+# C'est la cinquième occurrence du piège sur ce projet, après `libsqlite3-sys`,
+# `wmi`, `sysinfo` et `tauri` par transitivité.
+#
+# L'histoire précédente, gardée pour mémoire : la valeur 1.80 déclarée
+# initialement n'avait jamais été éprouvée, et `clap_lex` exigeait déjà 1.85 —
+# cinq versions d'écart, invisibles sans compiler. Le job « MSRV » de ci.yml est
+# le seul filet, et il ne se déclenche qu'après avoir compilé.
+#
+# Relever ce nombre est une décision : il ferme la porte à des postes plus
+# anciens. Elle est assumée par l'ADR-0016 — Keystone est un binaire signé pour
+# Windows 11, pas une bibliothèque dont d'autres compileraient les sources avec
+# un compilateur ancien.
+rust-version = "1.88"
 license = "Apache-2.0"
 authors = ["Projet Keystone"]
 repository = "https://github.com/ten-tech/keystone"
@@ -72,6 +87,25 @@ chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# Lecture de `workstation.yaml`, et **rien d'autre** (ADR-0016).
+#
+# `default-features = false` retire `serialize` : Keystone n'écrit pas son yaml
+# avec un sérialiseur serde. Mesuré, celui-ci émet les textes sans guillemets —
+# donc un fichier qui se relit correctement par chance — et n'émet aucun
+# commentaire, ce qui annulerait la contrepartie promise par l'ADR-0010 à la
+# forme plate. L'écriture passera par un émetteur maison, dans un lot ultérieur.
+#
+# Version épinglée à l'exact : un crate publié il y a trois jours et qui ne
+# déclare aucun `rust-version` ne bénéficie pas du bénéfice du doute d'un `^`.
+# C'est lui qui porte la MSRV du projet à 1.88 — voir `rust-version` ci-dessus.
+#
+# La surface consommée est `from_str` vers deux types, et **elle ne doit pas
+# grandir** : pas d'ancres, pas d'inclusions, pas de `figment`, pas de `garde`.
+# C'est ce qui garde le remplacement du crate à une journée de travail.
+serde-saphyr = { version = "=1.0.0", default-features = false, features = [
+    "deserialize",
+] }
 sysinfo = "0.32"
 thiserror = "2"
 
