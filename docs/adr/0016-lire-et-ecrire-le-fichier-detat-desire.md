@@ -109,10 +109,30 @@ porte déjà sur le fil depuis sa correction.
 publié il y a trois jours et sans `rust-version` ne bénéficie pas du bénéfice du
 doute d'un `^`.
 
-**2. La MSRV du projet passe de 1.85 au plancher mesuré.** Le candidat est 1.88,
-d'après la stabilisation des *let-chains*. **Ce chiffre n'est pas établi par ce
-document** : il se mesure en installant 1.88 et en compilant, comme la MSRV 1.85
-actuelle a été mesurée et non estimée. Relever la MSRV est une décision, et elle
+**2. La MSRV du projet passe de 1.85 à 1.88 — mesuré, et encadré des deux
+côtés.** Ce document a d'abord écrit que 1.88 était un *candidat* déduit de la
+stabilisation des *let-chains*, en refusant explicitement de l'établir sans
+compiler. La mesure a été faite depuis, sur un projet jetable ne dépendant que
+de `serde-saphyr` 1.0.0 :
+
+| Toolchain | `cargo check --locked` |
+|---|---|
+| 1.85.0 | **échec** — `error[E0658]: let expressions in this position are unstable`, cinq fois |
+| 1.87.0 | **échec** — même erreur |
+| **1.88.0** | **compile**, 9,41 s, sans un avertissement |
+
+Le plancher est donc **exactement 1.88**, et il est encadré : la version juste
+en dessous échoue. C'est ce qui distingue une mesure d'une déduction — la
+déduction aurait donné le même nombre, sans la certitude qu'aucune autre
+contrainte ne se cache au-dessus.
+
+Pour mémoire, c'est la **cinquième** fois que ce projet rencontre une crate
+sans `rust-version` déclarée : `libsqlite3-sys` 0.38, `wmi` 0.18, `sysinfo`
+0.39, `tauri` par transitivité, et maintenant `serde-saphyr`. Le résolveur 3 en
+écarte quatre ; il ne peut rien contre celle-ci, faute de valeur à comparer. Le
+job « MSRV » de la CI reste le seul filet.
+
+Relever la MSRV est une décision, et elle
 est ici assumée : Keystone est un binaire signé pour Windows 11, pas une
 bibliothèque publiée dont d'autres compileraient les sources avec un compilateur
 ancien. La toolchain épinglée est déjà 1.97.1.
