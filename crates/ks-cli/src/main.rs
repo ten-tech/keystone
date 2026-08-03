@@ -337,14 +337,43 @@ fn cmd_scan(json: bool, domain: Option<&str>, record: bool) -> Result<()> {
     println!("\n{} item(s) observé(s).", items.len());
 
     if record {
-        let entree = consigner_scan(items.len())?;
+        // Le scan entier est consigné en UNE transaction : le journal et les
+        // observations décrivent le même instant, ou ni l'un ni l'autre. Un
+        // journal qui annoncerait un scan dont les observations manquent serait
+        // pire qu'un journal muet — il ferait croire à une série continue.
+        let issue = consigner_scan(&inv, &items)?;
         println!(
             "Consigné au journal, entrée {} — {}",
-            entree.seq,
-            entree.digest()
+            issue.entree.seq,
+            issue.entree.digest()
+        );
+        println!(
+            "  {} observation(s) suivie(s), {} lecture(s) refusée(s).",
+            issue.suivis, issue.refusees
         );
     }
     Ok(())
+}
+
+/// Ce qu'un scan consigné a produit.
+struct Consignation {
+    entree: ks_core::JournalEntry,
+    suivis: usize,
+    refusees: usize,
+}
+
+/// Un item entre-t-il dans la série d'observations ?
+///
+/// La nature décide, et rien d'autre (ADR-0009, ADR-0014). `Mesure` est exclue :
+/// `uptime_seconds` change à **chaque** scan, donc produirait un intervalle par
+/// scan, donc serait à lui seul la totalité de la croissance du magasin. Les
+/// items de nature `Mesure` sont les seuls dont le volume dépende du temps ; les
+/// écarter est ce qui rend la rétention inutile plutôt que reportée.
+const fn entre_dans_la_serie(nature: ks_core::Nature) -> bool {
+    match nature {
+        ks_core::Nature::Reglage | ks_core::Nature::Objectif | ks_core::Nature::Constat => true,
+        ks_core::Nature::Mesure => false,
+    }
 }
 
 /// Chemin du journal local.
@@ -356,21 +385,68 @@ fn chemin_journal() -> Result<PathBuf> {
         )
 }
 
-/// Ajoute une entrée décrivant le scan qui vient d'avoir lieu.
-fn consigner_scan(nombre: usize) -> Result<ks_core::JournalEntry> {
+/// Consigne le scan : son entrée de journal, et les observations qui vont avec.
+///
+/// **L'horodatage est unique pour tout le scan**, et non relu à chaque item :
+/// deux items observés au même passage doivent porter la même date, sinon la
+/// série des intervalles raconte un ordre qui n'a pas eu lieu.
+///
+/// Les observations sont enregistrées sur l'inventaire **complet**, jamais sur
+/// la vue filtrée par `--domain` : un filtre est une commodité d'affichage, et
+/// laisser un filtre décider de ce qui entre dans la série ferait « disparaître »
+/// tout ce qu'on n'a pas demandé à voir.
+fn consigner_scan(inv: &Inventory, affiches: &[&ks_core::Item]) -> Result<Consignation> {
     let magasin = magasin::Magasin::ouvrir(&chemin_journal()?)?;
-    magasin.ajouter(ks_core::JournalEntry {
+    let at = Utc::now();
+
+    let mut suivis = 0_usize;
+    let mut refusees = 0_usize;
+    for item in &inv.items {
+        if !entre_dans_la_serie(item.nature) {
+            continue;
+        }
+        magasin.enregistrer_observation(&item.path, &item.observed, at)?;
+        if item.observed.est_constat() {
+            suivis += 1;
+        } else {
+            refusees += 1;
+        }
+    }
+
+    // Ce que le scan a produit, collecteur par collecteur. C'est ce qui permet
+    // de distinguer « l'item a disparu » de « son collecteur a échoué » — deux
+    // faits que l'ancien `target: "115 item(s)"` confondait.
+    let mut passages: Vec<String> = inv
+        .passages()
+        .iter()
+        .map(|p| format!("{}={}", p.id, p.items))
+        .collect();
+    passages.sort_unstable();
+
+    let entree = magasin.ajouter(ks_core::JournalEntry {
         seq: 0,
-        at: Utc::now(),
+        at,
         // `Keystone`, parce que c'est bien Keystone qui a produit cette ENTRÉE.
         // Les items relevés, eux, restent `Provenance::Observed` : l'outil n'est
         // l'auteur d'aucune des valeurs qu'il a lues.
         actor: ks_core::Actor::System,
         verb: "scan".to_owned(),
-        target: format!("{nombre} item(s)"),
-        diff: None,
+        target: format!("{} item(s)", affiches.len()),
+        // Le champ était vide. Il porte désormais ce que le scan a vraiment
+        // produit, collecteur par collecteur, et le nombre d'observations
+        // suivies — donc le chaînage couvre ces faits, puisqu'il couvre `diff`.
+        diff: Some(format!(
+            "collecteurs {} · suivis {suivis} · refuses {refusees}",
+            passages.join(" ")
+        )),
         outcome: ks_core::Outcome::Observed,
         prev_digest: String::new(),
+    })?;
+
+    Ok(Consignation {
+        entree,
+        suivis,
+        refusees,
     })
 }
 
@@ -545,6 +621,66 @@ fn cmd_explain(path: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Ce qui entre dans la série est décidé par la nature, et par rien d'autre.
+    ///
+    /// La barrière la plus forte est le `match` exhaustif sans bras `_` de
+    /// `entre_dans_la_serie` : ajouter une variante à `Nature` casse la
+    /// **compilation**. Ce test-ci garde l'autre moitié — qu'aucune des quatre
+    /// classifications ne change d'avis en silence.
+    ///
+    /// `Mesure` est le cas qui compte. `uptime_seconds` change à chaque scan :
+    /// l'y laisser entrer produirait un intervalle par scan, donc à lui seul la
+    /// totalité de la croissance du magasin, et rendrait la rétention
+    /// nécessaire là où elle est aujourd'hui inutile.
+    #[test]
+    fn seule_la_nature_decide_de_ce_qui_entre_dans_la_serie() {
+        use ks_core::Nature;
+
+        assert!(entre_dans_la_serie(Nature::Reglage));
+        assert!(entre_dans_la_serie(Nature::Objectif));
+        assert!(
+            entre_dans_la_serie(Nature::Constat),
+            "un constat qui change est un événement, pas une dérive — mais c'est              un fait daté, et il se stocke"
+        );
+        assert!(
+            !entre_dans_la_serie(Nature::Mesure),
+            "une mesure change à chaque scan : l'y laisser entrer ferait croître              le magasin avec le TEMPS et non avec le changement"
+        );
+    }
+
+    /// Un relevé illisible ne fabrique pas d'intervalle, mesuré de bout en bout.
+    ///
+    /// Vérifié sur une base réelle, à travers la même méthode que le scan
+    /// appelle. Sans cette garde, une panne de lecture de trois jours
+    /// produirait deux « changements » sur un item qui n'a jamais bougé : un
+    /// vers l'illisible, un pour en revenir.
+    #[test]
+    fn un_releve_illisible_nentre_jamais_dans_la_serie() {
+        use ks_core::ItemValue;
+
+        let chemin = std::env::temp_dir().join("ks-cablage-illisible.sqlite");
+        for suffixe in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffixe}", chemin.display()));
+        }
+        let m = magasin::Magasin::ouvrir(&chemin).expect("magasin");
+        let t = Utc::now();
+
+        m.enregistrer_observation("a.b", &ItemValue::Bool(true), t)
+            .expect("valeur lisible");
+        m.enregistrer_observation("a.b", &ItemValue::illisible("accès refusé"), t)
+            .expect("valeur illisible");
+
+        let serie = m.serie("a.b").expect("série");
+        assert_eq!(
+            serie.len(),
+            1,
+            "l'aveu ne doit pas ouvrir un second intervalle"
+        );
+        assert!(!serie[0].closed, "ni fermer le premier");
+
+        let _ = std::fs::remove_file(&chemin);
+    }
     use super::*;
 
     #[test]

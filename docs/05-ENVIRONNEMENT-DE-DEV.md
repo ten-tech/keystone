@@ -148,7 +148,7 @@ Pour que la validation YAML fonctionne, ajouter dans les réglages du workspace 
 ### Phase 0 — sur l'hôte, sans risque
 
 ```powershell
-cargo test --workspace          # 148 tests au total, tous portables
+cargo test --workspace          # 156 tests au total, tous portables
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p ks-cli -- scan
 cargo run -p ks-cli -- status
@@ -192,6 +192,66 @@ cargo build --release
 # copier les binaires dans la VM, exécuter, observer
 .\scripts\lab-vm-reset.ps1                 # et on recommence
 ```
+
+## Le sondage horaire, et pourquoi Keystone ne le crée pas
+
+Le critère de sortie de la Phase 1 est « la dérive suivie pendant sept jours sans
+faux positif inexpliqué ». Sept jours de temps mural : il faut donc que quelque
+chose appelle `ks scan --record` régulièrement.
+
+**Keystone ne crée pas cette tâche, et ne la créera pas.** Créer une tâche
+planifiée est une écriture système. Les phases 0 et 1 n'en font aucune, et cette
+règle n'a pas d'exception pour la commodité de son auteur — c'est même le genre
+d'exception qui, une fois accordée, ne se retire plus.
+
+La commande est donnée ici pour que tu la crées toi-même, en sachant ce qu'elle
+fait :
+
+```powershell
+# Un scan par heure, sous ton compte, sans élévation.
+# Adapte le chemin si ton binaire est ailleurs.
+$ks = "$PWD	arget
+elease\ks.exe"
+
+$action     = New-ScheduledTaskAction  -Execute $ks -Argument "scan --record"
+$declencheur = New-ScheduledTaskTrigger -Once -At (Get-Date) `
+                 -RepetitionInterval (New-TimeSpan -Hours 1)
+$reglages   = New-ScheduledTaskSettingsSet -StartWhenAvailable `
+                 -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries
+
+Register-ScheduledTask -TaskName "Keystone — sondage" `
+  -Action $action -Trigger $declencheur -Settings $reglages `
+  -Description "Relève l'état du poste et l'enregistre. Lecture seule."
+```
+
+Pour la retirer :
+
+```powershell
+Unregister-ScheduledTask -TaskName "Keystone — sondage" -Confirm:$false
+```
+
+### Ce que le sondage écrit, et ce qu'il n'écrit pas
+
+Il écrit **uniquement** dans `%LOCALAPPDATA%\Keystone\journal.sqlite` : l'entrée
+de journal du scan, et les intervalles d'observation. Aucune valeur du système
+n'est touchée — c'est vérifiable, la bannière de `ks scan` l'annonce et aucun
+collecteur ne détient de canal d'écriture.
+
+### Le volume, mesuré
+
+L'encodage est par **intervalles** et non par échantillons : un scan qui revoit la
+même valeur avance une date, il n'insère rien. Onze scans consécutifs sur une
+machine au repos ont produit **108 lignes**, pas 1 188 (mesuré le 2026-08-03).
+La taille du magasin est donc proportionnelle au **changement**, pas au temps —
+c'est ce qui rend la rétention inutile plutôt que reportée.
+
+### Une heure, et pas cinq minutes
+
+Un sondage plus fréquent ne rend pas la dérive plus visible : il rend seulement
+l'intervalle d'attribution plus étroit, ce qui n'a d'intérêt qu'une fois
+l'attribution par événement disponible — donc pas en Phase 1. Il consomme en
+revanche du temps de veille et de la batterie à chaque passage. Une heure est le
+compromis retenu ; la valeur se change dans la commande ci-dessus.
 
 ## Pièges
 

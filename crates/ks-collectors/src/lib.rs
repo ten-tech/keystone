@@ -128,11 +128,28 @@ pub trait Collector {
     fn collect(&self) -> Vec<Item>;
 }
 
+/// Ce qu'un collecteur a produit lors d'un passage.
+///
+/// `Inventory` jetait cette information : il ne restait qu'une liste d'items,
+/// sans trace de qui les avait produits ni de combien. Un collecteur en panne
+/// devenait alors indiscernable d'un collecteur qui n'a rien trouvé — et le
+/// magasin d'observations en aurait conclu que les items avaient **disparu**,
+/// c'est-à-dire un changement, sur une machine où rien n'avait bougé.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Passage {
+    /// L'identifiant stable du collecteur.
+    pub id: &'static str,
+    /// Combien d'items il a produits à ce passage.
+    pub items: usize,
+}
+
 /// Un inventaire complet, à un instant donné.
 #[derive(Debug, Default)]
 pub struct Inventory {
     /// Les items observés.
     pub items: Vec<Item>,
+    /// Ce que chaque collecteur a produit — voir [`Passage`].
+    collecteurs: Vec<Passage>,
 }
 
 impl Inventory {
@@ -147,10 +164,25 @@ impl Inventory {
         ];
 
         let mut items = Vec::new();
+        let mut collecteurs = Vec::new();
         for c in &collectors {
-            items.extend(c.collect());
+            let produits = c.collect();
+            collecteurs.push(Passage {
+                id: c.id(),
+                items: produits.len(),
+            });
+            items.extend(produits);
         }
-        Self { items }
+        Self { items, collecteurs }
+    }
+
+    /// Le collecteur qui a produit ce chemin, s'il est connu.
+    ///
+    /// Sert à répondre à « cet item a-t-il disparu, ou son collecteur
+    /// a-t-il échoué ? » — deux faits que rien ne distinguait jusqu'ici.
+    #[must_use]
+    pub fn passages(&self) -> &[Passage] {
+        &self.collecteurs
     }
 
     /// Nombre d'items observés.

@@ -1,6 +1,10 @@
 # ADR-0014 — Où vivent les valeurs observées, et ce qui compte pour un changement
 
-- **Statut** : Proposé
+- **Statut** : Accepté — implémentée le 2026-08-03. Mesuré sur la machine de
+  référence : **11 scans consécutifs → 108 lignes** dans `observation`, pas
+  1 188 ; **33 lectures refusées** (11 × 3 items illisibles) sans qu'un seul
+  intervalle soit fermé ni avancé ; **0 intervalle** sur les chemins
+  d'exclusions Defender.
 - **Date** : 2026-08-03
 - **Exigences concernées** : D2-04, D2-05, SEC-03, SEC-04, P2, P6
 
