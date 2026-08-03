@@ -44,6 +44,7 @@
 
 use ks_core::ItemValue;
 
+use crate::jetons::TableDeCodes;
 use crate::posture::Lecture;
 
 /// Ce que `Win32_DeviceGuard` rapporte, réduit à ce qu'on publie.
@@ -264,16 +265,15 @@ mod windows_impl {
 /// qui serait faux : la question est « ce matériel en est-il capable », jamais
 /// « est-ce en service ». Sur une machine où la protection DMA est disponible
 /// mais non activée, « activé » serait un faux positif de sécurité.
+///
+/// La valeur publiée est un **jeton** ([`crate::jetons::ProprieteMaterielle`]) :
+/// la phrase française vit dans `ks_cli::lisible`, avec la conversion d'octets
+/// et pour la même raison (ADR-0015).
 #[must_use]
 pub fn propriete_disponible(etat: &EtatPlateforme, code: u32) -> ItemValue {
     match &etat.proprietes_disponibles {
         Lecture::Trouvee(codes) => ItemValue::Text(
-            if codes.contains(&code) {
-                "disponible sur ce matériel"
-            } else {
-                "absente de ce matériel"
-            }
-            .to_owned(),
+            crate::jetons::ProprieteMaterielle::depuis_presence(codes.contains(&code)).jeton(),
         ),
         Lecture::Absente => ItemValue::Absent,
         Lecture::Refusee => ItemValue::illisible("WMI n'a pas répondu"),
@@ -307,15 +307,15 @@ mod tests {
         let presente = propriete_disponible(&materiel, propriete_materielle::PROTECTION_DMA);
         assert_eq!(
             presente,
-            ItemValue::Text("disponible sur ce matériel".into())
+            ItemValue::Text("disponible-sur-ce-materiel".into())
         );
         assert_eq!(
             propriete_disponible(&materiel, 99),
-            ItemValue::Text("absente de ce matériel".into())
+            ItemValue::Text("absente-de-ce-materiel".into())
         );
-        // Surtout pas « activé » : disponible ne veut pas dire en service, et la
-        // confusion serait un faux positif de sécurité.
-        assert!(!presente.to_string().contains("activé"));
+        // Surtout pas le vocabulaire de l'interrupteur : disponible ne veut pas
+        // dire en service, et la confusion serait un faux positif de sécurité.
+        assert!(!presente.to_string().contains("activ"));
 
         let refuse = EtatPlateforme {
             proprietes_disponibles: Lecture::Refusee,

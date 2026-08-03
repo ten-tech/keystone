@@ -54,6 +54,8 @@
 use chrono::Utc;
 use ks_core::{Domain, Item, ItemValue, Nature, Provenance};
 
+use crate::jetons::TableDeCodes;
+
 /// Qui met à jour cette application, si quelqu'un le fait.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gestionnaire {
@@ -442,13 +444,11 @@ impl SoftwareCollector {
             // un aveu sur la qualité du relevé. On ne le déclare pas davantage —
             // vouloir « complète » ne le rendrait pas complet.
             Nature::Constat,
+            // Un jeton, pas une phrase : cette valeur sort d'une table de codes
+            // et se compare d'un scan à l'autre (ADR-0015). Le libellé français
+            // vit dans `ks_cli::lisible`.
             ItemValue::Text(
-                if aveugles.is_empty() {
-                    "complète"
-                } else {
-                    "partielle"
-                }
-                .to_owned(),
+                crate::jetons::Attribution::depuis_completude(aveugles.is_empty()).jeton(),
             ),
             "L'attribution couvre-t-elle tous les gestionnaires présents ? Tant \
              qu'elle est partielle, « non attribué » ne veut pas dire « sans \

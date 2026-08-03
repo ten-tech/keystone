@@ -1,6 +1,11 @@
 # ADR-0015 — Comparer des codes, pas des phrases
 
-- **Statut** : Proposé
+- **Statut** : Accepté — implémentée le 2026-08-03 (`ks_collectors::jetons`,
+  libellés dans `ks_cli::lisible`). Mesuré sur la machine de référence :
+  **116 items, dont 35 déclarables** — 28 `Reglage` et 7 `Objectif`, contre
+  14 `Mesure` et 67 `Constat`. Trois écarts entre ce qui suit et ce qui a été
+  livré sont consignés en fin de document, section « Ce que l'implémentation a
+  corrigé de cette décision ».
 - **Date** : 2026-08-03
 - **Exigences concernées** : D2-01, D2-02, D2-04, P6, NF-05
 
@@ -113,6 +118,11 @@ Le suffixe `code-inconnu:<n>` conserve la nuance à laquelle
 `demarrage_service` tient déjà : un octet parasite se **nomme**, il ne tombe
 pas dans « désactivé ».
 
+> Deux lignes de cette table ont été corrigées à la mise en œuvre — celle des
+> services, incomplète, et le jeton `active`, qui aurait servi deux
+> vocabulaires. La table réellement livrée est celle de
+> `ks_collectors::jetons` ; les écarts et leur raison sont en fin de document.
+
 **2. Ces jetons sont un format, au même titre que `Actor::etiquette_stable`.**
 Ils ne se renomment jamais. Un test les fige, listé à la main mais gardé par un
 `match` exhaustif sans bras `_` sur la table de codes : ajouter un code casse la
@@ -123,7 +133,9 @@ d'octets.** Un seul module de présentation, partagé par la CLI et la coque —
 c'est déjà la raison d'être de ce module, et c'est déjà pourquoi il vit dans la
 bibliothèque et non dans le binaire. `ks explain`, `ks scan`, le rapport HTML et
 le poste de pilotage affichent donc « activée, sans verrou UEFI » exactement
-comme aujourd'hui. **Rien ne change à l'écran.**
+comme aujourd'hui. **Rien ne change à l'écran** — au dépliage du point 4 près,
+qui déplace la mention du verrou dans son propre item (voir la fin du
+document).
 
 **4. Un composite se déplie en items.** `security.platform.lsa_protection` donne
 deux items :
@@ -201,3 +213,53 @@ sémantique de la plateforme.
 l'espace, la majuscule et l'accent ; il ne refuse pas un jeton mal choisi, ni
 deux codes distincts traduits par le même jeton. C'est la revue qui l'attrape,
 comme pour la barrière SEC-02 — aucun test grossier ne remplace la lecture.
+
+**Les modes des règles ASR restent en français.** `mode_asr` est bien une table
+de codes, mais sa sortie vit à l'intérieur d'un `ItemValue::List`, accolée au
+GUID de la règle (`<guid> = audit`), et non dans un `Text`. Le contrôle du point
+5 ne la voit donc pas. La décider suppose de trancher ce qu'est le jeton d'une
+*liste de couples*, ce que cette décision-ci ne fait pas : la limite est nommée
+en tête de `ks_collectors::jetons` plutôt que laissée à la découverte.
+
+## Ce que l'implémentation a corrigé de cette décision
+
+Trois affirmations ci-dessus se sont révélées fausses à la compilation. Elles
+sont corrigées ici plutôt que réécrites plus haut : une décision se lit avec ce
+que sa mise en œuvre lui a appris.
+
+**Le type de démarrage porte cinq codes, pas trois.** La table annoncée
+(`automatique | automatique-differe | manuel | desactive`) oubliait les codes
+`0` et `1`, que Microsoft documente et que le collecteur traduisait déjà — les
+y laisser tomber en `code-inconnu` aurait perdu une information réelle. Et
+`automatique-differe` ne correspond à aucun octet de `Start` : le démarrage
+différé vit dans `DelayedAutostart`, que rien ne lit aujourd'hui. Le jeton aurait
+donc désigné un état qu'aucun code n'émet. La table livrée est
+`demarrage-noyau | demarrage-systeme | automatique | manuel | desactive |
+code-inconnu:<n>`.
+
+**Le jeton `active` ne peut pas servir deux vocabulaires.** Le point 4 déplie la
+protection LSA, et son `active` recouvre alors les codes 1 et 2. Credential
+Guard, lui, n'est pas déplié et garde le composite. Deux items donneraient donc
+au même jeton deux sens distincts, ce que la section précédente nomme
+elle-même comme le défaut qu'aucun test n'attrape. Le composite s'écrit donc
+`active-sans-verrou-uefi`, et `active` reste réservé à l'état déplié.
+
+**« Rien ne change à l'écran » vaut pour onze items sur douze.** Le déménagement
+du libellé est bien invisible : `automatique`, `en cours d'exécution`,
+`à l'arrêt`, `imposée`, `disponible sur ce matériel` et `complète` s'affichent
+au caractère près comme avant, dans `ks scan`, `ks explain`, le rapport HTML et
+le poste de pilotage. Mais le point 4 change nécessairement le douzième :
+`security.platform.lsa_protection` affiche désormais « activée », et la mention
+du verrou vit dans l'item voisin `security.platform.lsa_protection_uefi_lock`.
+C'est le prix du dépliage, et c'est le principe P6 qui l'exige — un indicateur
+composite n'a pas le droit de rester composite parce que son libellé est
+joli. La phrase du point 3 était vraie du déménagement, pas du dépliage.
+
+**`security.clock.ntp_server` et `security.clock.timezone` ne sont pas des
+`Constat`.** La section « Ce que ça ne garantit pas » l'affirmait ; ce sont des
+`Reglage`, donc déclarables, donc soumis au contrôle du point 5 — que
+« Romance Standard Time » ne passe pas. Leur valeur reste néanmoins une donnée
+brute recopiée de Windows, pas une traduction que nous aurions choisie : les
+réduire à des jetons reviendrait à inventer un vocabulaire par-dessus celui de Microsoft.
+Le contrôle porte donc une exemption **nommée, courte et gardée** — chaque
+chemin cité doit exister et rester déclarable, sinon le test échoue.

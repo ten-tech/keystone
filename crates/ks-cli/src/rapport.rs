@@ -199,7 +199,12 @@ pub fn construire(items: &[Item], machine: &str, horodatage: &str) -> String {
                  <td class=\"{}\">{}</td><td class=\"but\">{}</td></tr>\n",
                 echapper(&item.path),
                 classe_valeur(&item.observed),
-                echapper(&item.observed.to_string()),
+                // Le libellé, pas le jeton : le relevé porte
+                // `active-sans-verrou-uefi`, la cellule affiche « activée, sans
+                // verrou UEFI » (ADR-0015). La conversion d'octets, elle, ne
+                // s'applique pas ici — le rapport a toujours publié la valeur
+                // machine pour les tailles.
+                echapper(&crate::lisible::libelle(&item.observed)),
                 echapper(&item.purpose)
             ));
         }

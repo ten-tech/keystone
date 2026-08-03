@@ -523,7 +523,11 @@ fn cmd_explain(path: &str) -> Result<()> {
     match inv.items.iter().find(|i| i.path == path) {
         Some(item) => {
             println!("{}\n", item.path);
-            println!("  valeur constatée   {}", item.observed);
+            // Le libellé, pas le jeton : le relevé porte `imposee`, l'écran
+            // affiche « imposée » (ADR-0015). La conversion d'octets n'est pas
+            // appliquée — `explain` a toujours montré la valeur machine, et
+            // c'est aussi elle qu'on écrira dans `workstation.yaml`.
+            println!("  valeur constatée   {}", lisible::libelle(&item.observed));
             println!("  observée le        {}", item.observed_at.to_rfc3339());
             println!("  source             {:?}", item.provenance);
             println!("\n  À quoi ça sert     {}", item.purpose);

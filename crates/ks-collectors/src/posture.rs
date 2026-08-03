@@ -55,27 +55,27 @@
 use chrono::{DateTime, Utc};
 use ks_core::{Item, ItemValue};
 
+use crate::jetons::{
+    DemarrageService, EtatProtectionLsa, EtatVbs, IntegriteCode, ProtectionVerrouillable,
+    ServiceHyperviseur, TableDeCodes,
+};
+
 // `Domain`, `Nature` et `Provenance` ne servent qu'à fabriquer un item, ce que
 // seule la branche Windows fait : hors Windows, ce collecteur ne produit rien
 // plutôt que d'inventer des protections qui n'existent pas ailleurs.
 #[cfg(windows)]
 use ks_core::{Domain, Nature, Provenance};
 
-/// Type de démarrage d'un service Windows, tel que le registre l'encode.
+/// Le jeton du type de démarrage d'un service Windows.
 ///
-/// Les valeurs viennent de `HKLM\SYSTEM\CurrentControlSet\Services\<nom>\Start`.
-/// On les traduit plutôt que d'afficher un chiffre : « 4 » ne veut rien dire pour
-/// un humain, « désactivé » si (principe P6).
+/// La valeur vient de `HKLM\SYSTEM\CurrentControlSet\Services\<nom>\Start`. On
+/// ne publie ni le chiffre — « 4 » ne veut rien dire pour un humain — ni la
+/// phrase française, qui serait comparée à chaque scan et qu'une relecture de
+/// style ferait basculer en écart (ADR-0015). On publie le **jeton**, et le
+/// libellé vit dans `ks_cli::lisible`.
 #[must_use]
-pub fn demarrage_service(valeur: u32) -> &'static str {
-    match valeur {
-        0 => "au démarrage du noyau",
-        1 => "au démarrage du système",
-        2 => "automatique",
-        3 => "manuel",
-        4 => "désactivé",
-        _ => "inconnu",
-    }
+pub fn demarrage_service(valeur: u32) -> String {
+    DemarrageService::depuis_code(valeur).jeton()
 }
 
 /// Ce qu'une tentative de lecture du registre peut donner. **Trois états.**
@@ -146,32 +146,59 @@ pub fn drapeau(lecture: &Lecture<u32>) -> ItemValue {
     }
 }
 
-/// Traduit une protection dont le verrou UEFI est optionnel.
+/// Le jeton d'une protection dont le verrou UEFI est optionnel — **composite**.
 ///
-/// Même table pour `RunAsPPL` (protection LSA) et `LsaCfgFlags` (Credential
-/// Guard), toutes deux documentées par Microsoft :
-///
-/// > To configure the feature **with** a UEFI variable, use […] `00000001`.
-/// > To configure the feature **without** a UEFI variable, use […] `00000002`.
-///
-/// Le premier jet inversait les deux, et c'était le pire sens : sur cette machine
-/// `RunAsPPL` vaut 2, donc Keystone annonçait « verrouillée par UEFI » alors que
-/// la protection cède à un `reg add` suivi d'un redémarrage. Un faux positif sur
-/// la contre-mesure qui garde les identifiants.
+/// La table est celle de [`ProtectionVerrouillable`] : elle porte l'état *et* le
+/// verrou dans une seule valeur. Seul Credential Guard s'en sert encore ; la
+/// protection LSA, elle, se déplie en deux items (ADR-0015, point 4) et passe
+/// par [`etat_protection_lsa`] et [`verrou_uefi_protection_lsa`].
 ///
 /// Le code inconnu se **nomme**, comme dans [`demarrage_service`] : le faire
-/// tomber dans « désactivée » ferait passer un octet parasite pour un constat.
+/// tomber dans « inactive » ferait passer un octet parasite pour un constat.
 #[must_use]
 pub fn protection_verrouillable(lecture: &Lecture<u32>) -> ItemValue {
-    let texte = match lecture {
-        Lecture::Absente => return ItemValue::Absent,
-        Lecture::Refusee => return ItemValue::illisible(REFUS),
-        Lecture::Trouvee(0) => "désactivée".to_owned(),
-        Lecture::Trouvee(1) => "activée, verrouillée par UEFI".to_owned(),
-        Lecture::Trouvee(2) => "activée, sans verrou UEFI".to_owned(),
-        Lecture::Trouvee(n) => format!("code inconnu ({n})"),
-    };
-    ItemValue::Text(texte)
+    match lecture {
+        Lecture::Absente => ItemValue::Absent,
+        Lecture::Refusee => ItemValue::illisible(REFUS),
+        Lecture::Trouvee(n) => ItemValue::Text(ProtectionVerrouillable::depuis_code(*n).jeton()),
+    }
+}
+
+/// Le jeton de l'**état** de la protection LSA, son verrou mis à part.
+///
+/// Première moitié du dépliage exigé par le principe P6 : `activée, sans verrou
+/// UEFI` portait deux faits dans une seule chaîne, donc on ne pouvait pas
+/// déclarer « je veux la protection LSA active » sans se prononcer sur le
+/// verrou. Les codes 1 et 2 donnent ici le même état.
+#[must_use]
+pub fn etat_protection_lsa(lecture: &Lecture<u32>) -> ItemValue {
+    match lecture {
+        Lecture::Absente => ItemValue::Absent,
+        Lecture::Refusee => ItemValue::illisible(REFUS),
+        Lecture::Trouvee(n) => ItemValue::Text(
+            EtatProtectionLsa::depuis(ProtectionVerrouillable::depuis_code(*n)).jeton(),
+        ),
+    }
+}
+
+/// Le verrou UEFI de la protection LSA, seconde moitié du dépliage.
+///
+/// Un booléen, parce que la question est fermée : le verrou est posé, ou il ne
+/// l'est pas. Un code hors table ne répond **ni oui ni non** — la valeur reste
+/// alors un aveu, jamais un « pas de verrou » qui serait un faux positif sur la
+/// contre-mesure qui garde les identifiants.
+#[must_use]
+pub fn verrou_uefi_protection_lsa(lecture: &Lecture<u32>) -> ItemValue {
+    match lecture {
+        Lecture::Absente => ItemValue::Absent,
+        Lecture::Refusee => ItemValue::illisible(REFUS),
+        Lecture::Trouvee(n) => ProtectionVerrouillable::depuis_code(*n)
+            .verrou_uefi()
+            .map_or_else(
+                || ItemValue::illisible(&format!("code de protection non documenté ({n})")),
+                ItemValue::Bool,
+            ),
+    }
 }
 
 /// Traduit un texte lu dans le registre.
@@ -197,29 +224,20 @@ pub fn liste(lecture: Lecture<Vec<String>>) -> ItemValue {
     }
 }
 
-/// Traduit `VirtualizationBasedSecurityStatus` de `Win32_DeviceGuard`.
+/// Le jeton de `VirtualizationBasedSecurityStatus`, lu dans `Win32_DeviceGuard`.
 ///
-/// Table documentée par Microsoft, page « Validate enabled VBS and memory
-/// integrity features » :
-///
-/// > **0** VBS isn't enabled. **1** VBS is enabled but not running.
-/// > **2** VBS is enabled and running.
-///
-/// **C'est le 1 qui justifie toute cette lecture.** Une machine où VBS est
-/// configuré sans tourner — pilote incompatible, refus côté hyperviseur — porte
-/// exactement la même configuration au registre qu'une machine protégée. Le
-/// registre les confond ; cette valeur les sépare.
+/// La table est celle d'[`EtatVbs`], et **c'est le code 1 qui justifie toute
+/// cette lecture** : une machine où VBS est configuré sans tourner — pilote
+/// incompatible, refus côté hyperviseur — porte exactement la même
+/// configuration au registre qu'une machine protégée. Le registre les confond ;
+/// cette valeur les sépare.
 #[must_use]
 pub fn etat_vbs(lecture: &Lecture<u32>) -> ItemValue {
-    let texte = match lecture {
-        Lecture::Absente => return ItemValue::Absent,
-        Lecture::Refusee => return ItemValue::illisible(REFUS),
-        Lecture::Trouvee(0) => "éteinte".to_owned(),
-        Lecture::Trouvee(1) => "configurée, mais pas en cours d'exécution".to_owned(),
-        Lecture::Trouvee(2) => "en cours d'exécution".to_owned(),
-        Lecture::Trouvee(n) => format!("code inconnu ({n})"),
-    };
-    ItemValue::Text(texte)
+    match lecture {
+        Lecture::Absente => ItemValue::Absent,
+        Lecture::Refusee => ItemValue::illisible(REFUS),
+        Lecture::Trouvee(n) => ItemValue::Text(EtatVbs::depuis_code(*n).jeton()),
+    }
 }
 
 /// Codes de `SecurityServicesRunning` et `SecurityServicesConfigured`.
@@ -236,10 +254,10 @@ pub mod service_vbs {
 
 /// Un service protégé par l'hyperviseur figure-t-il dans la liste ?
 ///
-/// Contrairement au registre, **un `false` est ici un constat**, pas une
+/// Contrairement au registre, **un « à l'arrêt » est ici un constat**, pas une
 /// supposition : la liste a été lue, et le code n'y est pas. C'est toute la
 /// différence entre « je n'ai rien trouvé » et « j'ai regardé, ce n'est pas là ».
-/// Le libellé est **textuel**, et pas un booléen, parce qu'un booléen s'affiche
+/// La valeur est **textuelle**, et pas un booléen, parce qu'un booléen s'affiche
 /// « activé » — le vocabulaire d'un interrupteur. Or la question posée ici est
 /// « est-ce que ça tourne ? », à laquelle « activé » répond de travers : c'est
 /// précisément la confusion entre configuration et exécution que ce module
@@ -247,35 +265,27 @@ pub mod service_vbs {
 #[must_use]
 pub fn service_vbs_present(lecture: &Lecture<Vec<u32>>, code: u32) -> ItemValue {
     match lecture {
-        Lecture::Trouvee(codes) => ItemValue::Text(
-            if codes.contains(&code) {
-                "en cours d'exécution"
-            } else {
-                "à l'arrêt"
-            }
-            .to_owned(),
-        ),
+        Lecture::Trouvee(codes) => {
+            ItemValue::Text(ServiceHyperviseur::depuis_presence(codes.contains(&code)).jeton())
+        }
         Lecture::Absente => ItemValue::Absent,
         Lecture::Refusee => ItemValue::illisible(REFUS),
     }
 }
 
-/// Traduit `CodeIntegrityPolicyEnforcementStatus`.
+/// Le jeton de `CodeIntegrityPolicyEnforcementStatus`.
 ///
-/// Documenté : **0** Off, **1** Audit, **2** Enforced. Le mode audit journalise
-/// sans bloquer — même nuance que pour les règles ASR, et même piège : le
-/// compter comme une protection serait un faux positif.
+/// La table est celle d'[`IntegriteCode`] : **0** Off, **1** Audit, **2**
+/// Enforced. Le mode audit journalise sans bloquer — même nuance que pour les
+/// règles ASR, et même piège : le compter comme une protection serait un faux
+/// positif.
 #[must_use]
 pub fn application_integrite_code(lecture: &Lecture<u32>) -> ItemValue {
-    let texte = match lecture {
-        Lecture::Absente => return ItemValue::Absent,
-        Lecture::Refusee => return ItemValue::illisible(REFUS),
-        Lecture::Trouvee(0) => "éteinte".to_owned(),
-        Lecture::Trouvee(1) => "audit — journalise sans bloquer".to_owned(),
-        Lecture::Trouvee(2) => "imposée".to_owned(),
-        Lecture::Trouvee(n) => format!("code inconnu ({n})"),
-    };
-    ItemValue::Text(texte)
+    match lecture {
+        Lecture::Absente => ItemValue::Absent,
+        Lecture::Refusee => ItemValue::illisible(REFUS),
+        Lecture::Trouvee(n) => ItemValue::Text(IntegriteCode::depuis_code(*n).jeton()),
+    }
 }
 
 /// Normalise une date de firmware quand, et seulement quand, elle est certaine.
@@ -491,9 +501,9 @@ fn horodatage_vers_filetime(d: DateTime<Utc>) -> u64 {
 mod windows_impl {
     use super::{
         application_integrite_code, classer, date_firmware_certaine, demarrage_service, drapeau,
-        est_autorisation_entrante_active, etat_vbs, filetime_vers_horodatage, item_posture, liste,
-        mode_asr, protection_verrouillable, service_vbs, service_vbs_present, texte, Lecture,
-        Nature, ACCES_REFUSE, SERVICES_SURVEILLES,
+        est_autorisation_entrante_active, etat_protection_lsa, etat_vbs, filetime_vers_horodatage,
+        item_posture, liste, mode_asr, protection_verrouillable, service_vbs, service_vbs_present,
+        texte, verrou_uefi_protection_lsa, Lecture, Nature, ACCES_REFUSE, SERVICES_SURVEILLES,
     };
     use ks_core::{Item, ItemValue};
     use windows_registry::{Type, LOCAL_MACHINE};
@@ -645,14 +655,39 @@ mod windows_impl {
         // juste par accident.
         const LSA: &str = r"SYSTEM\CurrentControlSet\Control\Lsa";
 
+        // `RunAsPPL` porte DEUX faits — la protection est active, et son verrou
+        // UEFI est posé ou non — que la valeur unique « activée, sans verrou
+        // UEFI » mélangeait. Le principe P6 exige qu'un composite se déplie en
+        // ses composantes exactes, et le dépliage rend enfin déclarable « je
+        // veux la protection LSA active » sans obliger à se prononcer sur le
+        // verrou (ADR-0015, point 4). Une seule lecture du registre alimente
+        // les deux items.
+        let run_as_ppl = u32_registre(LSA, "RunAsPPL");
+
         items.push(item_posture(
             "security.platform.lsa_protection",
             Nature::Reglage,
-            protection_verrouillable(&u32_registre(LSA, "RunAsPPL")),
+            etat_protection_lsa(&run_as_ppl),
             "La protection LSA empêche un processus non protégé de lire la mémoire du \
              service qui détient les secrets d'authentification.",
-            "Sans elle, l'extraction d'identifiants ne demande qu'un outil courant. \
-             Sans verrou UEFI, elle cède à une écriture du registre et un redémarrage.",
+            "Sans elle, l'extraction d'identifiants ne demande qu'un outil courant.",
+            None,
+        ));
+
+        items.push(item_posture(
+            "security.platform.lsa_protection_uefi_lock",
+            // **Objectif, et non réglage** — à l'inverse d'`hvci_uefi_lock`,
+            // qui est un réglage. L'asymétrie est celle de l'ADR-0015 : le
+            // verrou de la protection LSA n'a pas de valeur de registre
+            // propre, il est un effet du code écrit dans `RunAsPPL`. Aucun
+            // verbe ne l'écrit SEUL, donc on peut le vouloir sans savoir le
+            // faire converger.
+            Nature::Objectif,
+            verrou_uefi_protection_lsa(&run_as_ppl),
+            "Verrou UEFI de la protection LSA. Déplié de l'état lui-même : une valeur \
+             qui porte deux faits ne se déclare pas.",
+            "Sans verrou, la protection cède à une écriture du registre et un \
+             redémarrage.",
             None,
         ));
 
@@ -1065,7 +1100,7 @@ mod windows_impl {
                 &format!("security.services.{}.startup", service.to_lowercase()),
                 Nature::Reglage,
                 match depart {
-                    Lecture::Trouvee(v) => ItemValue::Text(demarrage_service(v).to_owned()),
+                    Lecture::Trouvee(v) => ItemValue::Text(demarrage_service(v)),
                     Lecture::Absente => ItemValue::Absent,
                     Lecture::Refusee => ItemValue::illisible("accès refusé sans élévation"),
                 },
@@ -1091,11 +1126,23 @@ mod tests {
     use ks_core::Provenance;
 
     #[test]
-    fn le_type_de_demarrage_se_lit_en_francais() {
-        // Principe P6 : « 4 » ne veut rien dire, « désactivé » si.
+    fn le_type_de_demarrage_sort_en_jeton_et_non_en_chiffre() {
+        // Principe P6 : « 4 » ne veut rien dire. Mais la phrase française ne se
+        // compare pas — elle vit dans `ks_cli::lisible` depuis l'ADR-0015, et
+        // c'est le jeton qui part dans le relevé.
         assert_eq!(demarrage_service(2), "automatique");
-        assert_eq!(demarrage_service(4), "désactivé");
-        assert_eq!(demarrage_service(99), "inconnu");
+        assert_eq!(demarrage_service(4), "desactive");
+        assert_eq!(demarrage_service(99), "code-inconnu:99");
+        assert!(
+            ks_core::ItemValue::Text(demarrage_service(0)).est_constat(),
+            "un jeton reste un constat"
+        );
+        for code in [0_u32, 1, 2, 3, 4, 99] {
+            assert!(
+                crate::jetons::est_bien_forme(&demarrage_service(code)),
+                "le code {code} ne produit pas un jeton bien formé"
+            );
+        }
     }
 
     #[test]
@@ -1223,21 +1270,64 @@ mod tests {
         let avec = protection_verrouillable(&Lecture::Trouvee(1));
         let sans = protection_verrouillable(&Lecture::Trouvee(2));
 
-        assert_eq!(
-            avec,
-            ItemValue::Text("activée, verrouillée par UEFI".into())
-        );
-        assert_eq!(sans, ItemValue::Text("activée, sans verrou UEFI".into()));
+        assert_eq!(avec, ItemValue::Text("active-verrou-uefi".into()));
+        assert_eq!(sans, ItemValue::Text("active-sans-verrou-uefi".into()));
         assert_eq!(
             protection_verrouillable(&Lecture::Trouvee(0)),
-            ItemValue::Text("désactivée".into())
+            ItemValue::Text("inactive".into())
         );
 
-        // Un code inconnu se nomme, il ne tombe pas dans « désactivée » : sinon un
+        // Un code inconnu se nomme, il ne tombe pas dans « inactive » : sinon un
         // octet parasite passerait pour un constat.
         let inconnu = protection_verrouillable(&Lecture::Trouvee(7));
-        assert_ne!(inconnu, ItemValue::Text("désactivée".into()));
+        assert_ne!(inconnu, ItemValue::Text("inactive".into()));
         assert!(inconnu.to_string().contains('7'));
+    }
+
+    #[test]
+    fn la_protection_lsa_se_deplie_en_un_etat_et_un_verrou() {
+        // Le dépliage de l'ADR-0015. Deux items là où une chaîne portait deux
+        // faits : on peut vouloir la protection active sans se prononcer sur le
+        // verrou, ce que le principe P6 exige d'un indicateur composite.
+        assert_eq!(
+            etat_protection_lsa(&Lecture::Trouvee(1)),
+            ItemValue::Text("active".into())
+        );
+        assert_eq!(
+            etat_protection_lsa(&Lecture::Trouvee(2)),
+            ItemValue::Text("active".into()),
+            "verrouillée ou non, la protection est active — le verrou vit à côté"
+        );
+        assert_eq!(
+            etat_protection_lsa(&Lecture::Trouvee(0)),
+            ItemValue::Text("inactive".into())
+        );
+
+        assert_eq!(
+            verrou_uefi_protection_lsa(&Lecture::Trouvee(1)),
+            ItemValue::Bool(true)
+        );
+        assert_eq!(
+            verrou_uefi_protection_lsa(&Lecture::Trouvee(2)),
+            ItemValue::Bool(false)
+        );
+
+        // Un code hors table ne devient jamais « pas de verrou » : ce serait un
+        // faux positif sur la contre-mesure qui garde les identifiants.
+        let inconnu = verrou_uefi_protection_lsa(&Lecture::Trouvee(7));
+        assert_ne!(inconnu, ItemValue::Bool(false));
+        assert!(
+            !inconnu.est_constat(),
+            "un octet illisible n'est pas un constat"
+        );
+
+        // Et les deux moitiés se taisent ensemble quand la clé manque.
+        for absente in [
+            etat_protection_lsa(&Lecture::Absente),
+            verrou_uefi_protection_lsa(&Lecture::Absente),
+        ] {
+            assert_eq!(absente, ItemValue::Absent);
+        }
     }
 
     #[test]
@@ -1250,10 +1340,11 @@ mod tests {
         let actif = etat_vbs(&Lecture::Trouvee(2));
 
         assert_ne!(arrete, actif);
-        assert!(arrete.to_string().contains("pas en cours d'exécution"));
+        assert_eq!(arrete, ItemValue::Text("configure-non-demarre".into()));
+        assert_eq!(actif, ItemValue::Text("en-execution".into()));
         assert_eq!(
             etat_vbs(&Lecture::Trouvee(0)),
-            ItemValue::Text("éteinte".into())
+            ItemValue::Text("eteint".into())
         );
 
         // Un code inconnu se nomme, comme partout ailleurs dans ce module.
@@ -1272,23 +1363,24 @@ mod tests {
         let actif = service_vbs_present(&mesure, service_vbs::INTEGRITE_MEMOIRE);
         let arrete = service_vbs_present(&mesure, service_vbs::CREDENTIAL_GUARD);
 
-        assert_eq!(actif, ItemValue::Text("en cours d'exécution".into()));
+        assert_eq!(actif, ItemValue::Text("en-execution".into()));
         assert_eq!(
             arrete,
-            ItemValue::Text("à l'arrêt".into()),
+            ItemValue::Text("arrete".into()),
             "la liste est lue : son absence est un constat, pas une supposition"
         );
 
-        // Jamais « activé » : le vocabulaire de l'interrupteur redirait la
-        // confusion entre configuration et exécution que ce module lève.
-        assert!(!actif.to_string().contains("activé"));
+        // Jamais le vocabulaire de l'interrupteur : il redirait la confusion
+        // entre configuration et exécution que ce module lève. Le jeton le dit
+        // au relevé, le libellé le dira à l'écran.
+        assert!(!actif.to_string().contains("activ"));
 
-        // Et une liste qu'on n'a pas pu lire ne produit jamais « à l'arrêt ».
+        // Et une liste qu'on n'a pas pu lire ne produit jamais « arrete ».
         for illisible in [
             service_vbs_present(&Lecture::Refusee, service_vbs::CREDENTIAL_GUARD),
             service_vbs_present(&Lecture::Absente, service_vbs::CREDENTIAL_GUARD),
         ] {
-            assert_ne!(illisible, ItemValue::Text("à l'arrêt".into()));
+            assert_ne!(illisible, ItemValue::Text("arrete".into()));
         }
     }
 
@@ -1297,11 +1389,15 @@ mod tests {
         // Même piège que les règles ASR : le mode audit journalise sans bloquer.
         // Le compter comme une protection serait un faux positif.
         let audit = application_integrite_code(&Lecture::Trouvee(1));
-        assert!(audit.to_string().contains("sans bloquer"));
+        assert_eq!(audit, ItemValue::Text("audit".into()));
         assert_ne!(audit, application_integrite_code(&Lecture::Trouvee(2)));
         assert_eq!(
             application_integrite_code(&Lecture::Trouvee(2)),
-            ItemValue::Text("imposée".into())
+            ItemValue::Text("imposee".into())
+        );
+        assert_eq!(
+            application_integrite_code(&Lecture::Trouvee(0)),
+            ItemValue::Text("eteinte".into())
         );
     }
 
@@ -1379,7 +1475,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn la_posture_repartit_ses_items_en_quatre_natures() {
-        // Ce collecteur pousse toujours les mêmes 38 chemins, quelle que soit
+        // Ce collecteur pousse toujours les mêmes 39 chemins, quelle que soit
         // la machine : ce qui varie est la VALEUR, jamais la liste. Les quatre
         // décomptes ci-dessous sont donc reproductibles partout, y compris sur
         // un agent d'intégration continue où rien n'est configuré.
@@ -1402,7 +1498,9 @@ mod tests {
 
         assert_eq!(
             (reglages, objectifs, mesures, constats),
-            (24, 6, 4, 4),
+            // Un objectif de plus qu'avant l'ADR-0015 : le verrou UEFI de la
+            // protection LSA, déplié de l'état qui le portait dans sa chaîne.
+            (24, 7, 4, 4),
             "répartition des natures de posture : {} items",
             items.len()
         );
@@ -1423,6 +1521,15 @@ mod tests {
         assert!(!nature("security.platform.secure_boot").est_convergeable());
         assert_eq!(nature("security.platform.vbs_running"), Nature::Objectif);
         assert_eq!(nature("security.platform.hvci_uefi_lock"), Nature::Reglage);
+        // Le dépliage de l'ADR-0015, et son asymétrie assumée avec la ligne
+        // ci-dessus : le verrou d'HVCI a sa propre valeur de registre, celui de
+        // la protection LSA n'est qu'un effet du code écrit dans `RunAsPPL`.
+        assert_eq!(nature("security.platform.lsa_protection"), Nature::Reglage);
+        assert_eq!(
+            nature("security.platform.lsa_protection_uefi_lock"),
+            Nature::Objectif
+        );
+        assert!(!nature("security.platform.lsa_protection_uefi_lock").est_convergeable());
         assert_eq!(
             nature("security.services.windefend.startup"),
             Nature::Reglage

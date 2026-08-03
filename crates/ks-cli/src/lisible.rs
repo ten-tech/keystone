@@ -5,6 +5,13 @@
 //! ne dit rien à personne, et le principe P6 refuse ce qu'on ne peut pas
 //! comprendre. La conversion appartient donc à l'affichage, jamais au relevé.
 //!
+//! **La même règle vaut pour les jetons** (ADR-0015). Un item qui sort d'une
+//! table de codes porte `active-sans-verrou-uefi`, parce que c'est ce qui se
+//! compare d'un scan à l'autre et ce que l'utilisateur écrira dans
+//! `workstation.yaml` ; l'écran, lui, affiche « activée, sans verrou UEFI ».
+//! Le vocabulaire vit dans `ks_collectors::jetons`, le libellé vit ici, et
+//! nulle part ailleurs.
+//!
 //! Ce module vit dans la bibliothèque, et non dans le binaire `ks`, pour la
 //! même raison que [`crate::rapport`] : la coque `ks-ui` affiche les mêmes
 //! valeurs que la CLI. Deux formateurs écrits séparément finissent par afficher
@@ -12,6 +19,90 @@
 //! sait plus lequel croire.
 
 use ks_core::{Item, ItemValue};
+
+/// Le libellé français de chaque jeton du vocabulaire fermé.
+///
+/// **Cette table est le pendant exact de `ks_collectors::jetons`**, et le test
+/// `chaque_jeton_porte_son_libelle_francais` exige qu'aucun jeton n'en soit
+/// absent : un jeton sans libellé s'afficherait brut à l'écran, ce que le
+/// principe P6 refuse.
+///
+/// Elle contient volontairement deux entrées qui se traduisent pareil —
+/// `eteint` pour VBS, `eteinte` pour l'intégrité du code. Ce sont deux
+/// vocabulaires distincts, portés par deux items distincts ; les fondre
+/// donnerait un jeton unique dont le sens dépendrait de l'item qui le porte.
+const LIBELLES: &[(&str, &str)] = &[
+    // Type de démarrage d'un service Windows.
+    ("demarrage-noyau", "au démarrage du noyau"),
+    ("demarrage-systeme", "au démarrage du système"),
+    ("automatique", "automatique"),
+    ("manuel", "manuel"),
+    ("desactive", "désactivé"),
+    // Protection dont le verrou UEFI est optionnel — Credential Guard.
+    ("inactive", "désactivée"),
+    ("active-verrou-uefi", "activée, verrouillée par UEFI"),
+    ("active-sans-verrou-uefi", "activée, sans verrou UEFI"),
+    // État de la protection LSA, son verrou mis à part (ADR-0015, point 4).
+    ("active", "activée"),
+    // Sécurité basée sur la virtualisation, telle qu'elle tourne.
+    ("eteint", "éteinte"),
+    (
+        "configure-non-demarre",
+        "configurée, mais pas en cours d'exécution",
+    ),
+    ("en-execution", "en cours d'exécution"),
+    ("arrete", "à l'arrêt"),
+    // Application de la stratégie d'intégrité du code.
+    ("eteinte", "éteinte"),
+    ("audit", "audit — journalise sans bloquer"),
+    ("imposee", "imposée"),
+    // Ce que le matériel sait faire.
+    ("disponible-sur-ce-materiel", "disponible sur ce matériel"),
+    ("absente-de-ce-materiel", "absente de ce matériel"),
+    // Complétude de l'attribution de l'inventaire logiciel.
+    ("complete", "complète"),
+    ("partielle", "partielle"),
+];
+
+/// Préfixe des jetons de code hors table.
+///
+/// Recopié plutôt qu'importé : la CLI lit un jeton **déjà écrit** — dans un
+/// relevé du jour, ou demain dans un magasin d'observations vieux d'une
+/// semaine. Le test `le_prefixe_des_codes_inconnus_est_celui_des_collecteurs`
+/// interdit les deux écritures de diverger.
+const PREFIXE_CODE_INCONNU: &str = "code-inconnu:";
+
+/// Le libellé français d'un jeton, ou `None` si la chaîne n'en est pas un.
+///
+/// Renvoyer `None` plutôt qu'une valeur de repli est délibéré : une version de
+/// firmware, un nom de fuseau ou un chemin d'exclusion n'ont rien à traduire, et
+/// les faire passer par une table les exposerait à une traduction accidentelle.
+#[must_use]
+pub fn libelle_jeton(jeton: &str) -> Option<String> {
+    if let Some(code) = jeton.strip_prefix(PREFIXE_CODE_INCONNU) {
+        return Some(format!("code inconnu ({code})"));
+    }
+    LIBELLES
+        .iter()
+        .find(|(j, _)| *j == jeton)
+        .map(|(_, libelle)| (*libelle).to_owned())
+}
+
+/// Rend une valeur lisible, jetons traduits, sans rien convertir d'autre.
+///
+/// C'est ce dont `ks explain` et le rapport HTML ont besoin : ils affichent la
+/// valeur constatée, et rien que la valeur constatée.
+#[must_use]
+pub fn libelle(valeur: &ItemValue) -> String {
+    match valeur {
+        ItemValue::Text(t) => libelle_jeton(t).unwrap_or_else(|| t.clone()),
+        ItemValue::Absent
+        | ItemValue::Bool(_)
+        | ItemValue::Int(_)
+        | ItemValue::List(_)
+        | ItemValue::Illisible { .. } => valeur.to_string(),
+    }
+}
 
 /// Rend une valeur d'item lisible par un humain, sans toucher au modèle.
 ///
@@ -25,7 +116,7 @@ pub fn valeur(item: &Item) -> String {
             return octets(o);
         }
     }
-    item.observed.to_string()
+    libelle(&item.observed)
 }
 
 /// Formate une taille en unités binaires, avec la ponctuation française.
@@ -54,6 +145,7 @@ pub fn octets(octets: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ks_collectors::jetons;
 
     #[test]
     fn une_taille_saffiche_en_unites_lisibles() {
@@ -78,5 +170,116 @@ mod tests {
             "espace insécable : sinon le terminal coupe le nombre de son unité"
         );
         assert!(!rendu.contains(' '), "aucune espace ordinaire");
+    }
+
+    /// **Le libellé de chaque jeton, figé mot pour mot.**
+    ///
+    /// C'est le critère d'acceptation de l'ADR-0015 : le vocabulaire déménage
+    /// du collecteur vers l'affichage, et l'écran ne bouge pas. Les chaînes
+    /// ci-dessous sont celles que `ks scan`, `ks explain`, le rapport HTML et
+    /// le poste de pilotage affichaient avant le déménagement.
+    #[test]
+    fn le_libelle_francais_est_celui_daffiche_avant_le_demenagement() {
+        for (jeton, attendu) in [
+            ("demarrage-noyau", "au démarrage du noyau"),
+            ("demarrage-systeme", "au démarrage du système"),
+            ("automatique", "automatique"),
+            ("manuel", "manuel"),
+            ("desactive", "désactivé"),
+            ("inactive", "désactivée"),
+            ("active-verrou-uefi", "activée, verrouillée par UEFI"),
+            ("active-sans-verrou-uefi", "activée, sans verrou UEFI"),
+            ("active", "activée"),
+            ("eteint", "éteinte"),
+            (
+                "configure-non-demarre",
+                "configurée, mais pas en cours d'exécution",
+            ),
+            ("en-execution", "en cours d'exécution"),
+            ("arrete", "à l'arrêt"),
+            ("eteinte", "éteinte"),
+            ("audit", "audit — journalise sans bloquer"),
+            ("imposee", "imposée"),
+            ("disponible-sur-ce-materiel", "disponible sur ce matériel"),
+            ("absente-de-ce-materiel", "absente de ce matériel"),
+            ("complete", "complète"),
+            ("partielle", "partielle"),
+        ] {
+            assert_eq!(
+                libelle_jeton(jeton).as_deref(),
+                Some(attendu),
+                "le libellé de « {jeton} » a changé : c'est un changement d'écran"
+            );
+        }
+
+        // Un code hors table garde sa nuance jusqu'à l'écran, chiffre compris.
+        assert_eq!(
+            libelle_jeton("code-inconnu:42").as_deref(),
+            Some("code inconnu (42)")
+        );
+    }
+
+    /// Aucun jeton n'échappe à la table des libellés.
+    ///
+    /// La barrière est celle de l'ADR-0015 : ajouter un code casse d'abord la
+    /// compilation de `ks_collectors::jetons` — le `match` exhaustif sans bras
+    /// `_` de `variantes()` —, puis ce test, qui exige que le contributeur
+    /// décide aussi de ce que l'utilisateur lira.
+    #[test]
+    fn chaque_jeton_porte_son_libelle_francais() {
+        let vocabulaire = jetons::tous();
+        assert!(
+            !vocabulaire.is_empty(),
+            "vocabulaire vide — ce test ne vérifierait rien"
+        );
+
+        for jeton in &vocabulaire {
+            assert!(
+                libelle_jeton(jeton).is_some(),
+                "le jeton « {jeton} » n'a pas de libellé : il s'afficherait brut"
+            );
+        }
+
+        // Et la table ne porte rien qui ne soit un jeton : une entrée orpheline
+        // traduirait une valeur brute par accident.
+        for (jeton, _) in LIBELLES {
+            assert!(
+                vocabulaire.iter().any(|v| v == jeton),
+                "« {jeton} » n'appartient à aucune table de codes"
+            );
+        }
+    }
+
+    #[test]
+    fn le_prefixe_des_codes_inconnus_est_celui_des_collecteurs() {
+        // Deux écritures du même préfixe, aux deux bouts de la chaîne. Si
+        // elles divergent, un code hors table s'affiche brut et personne ne
+        // le remarque : la valeur reste lisible, seulement fausse de forme.
+        assert_eq!(PREFIXE_CODE_INCONNU, jetons::PREFIXE_CODE_INCONNU);
+    }
+
+    #[test]
+    fn une_valeur_qui_nest_pas_un_jeton_traverse_sans_etre_traduite() {
+        // La version d'un firmware, un nom de fuseau, un chemin d'exclusion :
+        // rien de tout cela ne sort d'une table de codes, et une traduction
+        // accidentelle y serait pire qu'une absence de traduction.
+        assert_eq!(libelle_jeton("P0CN20WW"), None);
+        assert_eq!(libelle_jeton("Romance Standard Time"), None);
+        assert_eq!(
+            libelle(&ItemValue::Text("Romance Standard Time".into())),
+            "Romance Standard Time"
+        );
+        // Les autres variantes gardent leur rendu d'origine.
+        assert_eq!(libelle(&ItemValue::Absent), "absent");
+        assert_eq!(libelle(&ItemValue::Bool(true)), "activé");
+        assert_eq!(libelle(&ItemValue::Int(42)), "42");
+        assert_eq!(
+            libelle(&ItemValue::List(vec!["a".into(), "b".into()])),
+            "2 élément(s)"
+        );
+        assert_eq!(
+            libelle(&ItemValue::illisible("accès refusé sans élévation")),
+            "illisible — accès refusé sans élévation"
+        );
     }
 }

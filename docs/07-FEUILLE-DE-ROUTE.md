@@ -241,7 +241,7 @@ Si tu ouvres le projet demain matin.
    sortie de la Phase 1 — n'est pas mesurable tant qu'aucun relevé n'est
    comparé au précédent. Le magasin existe, il ne stocke que le journal.
 2. **Charger `workstation.yaml`.** Sans état désiré, `Item::verdict()` répond
-   `NonContraint` sur les 115 items, la posture du poste de pilotage reste « pas
+   `NonContraint` sur les 116 items, la posture du poste de pilotage reste « pas
    encore calculable », et la vue Dérive n'a rien à comparer. C'est le verrou
    qui bloque le plus d'écrans à la fois.
 3. **Réconciliation d'inventaire logiciel** — livrée pour l'essentiel, mais

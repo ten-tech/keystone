@@ -51,8 +51,17 @@
 //!
 //! La cohérence de l'horloge figurait ici comme restant à écrire, quinze lignes
 //! sous les items `security.clock.*` qui la produisent depuis plusieurs commits.
+//!
+//! ## Ce qu'un collecteur écrit dans un `ItemValue::Text`
+//!
+//! **Un jeton, jamais une phrase** (ADR-0015). Une valeur qui sort d'une table
+//! de codes appartient au vocabulaire fermé de [`jetons`] ; la phrase française
+//! vit dans `ks_cli::lisible`, avec la conversion d'octets et pour la même
+//! raison. Le contrôle est mécanique — voir
+//! `aucun_item_declarable_ne_porte_une_phrase_francaise`.
 
 pub mod etat_effectif;
+pub mod jetons;
 pub mod posture;
 pub mod software;
 pub mod virtualisation;
@@ -423,6 +432,103 @@ mod tests {
                 !item.nature.est_convergeable(),
                 "« {} » : aucun verbe n'écrira la version d'une application",
                 item.path
+            );
+        }
+    }
+
+    /// Les items déclarables dont la valeur textuelle est **recopiée du système**.
+    ///
+    /// L'exemption est nommée, courte, et justifiée un par un — pas un
+    /// élargissement du contrôle. Ces deux valeurs ne sortent d'aucune table de
+    /// codes : ce sont des identifiants Windows rendus tels quels, exactement
+    /// comme `inventory.os.name` vaut « Windows 11 Home ». Les traduire en
+    /// jetons reviendrait à inventer un vocabulaire par-dessus celui de
+    /// Microsoft, et à le faire dériver au premier fuseau ajouté.
+    ///
+    /// L'ADR-0015 les rangeait parmi les `Constat`, ce qu'ils ne sont pas : ils
+    /// se déclarent, et c'est bien pour cela qu'ils apparaissent ici plutôt que
+    /// d'être exemptés par leur nature.
+    const VALEURS_BRUTES_DU_SYSTEME: &[&str] = &[
+        // `NtpServer` vaut « time.windows.com,0x9 » : un nom d'hôte suivi d'un
+        // masque de drapeaux, tous deux définis par Windows.
+        "security.clock.ntp_server",
+        // `TimeZoneKeyName` vaut « Romance Standard Time » : la clé de fuseau
+        // de Windows, avec ses majuscules et ses espaces.
+        "security.clock.timezone",
+    ];
+
+    /// **Aucune phrase française n'entre dans un item déclarable** (ADR-0015).
+    ///
+    /// Le contrôle est mécanique, et il porte là où la règle se viole : au
+    /// point de construction. Douze items se comparaient sur une phrase — une
+    /// virgule retirée les faisait tous basculer en écart, sur une machine où
+    /// rien n'avait bougé, et l'effet était rétroactif sur le magasin
+    /// d'observations.
+    ///
+    /// Les `Constat` en sont **exemptés** : `inventory.os.name` vaut « Windows
+    /// 11 Home », et c'est la valeur exacte donnée par le système, pas une
+    /// traduction que nous aurions choisie.
+    ///
+    /// Sa limite est assumée, comme celle de la barrière SEC-02 : il refuse
+    /// l'espace, la majuscule et l'accent, il ne refuse ni un jeton mal choisi
+    /// ni deux codes distincts traduits par le même jeton. C'est la revue qui
+    /// les attrape.
+    #[test]
+    fn aucun_item_declarable_ne_porte_une_phrase_francaise() {
+        let items = Inventory::collect_all().items;
+        assert!(!items.is_empty(), "sans item, ce test n'éprouve rien");
+
+        let mut controles = 0;
+        for item in &items {
+            // `match` exhaustif sans bras `_` : ajouter une variante à `Nature`
+            // casse ici la COMPILATION, donc la CI, avant qu'un test s'exécute.
+            // Le contributeur doit venir décider si sa nouvelle nature se
+            // compare — donc si elle exige un jeton.
+            let se_compare = match item.nature {
+                Nature::Reglage | Nature::Objectif => true,
+                Nature::Mesure | Nature::Constat => false,
+            };
+            let ItemValue::Text(valeur) = &item.observed else {
+                continue;
+            };
+            if !se_compare || VALEURS_BRUTES_DU_SYSTEME.contains(&item.path.as_str()) {
+                continue;
+            }
+            controles += 1;
+            assert!(
+                jetons::est_bien_forme(valeur),
+                "« {} » vaut « {valeur} » : un item {:?} se compare d'un scan à \
+                 l'autre, il porte donc un jeton — minuscules, sans accent, sans \
+                 espace — et sa phrase française vit dans `ks_cli::lisible`",
+                item.path,
+                item.nature
+            );
+        }
+
+        // Un contrôle qui ne contrôle rien passerait tout aussi vert. Sur
+        // Windows, les items de posture en fournissent une douzaine ; ailleurs
+        // le collecteur ne produit rien et l'assertion serait fausse.
+        #[cfg(windows)]
+        assert!(
+            controles >= 10,
+            "seulement {controles} valeurs textuelles déclarables contrôlées : \
+             la barrière ne barre plus grand-chose"
+        );
+        #[cfg(not(windows))]
+        let _ = controles;
+
+        // Et l'exemption ne pourrit pas : chaque chemin cité existe encore, et
+        // il est encore déclarable. Un item renommé ou reclassé y laisserait
+        // sinon un trou dont plus personne ne connaîtrait la raison.
+        #[cfg(windows)]
+        for chemin in VALEURS_BRUTES_DU_SYSTEME {
+            let item = items
+                .iter()
+                .find(|i| i.path == *chemin)
+                .unwrap_or_else(|| panic!("« {chemin} » est exempté mais n'existe plus"));
+            assert!(
+                item.nature.est_declarable(),
+                "« {chemin} » n'est plus déclarable : l'exemption n'a plus d'objet"
             );
         }
     }
