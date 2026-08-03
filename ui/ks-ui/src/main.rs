@@ -529,6 +529,157 @@ mod tests {
         }
     }
 
+    #[test]
+    fn le_bouton_de_depliage_touche_ce_quil_commande() {
+        // Le bouton « Pourquoi » flottait sous l'anneau, centré, séparé par
+        // 280 px de cercle vide du panneau qu'il ouvre. Rien ne le rattachait à
+        // ce qu'il commande, et `aria-controls` ne rattache rien à l'œil : il
+        // désigne, il ne rapproche pas.
+        //
+        // La règle posée ici est structurelle et se vérifie : l'élément
+        // commandé est le PREMIER élément qui suit le bouton dans le document.
+        // Elle vaut pour tout bouton de dépliage, présent ou futur.
+        //
+        // Éprouvée par falsification : glisser un paragraphe entre le bouton et
+        // son panneau fait échouer ce test, en nommant le panneau fautif.
+        let mut boutons = 0;
+        for balise in balises_ouvrantes(INDEX, "<button") {
+            let Some(commande) = valeur_dattribut(balise, "aria-controls") else {
+                continue;
+            };
+            // Le rail est commandé depuis la barre supérieure, à l'autre bout
+            // du document : c'est une commande de trame, pas un dépliage de
+            // contenu, et l'adjacence n'aurait aucun sens pour lui.
+            if commande == "rail" {
+                continue;
+            }
+            boutons += 1;
+
+            let apres_bouton = INDEX
+                .split_once(balise)
+                .unwrap_or_else(|| panic!("balise introuvable : {balise}"))
+                .1;
+            let ferme = apres_bouton
+                .find("</button>")
+                .unwrap_or_else(|| panic!("bouton « {commande} » non fermé"));
+            let suite = apres_bouton[ferme + "</button>".len()..].trim_start();
+
+            assert!(
+                suite.starts_with('<'),
+                "du texte sépare le bouton de « {commande} » : « {} »",
+                &suite[..suite.len().min(60)]
+            );
+            let ouvrante = &suite[..suite.find('>').unwrap_or(suite.len())];
+            assert!(
+                valeur_dattribut(ouvrante, "id") == Some(commande),
+                "le bouton n'est pas suivi du bloc « {commande} » qu'il commande, \
+                 mais de « {ouvrante} » : un dépliage se lit par la proximité, \
+                 `aria-controls` désigne sans rapprocher"
+            );
+        }
+        assert!(
+            boutons >= 1,
+            "aucun bouton de dépliage examiné : la barrière ne barre plus rien"
+        );
+
+        // ET LE PANNEAU DOIT POUVOIR SE REPLIER. `[hidden] { display: none }`
+        // vient de la feuille de l'agent utilisateur : toute déclaration
+        // `display` posée dans une règle de classe l'emporte sur elle, quel que
+        // soit l'ordre. Le défaut s'est produit — passer `.why` en `display:
+        // grid` pour lui donner deux colonnes a suffi à le rendre indépliable,
+        // alors que `hidden`, `aria-expanded` et le libellé du bouton disaient
+        // tous les trois le contraire. Il ne se voyait qu'à l'écran.
+        let mut replaces = 0;
+        for balise in balises_ouvrantes(INDEX, "<div") {
+            if !balise.contains(" hidden") {
+                continue;
+            }
+            replaces += 1;
+            for classe in valeur_dattribut(balise, "class")
+                .unwrap_or_default()
+                .split_whitespace()
+            {
+                let regle = format!(".{classe} {{");
+                let pose_display = STYLE
+                    .split(&regle)
+                    .skip(1)
+                    .any(|bloc| bloc[..bloc.find('}').unwrap_or(0)].contains("display:"));
+                assert!(
+                    !pose_display || STYLE.contains(&format!(".{classe}[hidden]")),
+                    "« .{classe} » impose un `display` sans rendre `[hidden]` : \
+                     le bloc reste affiché quoi qu'en disent `hidden`, \
+                     `aria-expanded` et le libellé du bouton"
+                );
+            }
+        }
+        assert!(
+            replaces >= 1,
+            "aucun bloc repliable examiné : la barrière ne barre plus rien"
+        );
+    }
+
+    #[test]
+    fn la_vue_densemble_ne_fige_ni_sa_mesure_ni_ses_colonnes() {
+        // Le défaut de mise en page que cet écran portait, sous ses deux
+        // formes, et les deux se lisent dans la feuille de style.
+        //
+        // 1. UNE MESURE DE 45 CARACTÈRES. Le panneau d'explication était borné
+        //    à 46ch — la borne basse de la lisibilité — et rendu dans une
+        //    colonne de 390 px devant une moitié d'écran vide. La règle du
+        //    dossier de design est 45 à 75 caractères ; on vise le haut de la
+        //    bande, parce que la place existe.
+        //
+        //    La borne est écrite ici en `ch`, l'unité de la déclaration, et non
+        //    en caractères : `ch` vaut la largeur du zéro, plus large que
+        //    l'avance moyenne d'une police proportionnelle. Mesuré dans la
+        //    WebView2 du poste, 62ch rend de 66 à 74 caractères par ligne. La
+        //    bande admise ci-dessous est donc celle des `ch` qui retombent dans
+        //    la bande des caractères — un test ne peut pas mesurer un rendu.
+        //
+        // 2. DEUX COLONNES FIGÉES. La rangée de tuiles ne se recomposait qu'une
+        //    fois, à 1180 px, et sur la largeur de la FENÊTRE — alors que le
+        //    rail replié rend 156 px que la fenêtre ne voit pas passer. Les
+        //    paliers portent désormais sur la largeur réellement disponible.
+        //
+        // Éprouvée par falsification : ramener `.why` à 46ch, ou retirer le
+        // palier à quatre colonnes, fait échouer ce test.
+        let regle = STYLE
+            .split_once(".why {")
+            .expect("plus de règle `.why` : le panneau d'explication a disparu")
+            .1;
+        let corps = &regle[..regle.find('}').unwrap_or(regle.len())];
+        let mesure: u32 = corps
+            .split_once("max-width:")
+            .and_then(|(_, reste)| reste.trim_start().split_once("ch"))
+            .and_then(|(n, _)| n.trim().parse().ok())
+            .unwrap_or_else(|| panic!("`.why` n'a plus de mesure en `ch` : « {corps} »"));
+        assert!(
+            (56..=70).contains(&mesure),
+            "l'explication est bornée à {mesure}ch, hors de la bande de 56 à 70 \
+             qui rend 60 à 75 caractères par ligne : trop étroite, elle rejoue \
+             la colonne de 390 px ; trop large, elle cesse de se suivre à l'œil"
+        );
+
+        assert!(
+            STYLE.contains("container-type: inline-size"),
+            "la colonne de contenu n'est plus un conteneur de requête : \
+             les paliers retomberaient sur la largeur de la fenêtre, \
+             qui ignore si le rail est replié"
+        );
+        let paliers = STYLE.matches("@container contenu").count();
+        assert!(
+            paliers >= 2,
+            "seulement {paliers} palier(s) de recomposition : la vue d'ensemble \
+             doit passer de quatre tuiles à deux, puis à une seule"
+        );
+        for colonnes in ["repeat(2, minmax(0, 1fr))", "repeat(4, minmax(0, 1fr))"] {
+            assert!(
+                STYLE.contains(colonnes),
+                "le palier « {colonnes} » a disparu de la rangée de tuiles"
+            );
+        }
+    }
+
     /// La balise ouvrante qui porte un motif, du `<` qui la commence au `>`.
     fn balise_portant<'a>(source: &'a str, motif: &str) -> &'a str {
         let pos = source

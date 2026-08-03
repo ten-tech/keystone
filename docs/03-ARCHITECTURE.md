@@ -107,9 +107,9 @@ mécanismes répondent à cela, et aucun ne dépend de l'intégrité de la machi
 | `ks-cli` | la CLI `ks`, surface de référence | Windows (et Linux pour le dev) | aucun | ✅ `scan`/`status`/`explain`/`journal`/`report`, 26 tests unitaires + **7 d'intégration** (binaire lancé en sous-processus) |
 | `ks-broker` | service privilégié | Windows visé ; compile aussi ailleurs, sans effet | élevé | 🔨 verbes énumérés + **huit** barrières SEC-02 et SEC-03, 13 tests unitaires — aucun verbe implémenté |
 | `ks-agent-linux` | agent satellite | Linux musl | aucun | 🔨 scan local, 4 tests unitaires |
-| `ks-ui` | coque de bureau (ADR-0012) | Windows + WebView2 | aucun | ✅ affiche le **poste de pilotage** branché sur l'état réel, jamais les chiffres de la maquette · workspace **séparé**, 28 tests |
+| `ks-ui` | coque de bureau (ADR-0012) | Windows + WebView2 | aucun | ✅ affiche le **poste de pilotage** branché sur l'état réel, jamais les chiffres de la maquette · workspace **séparé**, 30 tests |
 
-**128 tests au total** dans le workspace principal — `ks-ui` vit dans un workspace séparé et porte les siens (28), tous portables et tous exécutés — `cargo test --workspace`,
+**128 tests au total** dans le workspace principal — `ks-ui` vit dans un workspace séparé et porte les siens (30), tous portables et tous exécutés — `cargo test --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings` et `cargo fmt --all --check`
 passent. Ce n'était pas le cas au premier commit : rien n'avait alors jamais été
 compilé, et les comptes annoncés étaient des déclarations.
@@ -129,7 +129,7 @@ collectée, avec la raison et ce qui la rendrait disponible.
 
 | Écran | Ce qu'il affiche | D'où ça vient |
 |---|---|---|
-| Vue d'ensemble | décompte d'items, anneau de posture, quatre tuiles, répartition par domaine | `Inventory::collect_all()` |
+| Vue d'ensemble | décompte d'items, constat de posture, quatre tuiles, répartition par domaine | `Inventory::collect_all()` |
 | Sécurité | les items du domaine, par famille, les illisibles comptés **et nommés** | `security.*` |
 | Dérive | pourquoi aucune comparaison n'a lieu, et les quatre verdicts | `Item::verdict()` |
 | Mises à jour | pourquoi le domaine n'est pas collecté | — |
@@ -142,10 +142,14 @@ collectée, avec la raison et ce qui la rendrait disponible.
 Trois éléments du poste de pilotage **ne sont pas calculables aujourd'hui**, et
 l'écran le dit plutôt que de les remplir :
 
-- **l'anneau de posture.** Une posture composite se calcule contre une référence,
-  et aucun état désiré n'est chargé. L'anneau n'affiche donc **pas d'arc** — un arc
-  partiel serait une valeur — et le rôle `meter` en est absent, faute de mesure à
-  annoncer (P6, D2-02) ;
+- **la posture composite.** Elle se calcule contre une référence, et aucun état
+  désiré n'est chargé. **L'anneau du brief §4.1 n'est donc pas dessiné du tout** :
+  un arc partiel serait une valeur, et un anneau vide de 280 px n'est qu'un
+  cercle qui attend un chiffre absent. À sa place, le dessin que la marque tient
+  pour ce moment — `design/marque/etat-premier-lancement.svg`, l'arc dont la clé
+  de voûte n'est pas encore posée — et le constat en toutes lettres. Le rôle
+  `meter` est absent lui aussi, faute de mesure à annoncer (P6, D2-02). L'anneau
+  reprendra sa place le jour où la posture sera une mesure ;
 - **la dérive.** Sans état désiré il n'y a pas zéro écart, il n'y a pas de
   comparaison. C'est ce que `Verdict::Incomparable` existe pour empêcher, transposé
   à l'écran ;

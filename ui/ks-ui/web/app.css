@@ -91,6 +91,12 @@
   --sp-5: 24px;
   --sp-6: 32px;
   --sp-7: 48px;
+  /* Le dernier palier de l'échelle manquait à cette copie, et son absence ne
+     se voit pas : `var(--sp-8)` non déclarée rend le `calc()` qui la contient
+     invalide, la propriété retombe sur sa valeur initiale, et c'est la mise en
+     page qui explose sans qu'aucun outil ne le signale. Mesuré à l'écran, pas
+     déduit du fichier. */
+  --sp-8: 64px;
   --r-ctl: 6px;
   --r-card: 10px;
   --r-sheet: 14px;
@@ -310,13 +316,19 @@ html[data-rail='replie'] .nav .tag {
   color: var(--ink-3);
 }
 
+/* `flex: none` et `white-space: nowrap` : sous 800 px, la barre serrait cette
+   pastille jusqu'à la casser en deux lignes — « Lecture » au-dessus de
+   « seule » — dans un contour arrondi prévu pour une seule. C'est la mention la
+   moins négociable de l'écran ; elle ne se plie pas. */
 .readonly {
+  flex: none;
   margin: 0;
   padding: 5px var(--sp-3);
   border: 1px solid var(--hairline);
   border-radius: var(--r-pill);
   color: var(--ink-2);
   font-size: var(--fs-mono);
+  white-space: nowrap;
 }
 
 .spacer {
@@ -481,15 +493,39 @@ html[data-rail='replie'] .fold svg {
 /* ── Zone de contenu ─────────────────────────────────────────────────────── */
 
 .main {
-  padding: var(--sp-5) 28px var(--sp-7);
+  padding: var(--sp-5) var(--sp-6) var(--sp-7);
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--surface-3) transparent;
 }
 
+/* Sous 900 px, la gouttière de 32 px coûte plus qu'elle ne donne : elle prend
+   64 px sur une colonne de contenu qui en fait déjà moins de 500. Et l'identité
+   de la machine quitte la barre supérieure — elle figure mot pour mot dans le
+   sous-titre de la vue, donc rien ne se perd, ni à l'écran ni à l'oreille. */
+@media (max-width: 900px) {
+  .main {
+    padding: var(--sp-4) var(--sp-4) var(--sp-6);
+  }
+  .machine {
+    display: none;
+  }
+}
+
+/* LA COLONNE DE CONTENU EST UN CONTENEUR DE REQUÊTE, et pas un simple bloc
+   centré. Les paliers de la vue d'ensemble se déclenchent donc sur la largeur
+   RÉELLEMENT disponible, et non sur celle de la fenêtre.
+
+   La différence n'est pas théorique : le rail vaut 216 px déplié et 60 px
+   replié, soit 156 px qui changent de camp sans que la fenêtre bouge d'un
+   pixel. Une requête de média aurait rendu deux colonnes à 1280 px quel que
+   soit l'état du rail, alors que la place d'en tenir quatre existe dès qu'il
+   est replié. Le conteneur, lui, le sait. */
 .wrap {
   max-width: var(--content-max);
   margin: 0 auto;
+  container-type: inline-size;
+  container-name: contenu;
 }
 
 .view {
@@ -559,104 +595,81 @@ h2 {
   padding: 18px;
 }
 
-/* ── L'anneau, et ce qu'il ne dit pas ────────────────────────────────────── */
+/* ── La vue d'ensemble : des BANDES, et non deux colonnes figées ──────────
+   Elle tenait auparavant en deux colonnes `5fr 7fr` : l'anneau à gauche sur
+   toute la hauteur, les tuiles à droite en deux par deux. Trois défauts
+   tenaient à cette seule décision.
+
+   · La colonne de gauche descendait à ~870 px quand celle de droite s'arrêtait
+     à ~580 : un grand vide en bas à droite, à chaque ouverture de l'écran.
+   · L'explication dépliée s'affichait sur ~390 px, à 45 caractères par ligne,
+     dans une carte qui en faisait 720 et devant une moitié d'écran vide.
+   · Les deux colonnes ne se recomposaient qu'une fois, à 1180 px, et d'un coup.
+
+   La composition retenue est une pile de bandes pleine largeur : le constat de
+   posture, puis la rangée de tuiles. Chaque bande dispose de toute la largeur,
+   donc la mesure du texte se règle par le texte et non par une colonne, et il
+   n'y a plus deux hauteurs à équilibrer. */
 
 .hero {
   display: grid;
-  grid-template-columns: 5fr 7fr;
   gap: var(--sp-5);
   margin-bottom: var(--sp-5);
 }
 
-@media (max-width: 1180px) {
-  .hero {
-    grid-template-columns: 1fr;
-  }
+/* Le constat de posture. Il porte la classe `.indispo` — c'est un indicateur
+   non calculable, exactement comme les blocs des autres écrans : récessé,
+   hachuré à 45°, jamais souligné d'un filet coloré. La lumière porte le sens.
+
+   L'écart entre les bandes appartient à la grille, jamais à la carte : sans ce
+   retrait, la marge de `.card` s'ajouterait à la gouttière de `.hero` et le
+   rythme vertical doublerait à cet endroit seul. */
+.posture {
+  margin-bottom: 0;
 }
 
-.ringcard {
+.posture-b {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 30px var(--sp-5) 26px;
+  align-items: flex-start;
+  gap: var(--sp-4);
 }
 
-.ringwrap {
-  position: relative;
-  width: 280px;
-  height: 280px;
-}
-
-.ringwrap svg {
-  width: 100%;
-  height: 100%;
-}
-
-/* La piste seule. AUCUN arc : un arc partiel serait une valeur, et il n'y a pas
-   de valeur. La maquette en dessine un à 94 % ; c'est très exactement ce que
-   cette coque refuse d'afficher. */
-.track {
-  fill: none;
-  stroke: rgba(255, 255, 255, 0.06);
-  stroke-width: 10;
-}
-
-.ringmid {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  padding: 0 42px;
-  text-align: center;
-}
-
-.hero-u {
-  margin: 0;
+/* L'arc sans sa clé de voûte. 96 px = 64 + 32, sur la base de 4 px : assez pour
+   être un dessin plutôt qu'une icône, assez peu pour ne pas prendre la place du
+   texte, qui est ce qui informe. `aria-hidden` : il redouble le libellé « Pas
+   encore calculable », il ne le remplace pas (NF-05). */
+.posture-fig {
+  flex: none;
+  width: calc(var(--sp-8) + var(--sp-6));
+  height: calc(var(--sp-8) + var(--sp-6));
   color: var(--ink-3);
-  font-size: var(--fs-label);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
 }
 
-.hero-none {
-  margin: var(--sp-1) 0 0;
-  color: var(--ink-1);
-  font: 500 var(--fs-h1) / 1.25 var(--font-tight);
-  letter-spacing: -0.01em;
+.posture-t {
+  /* Un élément de flex ne rétrécit pas sous la taille minimale de son contenu
+     tant que cette propriété n'est pas posée. Sans elle, un détail technique
+     long pousserait la carte hors de la fenêtre. */
+  min-width: 0;
+  flex: 1;
 }
 
-.hero-s {
-  margin: 11px 0 0;
-  color: var(--ink-2);
-  font-size: var(--fs-sm);
-  line-height: 1.45;
+.posture-t .indispo-1 {
+  margin-top: var(--sp-1);
 }
 
-.hero-s::before {
-  content: '';
-  display: block;
-  width: 34px;
-  height: 1px;
-  margin: 0 auto 9px;
-  background: var(--hairline-strong);
+.posture-t .detail {
+  margin-top: var(--sp-3);
 }
 
-.hero-t {
-  margin: 6px 0 0;
-  color: var(--ink-3);
-  font: var(--fs-mono) var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-  user-select: text;
-}
-
+/* Le bouton de dépliage, RATTACHÉ À CE QU'IL COMMANDE.
+   Il flottait sous l'anneau, centré, à 280 px du panneau qu'il ouvre. Il est
+   maintenant collé au texte dont il déplie la suite, aligné sur son bord
+   gauche, et le panneau vient à 8 px en dessous — la distance de proximité,
+   celle qui fait lire deux éléments comme un seul objet. */
 .unfold {
-  margin-top: var(--sp-5);
-  padding: 6px var(--sp-4);
+  margin-top: var(--sp-4);
+  padding: var(--sp-2) var(--sp-4);
   border: 1px solid var(--hairline);
   border-radius: var(--r-pill);
   background: none;
@@ -664,7 +677,8 @@ h2 {
   font: var(--fs-mono) var(--font-sans);
   cursor: pointer;
   transition: border-color var(--t-micro) var(--e-out),
-    color var(--t-micro) var(--e-out);
+    color var(--t-micro) var(--e-out),
+    background var(--t-micro) var(--e-out);
 }
 
 .unfold:hover {
@@ -672,44 +686,130 @@ h2 {
   color: var(--ink-1);
 }
 
+/* Ouvert, le bouton s'enfonce : il possède visiblement le bloc qui le suit.
+   L'état est déjà porté par `aria-expanded` et par le libellé, qui passe à
+   « Replier » — la teinte ne fait que redoubler les deux. */
+.unfold[aria-expanded='true'] {
+  border-color: var(--hairline-strong);
+  background: var(--surface-2);
+  color: var(--ink-1);
+}
+
+/* L'EXPLICATION PREND LA LARGEUR DE SA CARTE, SANS PERDRE SA MESURE.
+   Les deux exigences se contredisent tant qu'on n'a qu'une colonne : à 12,5 px,
+   une ligne qui traverse 1 100 px porte 175 caractères, soit deux fois et demie
+   ce qu'un œil suit sans se perdre. L'ancienne valeur, 46ch, réglait le conflit
+   dans l'autre sens — 45 caractères, la borne basse de la lisibilité, dans une
+   colonne de 390 px bordée de vide.
+
+   La réponse typographique est la même depuis toujours : DEUX COLONNES. Le
+   panneau n'en porte que deux paragraphes, et ils sont parallèles par
+   construction — ce que ça implique, puis ce qu'on peut faire (brief §1.3). Ils
+   se lisent donc de gauche à droite dans l'ordre exact où la voix du produit
+   les pose, chacun à 62ch, et le bloc occupe enfin la carte.
+
+   62ch ET NON 62 CARACTÈRES : l'unité `ch` vaut la largeur du zéro, plus large
+   que l'avance moyenne d'une police proportionnelle. Mesuré dans la WebView2 du
+   poste, 62ch rend 410 px, soit de 66 à 74 caractères selon la convention
+   retenue pour l'avance moyenne — dans la bande de 45 à 75 des deux côtés. Le
+   nombre s'est mesuré à l'écran ; il ne se déduit pas de la déclaration.
+
+   Une grille, et non `column-count` : le découpage en colonnes de flux
+   couperait un paragraphe en deux au milieu d'une phrase.
+
+   Pas de boîte : le bloc est déjà posé sur une carte récessée, et une boîte
+   dans une boîte ne dit rien de plus. Un filet vertical suffit à le rattacher
+   au bouton qui l'ouvre, et c'est l'idiome que `.note` emploie déjà ici. */
 .why {
-  max-width: 46ch;
-  margin-top: var(--sp-3);
-  padding: 11px 13px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-ctl);
-  background: var(--surface-0);
+  display: grid;
+  gap: var(--sp-3) var(--sp-6);
+  max-width: 62ch;
+  margin-top: var(--sp-2);
+  padding-left: var(--sp-4);
+  border-left: 1px solid var(--hairline-strong);
   color: var(--ink-2);
   font-size: var(--fs-mono);
   line-height: 1.6;
 }
 
-.why p {
-  margin: 0 0 var(--sp-2);
+@container contenu (min-width: 1040px) {
+  .why {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: calc(62ch * 2 + var(--sp-6));
+  }
 }
 
+/* SANS CETTE RÈGLE, LE PANNEAU NE SE REPLIE PLUS. `[hidden] { display: none }`
+   vient de la feuille de l'agent utilisateur ; une déclaration `display` posée
+   dans une règle de classe l'emporte sur elle, quel que soit l'ordre. Le
+   panneau restait donc affiché alors que `hidden`, `aria-expanded` et le
+   libellé du bouton disaient tous les trois le contraire — un défaut qui ne se
+   voit pas dans le fichier, seulement à l'écran, et que le test
+   `le_bouton_de_depliage_touche_ce_quil_commande` refuse désormais. */
+.why[hidden] {
+  display: none;
+}
+
+.why p {
+  margin: 0;
+}
+
+/* Ce qu'on peut faire pèse plus que ce que ça implique : c'est la seule des
+   deux phrases qui appelle un geste. */
 .why p:last-child {
-  margin-bottom: 0;
   color: var(--ink-1);
 }
 
 /* ── Tuiles vitales ──────────────────────────────────────────────────────── */
 
+/* TROIS PALIERS, ET NON DEUX COLONNES FIGÉES : quatre tuiles de front quand la
+   place existe, deux par deux ensuite, une seule colonne au plus étroit.
+
+   `minmax(0, 1fr)` et non `1fr` : la taille minimale par défaut d'une piste de
+   grille est `auto`, c'est-à-dire la largeur du contenu le plus long. Un chemin
+   d'item sans espace suffirait à faire déborder la rangée, et le débordement
+   d'une grille ne se voit pas dans la déclaration — seulement à l'écran. */
 .tiles {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-4);
   align-content: start;
 }
 
-@media (max-width: 720px) {
+@container contenu (min-width: 560px) {
   .tiles {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .posture-b {
+    flex-direction: row;
+    gap: var(--sp-5);
+  }
+  /* Dès que les tuiles se mettent de front, « Dérive de configuration » passe
+     sur deux lignes quand « Mises à jour » tient sur une, et les valeurs se
+     décalent de dix pixels d'une tuile à l'autre. La bande de tête est donc
+     réservée à deux lignes pour toute la rangée : les valeurs partent d'une
+     même ligne d'horizon, quelle que soit la longueur du sur-titre.
+
+     Réservée à partir d'ici seulement : en colonne unique, aucun sur-titre ne
+     se replie et la réserve ne serait que du vide, à la largeur même où la
+     hauteur est la plus comptée.
+
+     `.tiles .tile-h` et non `.tile-h` : à spécificité égale, c'est l'ordre du
+     fichier qui tranche, et la règle de base est déclarée PLUS BAS. Mesuré à
+     l'écran : la première version de cette règle n'avait aucun effet. */
+  .tiles .tile-h {
+    min-height: calc(2 * 1.55 * var(--fs-label));
+  }
+}
+
+@container contenu (min-width: 1040px) {
+  .tiles {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
 .tile {
-  padding: var(--sp-4) 17px;
+  padding: var(--sp-4);
   border-radius: var(--r-card);
   background: var(--surface-1);
   box-shadow: var(--elev-1);
@@ -720,11 +820,30 @@ h2 {
   background: var(--surface-2);
 }
 
+/* Une tuile sans mesure prend la même tenue que les blocs non levés des autres
+   écrans : récessée et hachurée, jamais surélevée. La rangée dit alors d'un
+   coup d'œil ce qui a été relevé et ce qui ne l'a pas été, sans qu'aucune
+   couleur ne porte ce sens — le badge et son libellé le disent en toutes
+   lettres, la lumière ne fait que le redoubler. La notation elle-même est
+   déclarée une seule fois, plus bas, avec celle des blocs `.indispo`.
+
+   Ce qui reste ici : le survol ne la fait pas remonter. Une tuile récessée qui
+   s'élève au passage du curseur dirait le contraire de ce qu'elle est. */
+.tile-none:hover {
+  background: var(--surface-0);
+}
+
+/* `flex-start` et non `center` : à quatre tuiles de front, un sur-titre long
+   passe sur deux lignes quand son voisin tient sur une, et un badge centré se
+   décale alors de sept pixels par rapport à celui d'à côté. Les badges tiennent
+   une ligne haute commune ; c'est elle qui fait lire la rangée comme une
+   rangée. */
 .tile-h {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--sp-2);
   margin-bottom: 11px;
+  min-height: var(--sp-5);
 }
 
 .tile-l {
@@ -865,8 +984,12 @@ h2 {
    ne dépense pas d'accent, et elle ne porte aucun sens que le texte ne porte
    pas (NF-05). Le bloc est par ailleurs RECESSÉ — posé sur --surface-0 avec
    une arête sombre en haut — au lieu d'être surélevé : ce qu'on n'a pas pu
-   lire s'enfonce, il ne saute pas aux yeux.                                  */
-.indispo {
+   lire s'enfonce, il ne saute pas aux yeux.
+
+   La même notation vaut pour les TUILES sans mesure de la vue d'ensemble : une
+   seule règle, un seul langage. Une hachure recopiée aurait dérivé.          */
+.indispo,
+.tile-none {
   background: var(--surface-0);
   box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.28);
   background-image: repeating-linear-gradient(

@@ -232,40 +232,82 @@
 
             <div class="hero">
               <!--
-                L'anneau. La maquette y affiche une posture ; ici il n'y en a
-                pas, parce qu'aucune référence n'est chargée. L'arc est donc
-                ABSENT — pas à zéro, pas à moitié. Un arc partiel serait une
-                valeur, et le rôle `meter` une affirmation de plus.
+                L'ANNEAU A DISPARU, ET C'EST LE SUJET DE CET ÉCRAN.
+
+                La maquette y affiche une posture ; ici il n'y en a pas, parce
+                qu'aucune référence n'est chargée. L'arc était donc absent —
+                pas à zéro, pas à moitié — et il restait un cercle vide de
+                280 px, sur une colonne entière, autour de quatre lignes de
+                texte. Un grand cercle qui n'attend qu'un chiffre absent
+                n'informe de rien et occupe tout : c'est la pire occupation
+                d'espace que cet écran pouvait produire.
+
+                À sa place, le dessin que la marque tient déjà pour ce moment
+                précis — `design/marque/etat-premier-lancement.svg`, l'arc dont
+                la clé de voûte n'est pas encore posée. Il DIT quelque chose :
+                rien n'est encore déclaré. C'est le moment M1 du brief.
+
+                Il est intégré en ligne (la coque ne charge aucun fichier
+                voisin) et SANS l'attribut `xmlns` : son espace de noms
+                contient une URL, que le garde-fou P5 refuse sans exception, et
+                un document HTML n'en a de toute façon aucun besoin.
+
+                Le jour où une référence sera chargée, la posture deviendra une
+                mesure : c'est alors, et seulement alors, que l'anneau du brief
+                §4.1 reprendra sa place, avec son arc et sa respiration.
               -->
               <div
-                class="card ringcard"
+                class="card indispo posture"
                 role="group"
-                aria-labelledby="ring-titre"
-                aria-describedby="ring-constat"
+                aria-labelledby="posture-titre"
+                aria-describedby="posture-constat"
               >
-                <div class="ringwrap">
-                  <svg viewBox="0 0 300 300" aria-hidden="true">
-                    <circle class="track" cx="150" cy="150" r="140" />
+                <div class="card-b posture-b">
+                  <svg
+                    class="posture-fig"
+                    viewBox="0 0 96 96"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.2"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M8 88L8 52A40 40 0 0 1 25.193 19.139L32.035 28.997A28 28 0 0 0 20 52L20 88Z"/>
+                    <path d="M88 88L88 52A40 40 0 0 0 70.807 19.139L63.965 28.997A28 28 0 0 1 76 52L76 88Z"/>
+                    <path d="M5 89.2h86" stroke-linecap="round"/>
                   </svg>
-                  <div class="ringmid">
-                    <p class="hero-u" id="ring-titre">Posture composite</p>
-                    <p class="hero-none">Pas encore calculable</p>
-                    <p class="hero-s" id="ring-constat" data-champ="posture.happened"></p>
-                    <p class="hero-t" data-champ="posture.detail"></p>
+                  <!--
+                    LE BOUTON ET CE QU'IL COMMANDE SE TOUCHENT. Il flottait
+                    auparavant sous l'anneau, centré, séparé de son panneau par
+                    toute la hauteur du cercle. Ici il précède immédiatement le
+                    bloc qu'il déplie, et le test
+                    `le_bouton_de_depliage_touche_ce_quil_commande` en fait une
+                    barrière : glisser quoi que ce soit entre les deux fait
+                    échouer la suite.
+                  -->
+                  <div class="posture-t">
+                    <p class="tile-l" id="posture-titre">Posture composite</p>
+                    <p class="indispo-1">Pas encore calculable</p>
+                    <p
+                      class="indispo-2"
+                      id="posture-constat"
+                      data-champ="posture.happened"
+                    ></p>
+                    <p class="detail" data-champ="posture.detail"></p>
+                    <button
+                      type="button"
+                      class="unfold"
+                      id="unfold-posture"
+                      aria-expanded="false"
+                      aria-controls="posture-why"
+                    >
+                      Pourquoi
+                    </button>
+                    <div class="why" id="posture-why" hidden>
+                      <p data-champ="posture.implies"></p>
+                      <p data-champ="posture.unlockedBy"></p>
+                    </div>
                   </div>
-                </div>
-                <button
-                  type="button"
-                  class="unfold"
-                  id="unfold-posture"
-                  aria-expanded="false"
-                  aria-controls="posture-why"
-                >
-                  Pourquoi
-                </button>
-                <div class="why" id="posture-why" hidden>
-                  <p data-champ="posture.implies"></p>
-                  <p data-champ="posture.unlockedBy"></p>
                 </div>
               </div>
 
