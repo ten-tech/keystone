@@ -45,7 +45,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # branche stable
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Format
         run: cargo fmt --all --check
@@ -75,7 +75,7 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
           components: clippy
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Clippy sur tout le workspace, broker compris
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
@@ -119,7 +119,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # branche stable
         with:
           targets: x86_64-unknown-linux-musl
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Compilation
@@ -194,7 +194,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@8641a17e25bf5b40c118d48fe0f81e8655731839 # branche 1.85.0
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Le workspace compile sur la MSRV déclarée
         run: cargo +1.85.0 check --locked --workspace --all-targets
 
