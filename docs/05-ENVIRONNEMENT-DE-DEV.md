@@ -148,7 +148,7 @@ Pour que la validation YAML fonctionne, ajouter dans les réglages du workspace 
 ### Phase 0 — sur l'hôte, sans risque
 
 ```powershell
-cargo test --workspace          # 192 tests au total, tous portables
+cargo test --workspace          # 196 tests au total, tous portables
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p ks-cli -- scan
 cargo run -p ks-cli -- status
@@ -170,6 +170,27 @@ sous une clé protégée par ACL qu'une CLI non élevée ne lit pas.
 `import` **affiche** la commande git à exécuter et ne la lance jamais (ADR-0017) :
 un `git commit` déclenche les crochets du dépôt, donc l'exécution d'un fichier du
 disque que Keystone n'a pas choisi.
+
+### Le schéma JSON se régénère, il ne s'édite pas
+
+`schema/workstation.schema.json` est une **sortie** des types de `ks-cli`, plus un
+document (ADR-0010, décision n° 2). Après toute modification d'`EtatDesire`, de
+`Metadata` ou d'`EcartAccepte` :
+
+```powershell
+cargo run -q -p ks-cli --example generer-schema > schema/workstation.schema.json
+```
+
+Deux garde-fous refusent l'écart, et ils ne voient pas la même chose :
+`le_schema_versionne_est_celui_que_les_types_produisent` le signale dès
+`cargo test`, et le travail « Schéma workstation.yaml » de la CI régénère puis
+refuse le moindre `git diff` — y compris une fin de ligne, que `.gitattributes`
+fixe à LF.
+
+L'exemple `schema/examples/workstation.yaml` est validé **deux fois**, et les deux
+disent des choses différentes : par le validateur JSON Schema, et par
+`EtatDesire::lire`, c'est-à-dire par le produit. Un exemple qui ne passerait que
+le premier est exactement l'état dont la Phase 1 sort.
 
 ### La coque de bureau
 

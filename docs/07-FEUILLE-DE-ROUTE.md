@@ -132,7 +132,7 @@ confirme qu'aucun octet n'a été modifié.
 **Critère de sortie :** un `workstation.yaml` généré depuis l'état réel, un diff
 exact, et la dérive suivie pendant 7 jours sans faux positif inexpliqué.
 
-- [ ] JSON Schema publié et validation stricte (`schema/workstation.schema.json` existe déjà)
+- [x] **JSON Schema publié et validation stricte** : `schema/workstation.schema.json` est **généré** depuis les types de `ks-cli` par `cargo run -p ks-cli --example generer-schema`, et un travail de CI le régénère puis refuse tout écart (ADR-0010, décision n° 2). L'exemple versionné est validé deux fois, par le schéma **et** par `EtatDesire::lire` (décision n° 4)
 - [x] **Import de l'existant** (D2-02) : `ks import` écrit le yaml depuis l'état lu de la machine, par un émetteur maison qui guillemète tout texte et n'écrit jamais ce qu'il n'a pas su lire (ADR-0016). *Aucun formulaire à remplir — c'est le moment de vérité M1.*
 - [x] Moteur de diff, par domaine et par item : `ks diff` publie les quatre verdicts, l'écart et l'incomparable ligne à ligne (ADR-0008)
 - [ ] **Attribution de la source du changement** (D2-05) : Windows Update, MDM, installeur, humain, **inconnu**
@@ -247,9 +247,6 @@ Si tu ouvres le projet demain matin.
    items lui arrivent sans désir, `Item::verdict()` répond `NonContraint`
    partout, la posture reste « pas encore calculable » et la vue Dérive affiche
    « sans objet ». C'est un branchement, plus une écriture de moteur.
-   Reste aussi la **génération du schéma JSON** depuis les types Rust, décidée
-   par l'ADR-0010 et non faite : `schema/workstation.schema.json` décrit encore
-   la forme imbriquée, que plus rien ne lit.
 3. **Réconciliation d'inventaire logiciel** — livrée pour l'essentiel, mais
    l'attribution reste incomplète : 54 applications sur 150 sans gestionnaire
    identifié, et le module le déclare lui-même plutôt que d'arrondir.

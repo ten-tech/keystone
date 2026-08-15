@@ -40,5 +40,10 @@ thiserror.workspace = true
 # cesse de le redécouvrir.
 serde-saphyr.workspace = true
 
+# Génération du schéma JSON depuis les types de `etat_desire` (ADR-0010,
+# décision n° 2). Le crate n'entre QUE dans celui-ci : voir la note du
+# `Cargo.toml` racine pour la raison, qui tient à `ks-broker`.
+schemars.workspace = true
+
 [lints.rust]
 unsafe_code = "forbid"

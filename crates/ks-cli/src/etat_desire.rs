@@ -41,10 +41,34 @@
 //! Il ne lit pas le disque : `ks import` et `ks diff` apporteront la source et
 //! le chemin à afficher. Il ne signale pas non plus les chemins « déclarés, non
 //! observés » — cela demande l'inventaire, donc la commande, pas le lecteur.
+//!
+//! ## Le schéma JSON est une sortie de ce fichier, plus un document
+//!
+//! `schema/workstation.schema.json` est **produit** par [`schema_json`] depuis
+//! les types ci-dessous (ADR-0010, décision n° 2). Il a été écrit à la main
+//! pendant toute la Phase 0, et il décrivait alors une forme imbriquée que plus
+//! aucun code ne lisait : cohérent avec son exemple, et avec rien d'autre.
+//!
+//! Deux garde-fous, et ils ne disent pas la même chose :
+//!
+//! * `le_schema_versionne_est_celui_que_les_types_produisent` compare le fichier
+//!   commité à ce que les types produisent — la divergence casse `cargo test` ;
+//! * le travail `schema` de la CI régénère et refuse tout écart, pour le cas où
+//!   quelqu'un modifierait les deux du même geste.
+//!
+//! ### Le schéma décrit ce que le lecteur accepte, et rien de plus
+//!
+//! Aucune contrainte n'y est ajoutée que [`EtatDesire::lire`] ne tienne. Le
+//! schéma écrit à la main imposait par exemple `^[A-Za-z0-9._-]{1,63}$` sur le
+//! nom de machine, que rien ne vérifiait côté produit : un fichier refusé par le
+//! validateur et accepté par Keystone, ou l'inverse, est exactement la
+//! divergence que cette ADR ferme. Un jour où `lire` contraindra ce nom, la
+//! contrainte s'écrira sur le type et le schéma la reprendra tout seul.
 
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 use ks_core::ScalaireBrut;
 
@@ -61,12 +85,18 @@ pub const GENRE_ATTENDU: &str = "Workstation";
 ///
 /// La forme est celle décidée par l'ADR-0010 : un en-tête, une table plate
 /// indexée par chemin d'item, une liste d'écarts acceptés.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(
+    title = "Keystone — workstation.yaml",
+    extend("$id" = "https://keystone.invalid/schema/workstation.schema.json")
+)]
 pub struct EtatDesire {
     /// Version du format, `keystone/v1`.
+    #[schemars(extend("const" = VERSION_DE_FORMAT))]
     pub api_version: String,
     /// Genre du document, `Workstation`.
+    #[schemars(extend("const" = GENRE_ATTENDU))]
     pub kind: String,
     /// De quelle machine il s'agit, et de quoi elle hérite.
     pub metadata: Metadata,
@@ -74,7 +104,23 @@ pub struct EtatDesire {
     ///
     /// `BTreeMap` et non `HashMap` : l'ordre des clés est stable d'une lecture à
     /// l'autre, donc un diff affiché deux fois s'affiche deux fois pareil.
+    ///
+    /// Le schéma décrit la **valeur** par [`ScalaireDeclare`] et laisse la clé
+    /// libre : il n'existe pas de catalogue statique des chemins d'items, et en
+    /// inventer un ici en ferait une troisième source de vérité, à côté des
+    /// collecteurs et du modèle (ADR-0010, dette assumée).
+    ///
+    /// La `description` du schéma est écrite à part, et c'est délibéré : elle
+    /// s'affiche dans l'éditeur de celui qui écrit le yaml, pour qui le choix
+    /// entre `BTreeMap` et `HashMap` ne veut rien dire. Deux lecteurs, deux
+    /// textes ; la **forme**, elle, reste dérivée du type.
     #[serde(default)]
+    #[schemars(
+        with = "BTreeMap<String, ScalaireDeclare>",
+        description = "Ce qui est voulu, une ligne par chemin d'item, tel que `ks scan` \
+                       les nomme. Toute chaîne est une clé valide : le référentiel des \
+                       chemins est ce qu'un scan a observé, jamais une liste figée."
+    )]
     pub desired: BTreeMap<String, ScalaireBrut>,
     /// Les écarts volontairement tolérés, avec leur échéance.
     #[serde(default)]
@@ -82,7 +128,7 @@ pub struct EtatDesire {
 }
 
 /// De quelle machine parle le document.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Metadata {
     /// Nom de la machine.
@@ -104,7 +150,7 @@ pub struct Metadata {
 /// c'est le typage qui le tient — aucun des deux champs n'est optionnel. C'est
 /// le seul mécanisme qui empêche un fichier d'état de pourrir sous une couche
 /// d'exceptions dont personne ne se rappelle le motif.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EcartAccepte {
     /// Le chemin de l'item toléré.
@@ -117,6 +163,113 @@ pub struct EcartAccepte {
     pub decided_by: String,
     /// Quand la décision a été prise.
     pub decided_at: ks_core::Timestamp,
+}
+
+/// Ce qu'une entrée de `desired` a le droit d'être, **pour le seul schéma**.
+///
+/// C'est le décalque de [`ScalaireBrut`], qui vit dans `ks-core`. Le décalque
+/// existe pour une raison de frontière, pas de confort : `ks-broker` dépend de
+/// `ks-core`, et y déclarer `schemars` ajouterait six crates à l'arbre du seul
+/// composant élevé du projet. Le modèle de menace l'interdit sans ADR dédiée
+/// (§7, adversaire A4), et l'ADR-0010 l'exclut déjà en scopant la génération à
+/// `ks-cli`.
+///
+/// **Ce n'est pas une seconde source de vérité, et un test le tient.**
+/// `le_decalque_du_scalaire_decrit_ce_que_ks_core_ecrit` confronte, variante par
+/// variante, ce que [`ScalaireBrut`] sérialise à ce que ce type relit, sous un
+/// `match` exhaustif sans bras `_` : ajouter une variante à [`ScalaireBrut`]
+/// casse la **compilation** de ce crate avant qu'un test s'exécute.
+///
+/// Le type reste privé : il ne décrit rien, il ne relit rien du produit, et
+/// l'exposer inviterait à s'en servir comme d'un modèle.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+#[schemars(
+    description = "La valeur voulue pour un item : un booléen, un nombre, un texte, \
+                   une liste de textes, ou `{ absent: true }` pour exiger que l'item \
+                   n'existe pas. Un texte s'entoure de guillemets — sans eux, YAML lit \
+                   `off`, `no` et `0x9` comme un booléen ou un nombre."
+)]
+enum ScalaireDeclare {
+    /// `{ absent: true }` — l'item ne doit pas exister.
+    Absent(DesirDabsence),
+    /// `true` ou `false`, y compris ce que YAML retype depuis `off`, `no`, `on`.
+    Bool(bool),
+    /// Un nombre entier.
+    Int(i64),
+    /// Un texte : jeton, version, chemin, numéro de série.
+    Text(String),
+    /// Une liste de textes.
+    List(Vec<String>),
+}
+
+/// La forme objet de l'absence, `{ absent: true }`.
+///
+/// `absent: false` est refusé par `ks-core` — « une absence ne se nie pas » — et
+/// le `const` le dit au validateur externe. Une valeur que le produit rejette et
+/// que le schéma accepterait est la moitié de la divergence qu'on ferme ici.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[schemars(description = "Le désir que cet item n'existe pas sur la machine.")]
+struct DesirDabsence {
+    /// Toujours `true`. Le champ porte le sens ; sa valeur ne fait que le confirmer.
+    absent: Vrai,
+}
+
+/// Un booléen qui ne vaut que `true`, et le refuse à la relecture.
+///
+/// Un `bool` nu aurait suffi pour le schéma, puisque le `const` s'y ajoute par
+/// attribut. Il ne suffisait pas pour le **test** : mesuré, le décalque relisait
+/// alors `{ absent: false }` que `ks-core` refuse, et un décalque plus permissif
+/// que la chose décalquée ne prouve plus rien de ce qu'il prétend décrire.
+///
+/// Le refus est donc porté par le type, comme dans `ks-core`, et le `const: true`
+/// du schéma en découle plutôt que de l'affirmer tout seul.
+///
+/// `inline` : une définition nommée de plus dans le schéma, pour un booléen
+/// contraint employé à un seul endroit, rendrait moins lisible un document qu'on
+/// demande à des humains de lire.
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
+#[schemars(inline, extend("const" = true), description = "Toujours `true`.")]
+struct Vrai(bool);
+
+impl<'de> Deserialize<'de> for Vrai {
+    fn deserialize<D: serde::Deserializer<'de>>(deserialiseur: D) -> Result<Self, D::Error> {
+        // Aucun utilisateur ne verra jamais cette phrase — ce type ne relit rien
+        // d'un fichier, seul le test le désérialise. Elle reprend mot pour mot
+        // celle de `ks-core` pour que la comparaison des deux refus reste
+        // immédiate à la lecture.
+        if bool::deserialize(deserialiseur)? {
+            Ok(Self(true))
+        } else {
+            Err(serde::de::Error::custom(
+                "« absent: false » ne décrit rien : une absence ne se nie pas",
+            ))
+        }
+    }
+}
+
+/// Le schéma JSON du fichier d'état désiré, tel qu'il est versionné.
+///
+/// La sortie est **déterministe et complète** : indentée de deux espaces,
+/// terminée par un saut de ligne, sans horodatage ni chemin de machine. Deux
+/// exécutions donnent les mêmes octets, faute de quoi le travail de CI qui
+/// refuse tout écart signalerait un changement à chaque exécution et cesserait
+/// d'être lu.
+///
+/// # Panique
+///
+/// Jamais : la structure rendue par `schemars` est un objet JSON, dont la
+/// sérialisation ne peut échouer que sur un `f64` non fini ou une clé non
+/// textuelle, et le schéma n'en porte aucun. L'`expect` dit cette impossibilité
+/// plutôt que ce qui a échoué.
+#[must_use]
+pub fn schema_json() -> String {
+    let schema = schemars::schema_for!(EtatDesire);
+    let mut rendu = serde_json::to_string_pretty(&schema)
+        .expect("un schéma ne porte ni flottant non fini ni clé non textuelle");
+    rendu.push('\n');
+    rendu
 }
 
 /// Ce qui peut empêcher de relire un fichier d'état désiré.
@@ -583,5 +736,187 @@ acceptedDrift:
                 "un écart accepté sans « {manquant} » a été accepté"
             );
         }
+    }
+
+    // ── Le schéma, et les deux fichiers qu'il engage ───────────────────────
+
+    /// Le schéma tel qu'il est commité, lu à la compilation.
+    ///
+    /// `include_str!` et non une lecture de disque : le test compare ce que le
+    /// dépôt porte, pas ce qu'un `cargo run` vient d'écrire à côté.
+    const SCHEMA_COMMITE: &str = include_str!("../../../schema/workstation.schema.json");
+
+    /// L'exemple versionné, lu de la même façon et pour la même raison.
+    const EXEMPLE_COMMITE: &str = include_str!("../../../schema/examples/workstation.yaml");
+
+    #[test]
+    fn le_schema_versionne_est_celui_que_les_types_produisent() {
+        // La décision n° 2 de l'ADR-0010, éprouvée là où elle coûte le moins
+        // cher à découvrir. Le travail de CI régénère et refuse tout écart ; ce
+        // test-ci fait la même chose sans réseau ni git, donc dès `cargo test`.
+        //
+        // Le fichier n'est pas normalisé avant comparaison, et c'est délibéré :
+        // `.gitattributes` impose LF à la sortie de dépôt, et tolérer CRLF ici
+        // ferait passer un fichier que le `git diff` de la CI refuserait. Deux
+        // garde-fous qui ne disent pas la même chose valent moins qu'un seul.
+        let produit = schema_json();
+        if produit == SCHEMA_COMMITE {
+            return;
+        }
+
+        // `assert_eq!` sur deux documents de cinq kilo-octets recrache les deux
+        // en entier, et la ligne qui diffère se cherche à l'œil. On la nomme.
+        // Un garde-fou dont on ne lit pas le message finit par être neutralisé
+        // plutôt que compris.
+        let ecart = produit
+            .lines()
+            .zip(SCHEMA_COMMITE.lines())
+            .position(|(a, b)| a != b);
+        let detail = match ecart {
+            Some(n) => format!(
+                "ligne {} — les types produisent « {} », le fichier porte « {} »",
+                n + 1,
+                produit.lines().nth(n).unwrap_or_default().trim(),
+                SCHEMA_COMMITE.lines().nth(n).unwrap_or_default().trim(),
+            ),
+            None => format!(
+                "les {} premières lignes coïncident, mais le fichier en compte {} \
+                 et les types en produisent {}",
+                produit.lines().count().min(SCHEMA_COMMITE.lines().count()),
+                SCHEMA_COMMITE.lines().count(),
+                produit.lines().count(),
+            ),
+        };
+        panic!(
+            "schema/workstation.schema.json ne correspond plus aux types : {detail}.\n\
+             Régénérez-le : cargo run -q -p ks-cli --example generer-schema \
+             > schema/workstation.schema.json"
+        );
+    }
+
+    #[test]
+    fn le_schema_genere_est_stable_dune_execution_a_lautre() {
+        // Un générateur qui produirait deux sorties différentes rendrait le
+        // contrôle de CI rouge sans qu'aucun type ait bougé — et un garde-fou
+        // qui crie sans raison finit par être neutralisé.
+        assert_eq!(schema_json(), schema_json());
+        assert!(
+            schema_json().ends_with("}\n"),
+            "le schéma ne se termine pas par un saut de ligne"
+        );
+    }
+
+    #[test]
+    fn lexemple_versionne_est_relu_par_keystone_lui_meme() {
+        // **Le point de la décision n° 4.** Un exemple validé par le seul
+        // validateur JSON Schema peut très bien être refusé par le produit :
+        // c'est exactement l'état d'avant ce lot, où l'exemple portait la forme
+        // imbriquée et n'aurait pas passé une seule ligne de ce lecteur.
+        //
+        // Les deux validations disent des choses différentes, et il faut les
+        // deux : le schéma voit la forme des valeurs, le lecteur voit en plus la
+        // clé écrite deux fois et l'en-tête qu'il ne sait pas relire.
+        let document = EtatDesire::lire(EXEMPLE_COMMITE)
+            .expect("l'exemple versionné est refusé par le lecteur de Keystone");
+
+        assert_eq!(document.metadata.name, "WKS-EXEMPLE-01");
+        assert!(
+            !document.desired.is_empty(),
+            "un exemple sans déclaration ne montre rien"
+        );
+
+        // Et il exerce réellement les formes qu'il prétend montrer : sans ce
+        // contrôle, l'exemple pourrait se réduire à trois booléens sans que rien
+        // ne le signale.
+        let formes: Vec<Option<ks_core::FormeAttendue>> =
+            document.desired.values().map(ScalaireBrut::forme).collect();
+        assert!(
+            formes.contains(&None),
+            "l'exemple ne montre pas le désir d'absence"
+        );
+        for attendue in [
+            ks_core::FormeAttendue::Booleen,
+            ks_core::FormeAttendue::Texte,
+            ks_core::FormeAttendue::Liste,
+        ] {
+            assert!(
+                formes.contains(&Some(attendue)),
+                "l'exemple ne montre aucune valeur en {}",
+                attendue.avec_article()
+            );
+        }
+
+        // L'écart accepté porte sa raison et son échéance, comme D2-06 l'exige.
+        assert_eq!(document.accepted_drift.len(), 1);
+        assert!(!document.accepted_drift[0].reason.is_empty());
+    }
+
+    #[test]
+    fn le_decalque_du_scalaire_decrit_ce_que_ks_core_ecrit() {
+        // `ScalaireDeclare` est le décalque de `ScalaireBrut` que le schéma
+        // décrit, et il vit dans un autre crate que lui. Une liste
+        // d'échantillons écrite à la main ne détecterait jamais ce qu'on a
+        // oublié d'y mettre : le `match` exhaustif sans bras `_` ci-dessous
+        // casse la COMPILATION le jour où `ScalaireBrut` gagne une variante.
+        let echantillons = vec![
+            ScalaireBrut::Absent,
+            ScalaireBrut::Bool(true),
+            ScalaireBrut::Bool(false),
+            ScalaireBrut::Int(0),
+            ScalaireBrut::Int(23_410_000),
+            ScalaireBrut::Text(String::new()),
+            ScalaireBrut::Text("automatique".into()),
+            ScalaireBrut::List(Vec::new()),
+            ScalaireBrut::List(vec!["a".into(), "b".into()]),
+        ];
+        for brut in &echantillons {
+            match brut {
+                ScalaireBrut::Absent
+                | ScalaireBrut::Bool(_)
+                | ScalaireBrut::Int(_)
+                | ScalaireBrut::Text(_)
+                | ScalaireBrut::List(_) => {}
+            }
+        }
+
+        // Ce que `ks-core` écrit, le décalque le relit — et le réécrit à
+        // l'identique. C'est la seule chose qui empêche le schéma de décrire un
+        // format que le produit n'emploie pas.
+        for brut in echantillons {
+            let ecrit = serde_json::to_value(&brut).expect("sérialisation");
+            let relu: ScalaireDeclare = serde_json::from_value(ecrit.clone())
+                .unwrap_or_else(|e| panic!("{brut:?} → {ecrit} refusé par le décalque : {e}"));
+            assert_eq!(
+                serde_json::to_value(&relu).expect("sérialisation"),
+                ecrit,
+                "{brut:?} : le décalque n'écrit pas la même chose que ks-core"
+            );
+        }
+
+        // Et le refus se décalque aussi : « une absence ne se nie pas ». Le
+        // schéma porte `const: true` sur ce champ pour la même raison — une
+        // valeur que le produit rejette et que le validateur accepterait est la
+        // moitié de la divergence que ce lot ferme.
+        let nie = serde_json::json!({ "absent": false });
+        assert!(
+            serde_json::from_value::<ScalaireBrut>(nie.clone()).is_err(),
+            "ks-core accepte « absent: false »"
+        );
+        assert!(
+            serde_json::from_value::<ScalaireDeclare>(nie).is_err(),
+            "le décalque accepte « absent: false » que ks-core refuse"
+        );
+
+        // Et le schéma le refuse aussi, sans quoi le validateur externe et le
+        // produit ne diraient pas la même chose de la même ligne.
+        let schema: serde_json::Value =
+            serde_json::from_str(&schema_json()).expect("le schéma est du JSON");
+        assert_eq!(
+            schema
+                .pointer("/$defs/DesirDabsence/properties/absent/const")
+                .and_then(serde_json::Value::as_bool),
+            Some(true),
+            "le schéma n'impose plus « absent: true »"
+        );
     }
 }

@@ -75,7 +75,7 @@ keystone/
 │   └── adr/            décisions d'architecture, une par fichier, immuables
 ├── design/             maquette interactive + tokens de design + validation de palette
 │   └── marque/         identité visuelle : logomark, icônes, états illustrés
-├── schema/             JSON Schema de workstation.yaml + exemple complet commenté
+├── schema/             JSON Schema de workstation.yaml, GÉNÉRÉ depuis ks-cli + exemple
 ├── crates/
 │   ├── ks-core/        types du modèle de données — Item, Drift, Plan, Snapshot, Journal
 │   ├── ks-cli/         la CLI `ks` — surface de référence du produit

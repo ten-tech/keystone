@@ -1,11 +1,14 @@
 # ADR-0010 — La forme de `workstation.yaml`, et qui est source de vérité de son schéma
 
-- **Statut** : Accepté — décisions n° 1 et n° 3 mises en œuvre le 2026-08-16
-  (`ks import` écrit la section `desired:` indexée par chemin, clés triées et
-  commentaire par domaine ; `Desire` est un type distinct d'`ItemValue`). La
-  syntaxe de l'absence est corrigée par l'ADR-0016. **Les décisions n° 2 et n° 4
-  restent à faire** : `schema/workstation.schema.json` est toujours écrit à la
-  main et décrit encore la forme imbriquée, que plus aucun code ne lit.
+- **Statut** : Accepté — **les quatre décisions sont mises en œuvre.** Les n° 1
+  et n° 3 le 2026-08-16 (`ks import` écrit la section `desired:` indexée par
+  chemin, clés triées et commentaire par domaine ; `Desire` est un type distinct
+  d'`ItemValue`) ; la syntaxe de l'absence est corrigée par l'ADR-0016. Les
+  n° 2 et n° 4 le 2026-08-16 également : `schema/workstation.schema.json` est
+  **généré** par `cargo run -p ks-cli --example generer-schema`, il est passé de
+  380 lignes écrites à la main à 164 lignes dérivées, et
+  `schema/examples/workstation.yaml` est réécrit dans la forme plate puis validé
+  **deux fois** — par le schéma, et par `EtatDesire::lire`.
 - **Date** : 2026-08-02
 - **Exigences concernées** : D2-01, D2-02, D2-10, P6
 
@@ -153,8 +156,16 @@ Le regroupement visuel par domaine, que la forme imbriquée offrait gratuitement
 Atténuation : `ks import` écrit les clés triées et insère un commentaire de
 section par domaine — ce que montre l'exemple ci-dessus.
 
-Deux dépendances. `schemars`, version stable 1.2.2, MSRV 1.74, vérifiée sur
-crates.io le 2026-08-02 : compatible avec notre 1.85. Et un lecteur YAML, pour
+Deux dépendances. `schemars`, version stable 1.2.2, MSRV **déclarée** 1.74,
+vérifiée sur crates.io le 2026-08-02. **La compatibilité ne se lit pas dans un
+manifeste** : elle a été mesurée en compilant tout le workspace sous
+`cargo +1.88.0 check --locked --workspace --all-targets` le 2026-08-16, et elle
+tient — le plancher du projet reste celui de `serde-saphyr`. Coût mesuré sur le
+verrou : **six entrées**, de 130 à 136 — `schemars`, `schemars_derive`,
+`dyn-clone`, `ref-cast`, `ref-cast-impl`, `serde_derive_internals`. Licences MIT
+et Apache-2.0/MIT, déjà autorisées ; `cargo deny check` et `cargo audit` passent.
+
+Et un lecteur YAML, pour
 lequel **aucun choix n'est confortable**, mesuré le même jour :
 
 | Crate | Version | Fait |
@@ -170,6 +181,34 @@ lequel **aucun choix n'est confortable**, mesuré le même jour :
 le manifeste ni le résolveur ne signalent, et qui n'échoue qu'à la compilation.
 Le choix se tranche **en compilant à 1.85**, pas en lisant, et se documente dans
 `Cargo.toml` comme les deux précédents.
+
+### Ce que la mise en œuvre a imposé, et qui n'était pas prévu
+
+La décision n° 2 scope la génération à `ks-cli`, et cette limite s'est révélée
+**contraignante plutôt que descriptive**. La table `desired` porte des
+`ScalaireBrut`, qui vivent dans `ks-core` ; y déclarer `schemars` ferait entrer
+six crates dans l'arbre de `ks-broker`, seul composant élevé du projet, que
+`docs/04-MODELE-DE-MENACE.md` §7 protège par une ADR obligatoire à chaque
+dépendance. Le coût est donc payé côté `ks-cli` : un décalque privé,
+`ScalaireDeclare`, décrit la valeur pour le seul besoin du schéma.
+
+C'est exactement le « type miroir » que la table des alternatives écarte — à une
+différence près, et elle décide : le décalque porte sur **une** énumération de
+cinq variantes, pas sur l'espace des chemins d'items, et un `match` exhaustif
+sans bras `_` casse la compilation le jour où `ScalaireBrut` en gagne une
+sixième. La table refusait un miroir dont la dérive était silencieuse ; celui-ci
+ne peut pas dériver sans que le compilateur le dise.
+
+Deuxième surprise, mesurée : le décalque relisait `{ absent: false }` que
+`ks-core` refuse, et un décalque plus permissif que la chose décalquée ne prouve
+plus rien de ce qu'il décrit. Le refus est donc porté par le type, comme dans
+`ks-core`, et le `const: true` du schéma en découle.
+
+Enfin, le schéma ne porte **aucune contrainte que `EtatDesire::lire` ne tienne**.
+Le schéma écrit à la main imposait par exemple `^[A-Za-z0-9._-]{1,63}$` sur le
+nom de machine, que rien ne vérifiait côté produit : un fichier refusé par le
+validateur et accepté par Keystone est la même divergence, prise par l'autre
+bout. Les contraintes reviendront quand le code les portera.
 
 ### Ce que ça ferme
 

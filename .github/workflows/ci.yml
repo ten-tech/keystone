@@ -283,11 +283,22 @@ jobs:
           path: target/x86_64-unknown-linux-musl/release/ks-agent
 
   # ── Le schéma et son exemple ───────────────────────────────────────────
+  #
+  # Le schéma a été écrit à la main pendant toute la Phase 0 — 380 lignes, une
+  # forme imbriquée que plus aucun code ne lisait depuis l'ADR-0010. Il était
+  # cohérent avec son exemple, et avec rien d'autre. Il est désormais GÉNÉRÉ
+  # depuis les types de `ks-cli` (ADR-0010, décision n° 2).
+  #
+  # **Un schéma généré qu'on ne régénère pas en intégration continue redevient
+  # un document écrit à la main au premier oubli.** D'où le premier travail
+  # ci-dessous, et d'où sa forme : on régénère, puis on refuse tout écart.
   schema:
     name: Schéma workstation.yaml
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@46511b1c83438f0dd37c02d843619ece5a4abb5b # branche 1.97.1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
@@ -296,6 +307,19 @@ jobs:
       # ce paquet est présent. Sans lui, `decidedAt` du bloc acceptedDrift
       # passait sans contrôle alors que le job prétendait le valider.
       - run: pip install jsonschema pyyaml rfc3339-validator
+
+      # `git diff --exit-code` et non une comparaison de chaînes : il voit aussi
+      # les fins de ligne, que `.gitattributes` fixe à LF. Le contrôle ne
+      # réécrit rien dans le dépôt — il refuse, et affiche ce qui diffère.
+      - name: Le schéma est généré, pas écrit
+        run: |
+          cargo run --locked -q -p ks-cli --example generer-schema \
+            > schema/workstation.schema.json
+          if ! git diff --exit-code -- schema/workstation.schema.json; then
+            echo "::error file=schema/workstation.schema.json::le schéma commité ne correspond pas aux types de ks-cli. Régénérez-le : cargo run -q -p ks-cli --example generer-schema > schema/workstation.schema.json"
+            exit 1
+          fi
+          echo "✓ le schéma commité est celui que les types produisent"
 
       # Attrape notamment les pièges de typage implicite de YAML 1.1 :
       # `expires: 2026-09-01` devient une date, `boost: off` devient false.
@@ -313,6 +337,40 @@ jobs:
               print('::error::' + '/'.join(map(str, e.path)) + ' → ' + e.message)
           sys.exit(1 if errs else 0)
           EOF
+
+      # La boucle complète, et c'est la vérification qui a le plus de valeur :
+      # le produit écrit, le schéma accepte, le produit relit. Chacune des trois
+      # peut passer sans les deux autres — un exemple validé par le seul
+      # validateur externe peut très bien être refusé par Keystone, et c'est
+      # exactement l'état dont ce lot sort.
+      #
+      # Ce que cette étape voit ICI, et qu'il faut savoir : sur un agent Linux
+      # aucun item n'est déclarable, donc `ks import` y dépose `desired: {}`.
+      # Elle éprouve la forme du document, pas la richesse de son contenu. Le
+      # contenu, lui, est éprouvé sur la machine de référence par les tests de
+      # `emetteur.rs`, et le travail « Cible du produit » les exécute sur
+      # Windows.
+      - name: La boucle complète — ks import, puis le schéma, puis ks diff
+        run: |
+          cargo run --locked -q -p ks-cli -- import --out importe.yaml --force
+          python - <<'EOF'
+          import json, sys, yaml
+          from jsonschema import Draft202012Validator, FormatChecker
+          schema = json.load(open('schema/workstation.schema.json'))
+          v = Draft202012Validator(schema, format_checker=FormatChecker())
+          doc = yaml.safe_load(open('importe.yaml'))
+          errs = sorted(v.iter_errors(doc), key=lambda e: list(e.path))
+          for e in errs:
+              print('::error::ks import a écrit un fichier que le schéma refuse : '
+                    + '/'.join(map(str, e.path)) + ' → ' + e.message)
+          sys.exit(1 if errs else 0)
+          EOF
+          # Et Keystone relit ce qu'il vient d'écrire. `ks diff` charge le
+          # fichier par `EtatDesire::lire` : un document que le lecteur refuse
+          # fait sortir la commande en erreur.
+          cargo run --locked -q -p ks-cli -- --config importe.yaml diff > /dev/null
+          rm -f importe.yaml
+          echo "✓ écrit par le produit, accepté par le schéma, relu par le produit"
 
   # ── La version minimale annoncée est-elle vraie ? ──────────────────────
   # `rust-version` dans Cargo.toml est une promesse faite aux contributeurs.

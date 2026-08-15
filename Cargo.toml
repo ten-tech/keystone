@@ -106,6 +106,29 @@ serde_json = "1"
 serde-saphyr = { version = "=1.0.0", default-features = false, features = [
     "deserialize",
 ] }
+# Génération de `schema/workstation.schema.json` depuis les types de `ks-cli`
+# (ADR-0010, décision n° 2). Le schéma cesse d'être un document pour devenir une
+# sortie : c'est la seule manière de garantir qu'il décrit le fichier que le
+# produit lit réellement.
+#
+# **Elle n'entre que dans `ks-cli`, et cette limite est une contrainte, pas un
+# hasard.** `ScalaireBrut` vit dans `ks-core`, dont dépend `ks-broker` : y
+# déclarer `schemars` ajouterait six crates à l'arbre du seul composant élevé du
+# projet, ce que docs/04-MODELE-DE-MENACE.md §7 interdit sans ADR dédiée — et ce
+# que l'ADR-0010 exclut déjà en scopant la génération à `ks-cli`. Le décalque de
+# `ScalaireBrut` vit donc dans `ks-cli`, gardé par un test de forme.
+#
+# `chrono04` implémente `JsonSchema` pour `NaiveDate` et `DateTime<Utc>`, que
+# porte `EcartAccepte` : sans elle, les deux champs devraient être décrits à la
+# main, donc à côté du type. Elle n'ajoute aucune crate — `chrono` est déjà là.
+#
+# Version stable vérifiée à la source le 2026-08-16 (`cargo info schemars`) :
+# 1.2.2, licence MIT déjà autorisée par deny.toml, `rust-version` déclarée 1.74.
+# La compatibilité avec notre 1.88 a été mesurée en compilant sous
+# `cargo +1.88.0`, pas déduite de ce manifeste — c'est ce qui a manqué cinq fois
+# sur ce projet.
+schemars = { version = "1.2", features = ["chrono04"] }
+
 sysinfo = "0.32"
 thiserror = "2"
 
