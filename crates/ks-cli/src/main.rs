@@ -16,10 +16,21 @@
 //! ## État
 //!
 //! Phase 0 : `scan`, `status`, `explain`, `journal` et `report` fonctionnent en
-//! lecture seule. Les
+//! lecture seule. Phase 1 : `import` écrit `workstation.yaml` depuis l'état lu
+//! de la machine, et `diff` le confronte à un scan. Les
 //! commandes mutantes sont déclarées mais refusent de s'exécuter — délibérément :
 //! la structure de la CLI est le contrat du produit, et il vaut mieux la figer tôt
 //! qu'inventer les verbes au fil de l'eau.
+//!
+//! ## Les deux seuls fichiers que Keystone écrit
+//!
+//! `ks report` et `ks import`, tous deux là où l'utilisateur le demande, tous
+//! deux refusant d'écraser sans `--force` (principe P3). Aucune écriture système,
+//! et **aucun processus lancé** : `ks import` affiche la commande git, il ne
+//! l'exécute pas, parce qu'un `git commit` déclenche les crochets du dépôt,
+//! c'est-à-dire l'exécution d'un fichier du disque que Keystone n'a pas choisi
+//! (ADR-0017). Le test `keystone_ne_lance_jamais_de_processus` en fait une
+//! barrière plutôt qu'une intention.
 
 #![forbid(unsafe_code)]
 
@@ -32,11 +43,14 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use clap::{Parser, Subcommand};
 use ks_collectors::Inventory;
-use ks_core::{Domain, DriftSummary};
+use ks_core::item::Verdict;
+use ks_core::{Domain, DriftSummary, Item};
 // Le générateur de rapport vit dans la bibliothèque du crate, pas dans ce
 // binaire : la coque graphique `ks-ui` en a besoin, et deux copies d'un
-// générateur de rapport divergent (voir `src/lib.rs`).
-use ks_cli::{lisible, rapport};
+// générateur de rapport divergent (voir `src/lib.rs`). Le chargement de l'état
+// désiré y vit pour la même raison, et pour une plus visible encore : sans lui,
+// la vue Dérive de la coque reste « sans objet » pour toujours.
+use ks_cli::{confrontation, emetteur, lisible, rapport};
 
 /// Plan de contrôle déclaratif pour poste de travail d'ingénieur.
 #[derive(Parser)]
@@ -79,6 +93,24 @@ enum Command {
         /// Limiter à un domaine.
         #[arg(long)]
         domain: Option<String>,
+    },
+
+    /// Adopte l'état lu de la machine comme état désiré (D2-02).
+    ///
+    /// Aucun formulaire à remplir : Keystone écrit ce qu'il vient de lire. Seuls
+    /// les items qui ont vocation à être déclarés y entrent, et jamais ceux dont
+    /// la lecture a échoué.
+    Import {
+        /// Où écrire le fichier.
+        #[arg(long, short = 'o', default_value = "workstation.yaml")]
+        out: PathBuf,
+        /// Remplacer le fichier s'il existe déjà.
+        ///
+        /// Absent par défaut, comme pour `report` et pour la même raison :
+        /// écraser un fichier est irréversible, et un état désiré écrasé est la
+        /// source de vérité du poste qui disparaît (principe P3).
+        #[arg(long)]
+        force: bool,
     },
 
     /// Fait converger l'état réel vers l'état désiré.
@@ -213,13 +245,13 @@ fn main() -> ExitCode {
         Command::Status => cmd_status(cli.json),
         Command::Explain { path } => cmd_explain(path),
         Command::Report { out, force } => cmd_report(out, *force),
+        Command::Import { out, force } => cmd_import(cli.json, out, *force),
+        Command::Diff { domain } => cmd_diff(cli.json, &cli.config, domain.as_deref()),
 
         // Toutes les commandes qui écriront un jour sont déclarées mais inertes en
         // Phase 0. C'est volontaire : le contrat de la CLI est figé, l'implémentation
-        // suit. `diff` et `journal` ne mutent rien non plus, mais dépendent d'un état
-        // désiré et d'une persistance qui n'existent pas encore.
-        Command::Diff { .. }
-        | Command::Converge { .. }
+        // suit.
+        Command::Converge { .. }
         | Command::Plan { .. }
         | Command::Rollback { .. }
         | Command::Space { .. }
@@ -246,10 +278,11 @@ fn main() -> ExitCode {
 /// route est une information.
 fn not_yet() -> ExitCode {
     println!(
-        "Cette commande arrive après la Phase 0.\n\
+        "Cette commande arrive après la Phase 1.\n\
          \n\
-         La Phase 0 est en lecture seule par conception. Ce qui fonctionne :\n\
-         `scan`, `status`, `explain`, `journal` et `report`.\n\
+         Les phases 0 et 1 sont en lecture seule par conception. Ce qui\n\
+         fonctionne : `scan`, `status`, `explain`, `journal`, `report`,\n\
+         `import` et `diff`.\n\
          \n\
          Voir docs/07-FEUILLE-DE-ROUTE.md."
     );
@@ -299,13 +332,16 @@ fn parse_domain(s: &str) -> Option<Domain> {
     DOMAINES.iter().find(|(nom, _)| *nom == s).map(|(_, d)| *d)
 }
 
-fn cmd_scan(json: bool, domain: Option<&str>, record: bool) -> Result<()> {
-    // Un domaine non reconnu doit se dire. Auparavant, `and_then` faisait retomber
-    // une faute de frappe sur « aucun filtre » : `ks scan --domain securty`
-    // affichait TOUT en silence, ce qui est le pire des deux mondes — l'utilisateur
-    // croit avoir filtré.
-    let filtre = match domain {
-        Some(d) => Some(parse_domain(d).ok_or_else(|| {
+/// Le filtre demandé, ou une erreur qui nomme les domaines acceptés.
+///
+/// Un domaine non reconnu doit se dire. Auparavant, `and_then` faisait retomber
+/// une faute de frappe sur « aucun filtre » : `ks scan --domain securty`
+/// affichait TOUT en silence, ce qui est le pire des deux mondes — l'utilisateur
+/// croit avoir filtré. La fonction est partagée par `scan` et `diff` : deux
+/// écritures de ce refus finiraient par n'en garder qu'une seule à jour.
+fn filtre_de_domaine(domain: Option<&str>) -> Result<Option<Domain>> {
+    match domain {
+        Some(d) => Ok(Some(parse_domain(d).ok_or_else(|| {
             let mut connus: Vec<&str> = DOMAINES.iter().map(|(nom, _)| *nom).collect();
             connus.sort_unstable();
             anyhow::anyhow!(
@@ -314,9 +350,13 @@ fn cmd_scan(json: bool, domain: Option<&str>, record: bool) -> Result<()> {
                  Domaines acceptés : {}",
                 connus.join(", ")
             )
-        })?),
-        None => None,
-    };
+        })?)),
+        None => Ok(None),
+    }
+}
+
+fn cmd_scan(json: bool, domain: Option<&str>, record: bool) -> Result<()> {
+    let filtre = filtre_de_domaine(domain)?;
 
     let inv = Inventory::collect_all();
 
@@ -561,6 +601,230 @@ fn cmd_report(destination: &std::path::Path, force: bool) -> Result<()> {
     Ok(())
 }
 
+/// Écrit `workstation.yaml` depuis l'état lu de la machine — le moment M1.
+///
+/// « J'ai lu votre machine. Rien n'a été modifié. » La commande tient cette
+/// phrase à la lettre : elle collecte, elle traduit, elle dépose **un** fichier
+/// là où on le lui demande, et elle ne lance rien.
+fn cmd_import(json: bool, destination: &std::path::Path, force: bool) -> Result<()> {
+    let inv = Inventory::collect_all();
+    let machine = rapport::nom_machine(&inv.items);
+    let emission = emetteur::emettre(&inv.items, &machine);
+
+    // Même refus que `ks report`, et pour la même raison : écraser un fichier
+    // est irréversible, et Keystone ne fait rien d'irréversible par omission
+    // (principe P3). Un état désiré écrasé, c'est la source de vérité du poste
+    // qui disparaît sans retour arrière.
+    if destination.exists() && !force {
+        anyhow::bail!(
+            "« {} » existe déjà, et Keystone n'écrase pas un fichier sans qu'on le demande.\n\
+             Ajoutez --force pour le remplacer, ou choisissez un autre chemin avec -o.",
+            destination.display()
+        );
+    }
+    ecrire_atomiquement(destination, &emission.yaml)?;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "file": destination.display().to_string(),
+                "machine": machine,
+                "observed": inv.len(),
+                "declarations": emission.declarations,
+                "unreadable": emission.illisibles.iter()
+                    .map(|(chemin, raison)| serde_json::json!({ "path": chemin, "reason": raison }))
+                    .collect::<Vec<_>>(),
+            }))?
+        );
+        return Ok(());
+    }
+
+    // La phrase du moment M1, telle que `design/ecrans-et-libelles.md` la fixe,
+    // mot pour mot : c'est la thèse du produit en une ligne, et la CLI la dit
+    // comme l'écran la dira.
+    println!("J'ai lu votre machine. Rien n'a été modifié.\n");
+    println!("Fichier écrit : {}", destination.display());
+    println!(
+        "  {} déclaration(s), sur {} item(s) observé(s) — seuls les réglages et les\n  \
+         objectifs se déclarent.",
+        emission.declarations,
+        inv.len()
+    );
+    if !emission.illisibles.is_empty() {
+        println!(
+            "  {} item(s) non déclaré(s), faute d'avoir pu les lire :",
+            emission.illisibles.len()
+        );
+        for (chemin, raison) in &emission.illisibles {
+            println!("    {chemin:<44} {raison}");
+        }
+    }
+
+    // ADR-0017 : la commande est proposée, jamais exécutée. Un `git commit`
+    // déclenche les crochets du dépôt — des fichiers exécutables que git lance
+    // sans rien demander — donc Keystone exécuterait un fichier arbitraire du
+    // disque. C'est le geste que la doctrine du projet refuse sous le nom
+    // `RunScript { path }`.
+    println!("\nPour le versionner :");
+    println!(
+        "{}",
+        emetteur::proposition_git(destination, &Utc::now().date_naive().to_string())
+    );
+    println!(
+        "\n  Keystone n'exécute pas git : un commit déclenche les crochets du dépôt,\n  \
+         c'est-à-dire l'exécution d'un fichier du disque qu'il n'a pas choisi."
+    );
+    Ok(())
+}
+
+/// Écrit un fichier sans jamais en laisser un tronqué derrière soi.
+///
+/// Fichier temporaire dans le **même répertoire**, puis renommage : un
+/// `ks import` interrompu laisse l'ancien fichier intact, là où une écriture
+/// directe laisserait la source de vérité d'un outil de sécurité amputée en
+/// silence. Le même répertoire, parce qu'un renommage entre volumes n'est pas
+/// atomique — et `%TEMP%` n'est pas toujours sur le volume de destination.
+///
+/// Ce que ça ne couvre pas, et l'ADR-0017 le consigne : deux `ks import`
+/// simultanés se terminent par deux renommages, et le dernier gagne.
+fn ecrire_atomiquement(destination: &std::path::Path, contenu: &str) -> Result<()> {
+    let nom = destination
+        .file_name()
+        .with_context(|| format!("« {} » ne nomme pas un fichier", destination.display()))?;
+    let mut nom_temporaire = nom.to_os_string();
+    nom_temporaire.push(".ks-import-tmp");
+    let temporaire = destination.with_file_name(nom_temporaire);
+
+    std::fs::write(&temporaire, contenu)
+        .with_context(|| format!("écriture de « {} »", temporaire.display()))?;
+    std::fs::rename(&temporaire, destination)
+        .inspect_err(|_| {
+            // Un temporaire abandonné à côté du fichier de l'utilisateur serait
+            // une trace de plus qu'on n'a pas demandée.
+            let _ = std::fs::remove_file(&temporaire);
+        })
+        .with_context(|| format!("mise en place de « {} »", destination.display()))?;
+    Ok(())
+}
+
+/// Confronte le fichier d'état désiré à ce que la machine porte aujourd'hui.
+///
+/// Un écart n'est pas une erreur de la commande : le code de sortie dit si la
+/// comparaison a **eu lieu**, jamais ce qu'elle a trouvé. Un script qui veut
+/// agir sur les écarts lit la sortie `--json`.
+fn cmd_diff(json: bool, config: &str, domain: Option<&str>) -> Result<()> {
+    let filtre = filtre_de_domaine(domain)?;
+    let chemin = std::path::Path::new(config);
+
+    let document = confrontation::charger(chemin)?;
+    let mut inv = Inventory::collect_all();
+    // La confrontation porte sur l'inventaire COMPLET, jamais sur la vue
+    // filtrée : `--domain` est une commodité d'affichage, et laisser un filtre
+    // décider de ce qui est comparé ferait passer un chemin déclaré pour
+    // « non observé » alors qu'il l'a été.
+    let bilan = confrontation::confronter(&document, &mut inv.items)?;
+
+    let items: Vec<&Item> = match filtre {
+        Some(d) => inv.items.iter().filter(|i| i.domain == d).collect(),
+        None => inv.items.iter().collect(),
+    };
+
+    let mut non_contraints = 0_usize;
+    let mut conformes = 0_usize;
+    let mut ecarts: Vec<&Item> = Vec::new();
+    let mut incomparables: Vec<(&Item, String)> = Vec::new();
+    for item in &items {
+        match confrontation::verdict_publie(item) {
+            Verdict::NonContraint => non_contraints += 1,
+            Verdict::Conforme => conformes += 1,
+            Verdict::Ecart => ecarts.push(item),
+            Verdict::Incomparable { raison } => incomparables.push((item, raison)),
+        }
+    }
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "config": chemin.display().to_string(),
+                // `observed` compte les items AFFICHÉS, donc filtrés. Le filtre
+                // voyage avec eux : un décompte partiel sans son critère est un
+                // décompte qu'un script lira pour un total.
+                "domain": filtre.map(rapport::titre_domaine),
+                "observed": items.len(),
+                "declared": bilan.declarees,
+                "unconstrained": non_contraints,
+                "compliant": conformes,
+                "deviations": ecarts.iter().map(|i| serde_json::json!({
+                    "path": i.path,
+                    "desired": i.desired,
+                    "observed": i.observed,
+                })).collect::<Vec<_>>(),
+                "incomparable": incomparables.iter().map(|(i, raison)| serde_json::json!({
+                    "path": i.path,
+                    "reason": raison,
+                })).collect::<Vec<_>>(),
+                "declaredNotObserved": bilan.non_observes,
+            }))?
+        );
+        return Ok(());
+    }
+
+    println!("Écart entre l'état désiré et l'état réel — lecture seule.\n");
+    println!("  Fichier            {}", chemin.display());
+    println!(
+        "  Déclarations       {} sur {} item(s) observé(s)",
+        bilan.declarees,
+        inv.items.len()
+    );
+    if let Some(d) = filtre {
+        println!(
+            "  Domaine            {} seulement",
+            rapport::titre_domaine(d)
+        );
+    }
+    println!("\n  écarts             {}", ecarts.len());
+    println!("  conformes          {conformes}");
+    println!("  incomparables      {}", incomparables.len());
+    println!("  non contraints     {non_contraints}");
+
+    if !ecarts.is_empty() {
+        println!("\n  Écarts — la valeur constatée diffère de celle qui est déclarée :");
+        for item in &ecarts {
+            let voulu = item
+                .desired
+                .as_ref()
+                .map_or_else(|| "-".to_owned(), lisible::libelle);
+            println!(
+                "    {:<44} déclaré {voulu}, constaté {}",
+                item.path,
+                lisible::valeur(item)
+            );
+        }
+    }
+
+    // ADR-0008 : un incomparable se lit **une ligne à la fois**, jamais en
+    // agrégat. Un item dont la lecture a échoué n'est ni conforme ni en écart,
+    // et le taire serait afficher du vert sur ce qu'on n'a pas regardé.
+    if !incomparables.is_empty() {
+        println!("\n  Incomparables — la comparaison n'a pas de sens, faute d'avoir pu lire :");
+        for (item, raison) in &incomparables {
+            println!("    {:<44} {raison}", item.path);
+        }
+    }
+
+    if !bilan.non_observes.is_empty() {
+        println!("\n  Déclarés, non observés — deux causes possibles, et rien ne les distingue :");
+        println!("  une faute de frappe dans le chemin, ou un item qui a légitimement disparu.");
+        for chemin in &bilan.non_observes {
+            println!("    {chemin}");
+        }
+    }
+
+    Ok(())
+}
+
 fn cmd_status(json: bool) -> Result<()> {
     let inv = Inventory::collect_all();
     // En Phase 0 il n'y a pas encore de fichier d'état désiré chargé : donc aucun
@@ -587,9 +851,10 @@ fn cmd_status(json: bool) -> Result<()> {
     println!("  écarts actifs      {}", summary.active);
     println!("  sans auteur        {}", summary.unattributed);
     println!(
-        "\n  Aucun fichier d'état désiré chargé : la posture n'est pas encore calculable.\n  \
-         `ks diff` deviendra utile en Phase 1, quand workstation.yaml sera généré\n  \
-         depuis l'état réel de la machine (exigence D2-02)."
+        "\n  `ks status` ne charge aucun fichier d'état désiré : la posture n'est donc\n  \
+         pas calculable ici, et un « 100 / 100 » ne voudrait rien dire.\n  \
+         `ks import` adopte l'état lu de la machine, `ks diff` le confronte au scan\n  \
+         et publie les écarts (exigence D2-02)."
     );
     Ok(())
 }
@@ -713,6 +978,56 @@ mod tests {
             );
         }
         assert_eq!(parse_domain("dev-env"), Some(Domain::DevEnv));
+    }
+
+    /// Keystone ne lance aucun processus, git compris (ADR-0017).
+    ///
+    /// `ks import` **affiche** la commande git et ne l'exécute pas : un
+    /// `git commit` déclenche `pre-commit`, `commit-msg` et `post-commit`, qui
+    /// sont des fichiers exécutables posés dans `.git/hooks` et que git lance
+    /// sans rien demander. Keystone exécuterait alors un fichier arbitraire du
+    /// disque — le geste que la doctrine du projet refuse sous le nom
+    /// `RunScript { path }`.
+    ///
+    /// La barrière lit **tout** `src/`, y compris les fichiers ajoutés après
+    /// elle : viser `main.rs` seul laisserait la porte ouverte d'un module
+    /// voisin. Les motifs sont assemblés par `concat!` pour que ce fichier-ci
+    /// ne contienne pas lui-même ce qu'il interdit.
+    ///
+    /// **Sa limite est assumée**, comme celle de la barrière SEC-02 : un
+    /// lancement écrit autrement — un alias de type, une macro — passerait. Un
+    /// test grossier ne remplace ni la revue ni l'ADR ; il rend seulement le
+    /// geste évident impossible à commettre par distraction.
+    #[test]
+    fn keystone_ne_lance_jamais_de_processus() {
+        let interdits = [
+            concat!("Command", "::new"),
+            concat!("process", "::Command"),
+            concat!(".spawn", "("),
+        ];
+
+        let racine = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut lus = 0;
+        for entree in std::fs::read_dir(&racine).expect("le dossier src doit être lisible") {
+            let chemin = entree.expect("entrée de dossier").path();
+            if chemin.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&chemin).expect("source lisible");
+            lus += 1;
+            for motif in interdits {
+                assert!(
+                    !source.contains(motif),
+                    "« {} » lance un processus ({motif}) : ADR-0017 l'interdit en Phase 1",
+                    chemin.display()
+                );
+            }
+        }
+        assert!(
+            lus >= 5,
+            "seuls {lus} fichiers lus dans {} — la barrière ne garde plus rien",
+            racine.display()
+        );
     }
 
     #[test]

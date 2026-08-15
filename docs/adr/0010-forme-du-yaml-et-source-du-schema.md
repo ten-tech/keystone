@@ -1,6 +1,11 @@
 # ADR-0010 — La forme de `workstation.yaml`, et qui est source de vérité de son schéma
 
-- **Statut** : Proposé
+- **Statut** : Accepté — décisions n° 1 et n° 3 mises en œuvre le 2026-08-16
+  (`ks import` écrit la section `desired:` indexée par chemin, clés triées et
+  commentaire par domaine ; `Desire` est un type distinct d'`ItemValue`). La
+  syntaxe de l'absence est corrigée par l'ADR-0016. **Les décisions n° 2 et n° 4
+  restent à faire** : `schema/workstation.schema.json` est toujours écrit à la
+  main et décrit encore la forme imbriquée, que plus aucun code ne lit.
 - **Date** : 2026-08-02
 - **Exigences concernées** : D2-01, D2-02, D2-10, P6
 

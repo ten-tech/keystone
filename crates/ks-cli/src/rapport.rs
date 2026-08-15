@@ -45,7 +45,13 @@ fn echapper(brut: &str) -> String {
 }
 
 /// Nom lisible d'un domaine, pour les titres de section.
-const fn titre_domaine(d: Domain) -> &'static str {
+///
+/// Publique, et partagée par tout ce qui nomme un domaine à l'écran : le
+/// rapport, l'émetteur de `workstation.yaml` qui titre ses sections, et
+/// `ks diff`. Deux tables de libellés finiraient par nommer le même domaine de
+/// deux façons, dans deux surfaces que le même utilisateur lit.
+#[must_use]
+pub const fn titre_domaine(d: Domain) -> &'static str {
     match d {
         Domain::Inventory => "Inventaire",
         Domain::Configuration => "Configuration",
@@ -63,7 +69,10 @@ const fn titre_domaine(d: Domain) -> &'static str {
 
 /// Ordre d'affichage des domaines. La posture d'abord : c'est ce qu'on vient
 /// vérifier.
-const ORDRE: &[Domain] = &[
+///
+/// Le fichier d'état désiré suit le même ordre, pour la même raison, et depuis
+/// la même liste.
+pub(crate) const ORDRE: &[Domain] = &[
     Domain::Security,
     Domain::Inventory,
     Domain::Virtualization,

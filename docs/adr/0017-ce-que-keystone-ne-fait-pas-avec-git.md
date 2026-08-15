@@ -1,6 +1,10 @@
 # ADR-0017 — Ce que Keystone ne fait pas avec git en Phase 1
 
-- **Statut** : Proposé
+- **Statut** : Accepté — mis en œuvre le 2026-08-16 pour `ks import` : écriture
+  atomique, refus d'écraser sans `--force`, commande git affichée et jamais
+  exécutée. La barrière `keystone_ne_lance_jamais_de_processus` lit tout
+  `crates/ks-cli/src` et refuse qu'un lancement de processus y apparaisse.
+  `ks accept`, que la décision vise aussi, n'existe pas encore (D2-06).
 - **Date** : 2026-08-03
 - **Exigences concernées** : D2-01, D2-06, D2-07, P2, P3, SEC-02 (par analogie)
 

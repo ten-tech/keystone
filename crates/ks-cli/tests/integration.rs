@@ -103,8 +103,9 @@ fn une_commande_inerte_ne_se_fait_pas_passer_pour_un_succes() {
     // Ni 0 (un script croirait la commande exécutée), ni 1 (réservé aux vraies
     // erreurs). 69 signifie « service indisponible » au sens de `sysexits.h`,
     // ce qui décrit exactement une commande déclarée mais pas implémentée.
+    // `diff` a quitté cette liste : il compare désormais un fichier d'état
+    // désiré à un scan, et son code de sortie dit si la comparaison a eu lieu.
     for commande in [
-        vec!["diff"],
         vec!["converge"],
         vec!["rollback", "snap-1"],
         vec!["isolate"],
@@ -150,6 +151,142 @@ fn le_sceau_refuse_plutot_que_de_pretendre() {
         texte(&sortie.stderr).contains("ancre externe"),
         "le refus doit expliquer pourquoi : {}",
         texte(&sortie.stderr)
+    );
+}
+
+/// Un chemin de travail à soi, hors du dépôt.
+///
+/// Chaque test porte le sien : la suite s'exécute en parallèle dans le même
+/// processus, et deux tests qui écriraient le même fichier se marcheraient
+/// dessus sans le dire.
+fn fichier_de_travail(nom: &str) -> std::path::PathBuf {
+    let chemin = std::env::temp_dir().join(nom);
+    let _ = std::fs::remove_file(&chemin);
+    chemin
+}
+
+/// Le critère du moment M1, joué sur la machine qui exécute les tests.
+///
+/// `ks import` puis `ks diff`, sans rien toucher entre les deux : **aucun
+/// écart**. C'est le seul test du lot qui mesure la vraie machine, et c'est
+/// pour cela qu'il ne cite aucun chiffre absolu — sur un hôte Linux, aucun item
+/// n'est déclarable, et l'invariant tient quand même.
+#[test]
+fn ce_que_limport_ecrit_ne_produit_aucun_ecart() {
+    let fichier = fichier_de_travail("ks-import-m1.yaml");
+    let chemin = fichier.display().to_string();
+
+    let import = ks(&["import", "-o", &chemin]);
+    assert!(
+        import.status.success(),
+        "l'import doit réussir : {}",
+        texte(&import.stderr)
+    );
+    let annonce = texte(&import.stdout);
+    assert!(
+        annonce.contains("Rien n'a été modifié"),
+        "le moment M1 se dit en toutes lettres : {annonce}"
+    );
+    assert!(
+        fichier.exists(),
+        "le fichier annoncé doit exister sur le disque"
+    );
+
+    // ADR-0017 : la commande git est proposée, jamais exécutée. Le test ne peut
+    // pas prouver qu'aucun processus n'a démarré — la barrière de source s'en
+    // charge — mais il exige que le service soit rendu.
+    assert!(
+        annonce.contains("git -C"),
+        "la commande git n'est pas proposée : {annonce}"
+    );
+    assert!(
+        annonce.contains("n'exécute pas git"),
+        "le refus doit s'expliquer, pas se taire : {annonce}"
+    );
+
+    let diff = ks(&["diff", "--config", &chemin, "--json"]);
+    assert!(
+        diff.status.success(),
+        "la comparaison doit avoir lieu : {}",
+        texte(&diff.stderr)
+    );
+    let rendu: serde_json::Value =
+        serde_json::from_str(&texte(&diff.stdout)).expect("la sortie --json doit être du JSON");
+
+    let ecarts = rendu["deviations"]
+        .as_array()
+        .expect("la sortie porte la liste des écarts");
+    assert!(
+        ecarts.is_empty(),
+        "adopter l'état lu puis le comparer à lui-même ne peut pas produire d'écart : {ecarts:?}"
+    );
+    assert_eq!(
+        rendu["declared"], rendu["compliant"],
+        "toute déclaration posée sur un item observé doit être conforme"
+    );
+    assert_eq!(
+        rendu["declaredNotObserved"]
+            .as_array()
+            .map(Vec::len)
+            .expect("la sortie porte la liste des chemins non observés"),
+        0,
+        "un chemin écrit depuis un scan existe dans ce scan"
+    );
+
+    let _ = std::fs::remove_file(&fichier);
+}
+
+/// Écraser un état désiré est irréversible : il faut le demander (principe P3).
+#[test]
+fn un_import_necrase_pas_un_fichier_existant_sans_force() {
+    let fichier = fichier_de_travail("ks-import-ecrasement.yaml");
+    let chemin = fichier.display().to_string();
+    std::fs::write(&fichier, "ceci n'est pas un état désiré\n").expect("préparation");
+
+    let refus = ks(&["import", "-o", &chemin]);
+    assert!(!refus.status.success(), "un fichier existant a été écrasé");
+    assert!(
+        texte(&refus.stderr).contains("--force"),
+        "le refus doit dire comment passer outre : {}",
+        texte(&refus.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&fichier).expect("relecture"),
+        "ceci n'est pas un état désiré\n",
+        "le fichier de l'utilisateur a été touché malgré le refus"
+    );
+
+    let accepte = ks(&["import", "-o", &chemin, "--force"]);
+    assert!(
+        accepte.status.success(),
+        "--force doit remplacer : {}",
+        texte(&accepte.stderr)
+    );
+    assert!(std::fs::read_to_string(&fichier)
+        .expect("relecture")
+        .contains("apiVersion: keystone/v1"));
+
+    let _ = std::fs::remove_file(&fichier);
+}
+
+/// Sans fichier, `ks diff` oriente au lieu de se plaindre.
+#[test]
+fn un_diff_sans_fichier_detat_desire_renvoie_vers_import() {
+    let fichier = fichier_de_travail("ks-diff-sans-fichier.yaml");
+    let sortie = ks(&["diff", "--config", &fichier.display().to_string()]);
+
+    assert!(
+        !sortie.status.success(),
+        "comparer sans fichier n'est pas un succès"
+    );
+    let erreur = texte(&sortie.stderr);
+    assert!(
+        erreur.contains("ks import"),
+        "le message doit dire par où commencer : {erreur}"
+    );
+    assert!(
+        texte(&sortie.stdout).trim().is_empty(),
+        "une erreur ne s'écrit pas sur la sortie standard"
     );
 }
 

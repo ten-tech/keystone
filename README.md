@@ -52,10 +52,16 @@ cargo build --workspace
 # 3. Premier scan — LECTURE SEULE, aucune écriture système
 cargo run -p ks-cli -- scan
 cargo run -p ks-cli -- status
+
+# 4. Adopter l'état lu comme référence, puis mesurer l'écart (Phase 1)
+cargo run -p ks-cli -- import -o workstation.yaml
+cargo run -p ks-cli -- diff --config workstation.yaml
 ```
 
-> **La Phase 0 n'écrit rien.** Tu peux la faire tourner sur ta machine principale sans risque :
-> aucun collecteur n'a le droit d'écrire, et le broker n'est pas encore dans la boucle.
+> **Rien n'est écrit sur la machine.** Tu peux faire tourner tout cela sur ton poste principal
+> sans risque : aucun collecteur n'a le droit d'écrire, et le broker n'est pas encore dans la boucle.
+> Les seuls fichiers que Keystone dépose sont ceux qu'on lui demande — `ks report` et `ks import` —
+> jamais par-dessus un existant sans `--force`, et il n'exécute jamais git (ADR-0017).
 > À partir de la Phase 2 (convergence), tout se teste dans la VM de labo — voir
 > [`docs/06-VM-DE-LABO.md`](docs/06-VM-DE-LABO.md).
 
@@ -103,7 +109,7 @@ Le raisonnement complet est dans [`docs/05-ENVIRONNEMENT-DE-DEV.md`](docs/05-ENV
 | Phase | Objet | État |
 |---|---|---|
 | **0 — Observer** | collecteurs en lecture seule, inventaire, journal, CLI | ✅ critère de sortie atteint |
-| 1 — Décrire | schéma yaml, import de l'existant, moteur de diff | ○ à faire |
+| 1 — Décrire | schéma yaml, import de l'existant, moteur de diff | ◐ `ks import` et `ks diff` livrés (ADR-0016, ADR-0017) : le yaml s'écrit depuis l'état lu, l'écart se mesure. Schéma généré, héritage de flotte et journal des décisions restent à faire |
 | 2 — Converger | instantanés, rollback, mises à jour orchestrées, sauvegarde | ○ à faire |
 | 3 — Tenir | espace, posture de sécurité, ancres externes, isolement | ○ à faire |
 | 4 — Vivre | profils, WSL/VM, réseau, docteur de dev, coexistence MDM | ○ à faire |

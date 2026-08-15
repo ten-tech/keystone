@@ -1,6 +1,9 @@
 # ADR-0016 — Lire et écrire le fichier d'état désiré
 
-- **Statut** : Accepté le 2026-08-03
+- **Statut** : Accepté le 2026-08-03 — décisions n° 3 et n° 5 mises en œuvre le
+  2026-08-16 (`ks_cli::emetteur` pour l'écriture, `ks_cli::confrontation` pour le
+  typage par la forme constatée). La décision n° 7, le schéma généré et relu par
+  le lecteur de Keystone en CI, reste à faire.
 - **Date** : 2026-08-03
 - **Exigences concernées** : D2-01, D2-02, D2-10, P2, P6
 - **Précise** : ADR-0010 (dont la décision n° 3 est corrigée sur un point de forme)
@@ -138,7 +141,14 @@ bibliothèque publiée dont d'autres compileraient les sources avec un compilate
 ancien. La toolchain épinglée est déjà 1.97.1.
 
 **3. Keystone n'utilise aucun sérialiseur YAML pour écrire.** `ks import` écrit
-le fichier avec un émetteur maison d'une trentaine de lignes.
+le fichier avec un émetteur maison.
+
+> Ce document annonçait « une trentaine de lignes ». Mesuré à la mise en œuvre :
+> **130 lignes de code** dans `ks_cli::emetteur`, commentaires et tests exclus.
+> L'écart tient à trois choses que l'estimation n'avait pas comptées —
+> l'échappement des textes cités, le bloc de liste, et l'en-tête de commentaires
+> du fichier — et non à un débordement de portée. Le chiffre est corrigé ici
+> plutôt que laissé à croire.
 
 Ce n'est pas une préférence : c'est une nécessité mesurée. Un sérialiseur serde
 produit

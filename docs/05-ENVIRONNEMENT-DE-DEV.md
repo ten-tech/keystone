@@ -148,12 +148,28 @@ Pour que la validation YAML fonctionne, ajouter dans les réglages du workspace 
 ### Phase 0 — sur l'hôte, sans risque
 
 ```powershell
-cargo test --workspace          # 173 tests au total, tous portables
+cargo test --workspace          # 192 tests au total, tous portables
 cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p ks-cli -- scan
 cargo run -p ks-cli -- status
 cargo run -p ks-cli -- explain inventory.cpu.cores
 ```
+
+### Phase 1 — adopter l'état lu, puis mesurer l'écart
+
+```powershell
+cargo run -p ks-cli -- import -o w.yaml   # écrit le fichier, n'écrase jamais sans --force
+cargo run -p ks-cli -- diff --config w.yaml
+```
+
+Sur une machine qui n'a pas bougé entre les deux commandes, `diff` publie **zéro
+écart**. Ce qu'il publie en incomparables, ce sont les items déclarables dont la
+lecture a échoué : sur la machine de référence, les trois exclusions Defender,
+sous une clé protégée par ACL qu'une CLI non élevée ne lit pas.
+
+`import` **affiche** la commande git à exécuter et ne la lance jamais (ADR-0017) :
+un `git commit` déclenche les crochets du dépôt, donc l'exécution d'un fichier du
+disque que Keystone n'a pas choisi.
 
 ### La coque de bureau
 

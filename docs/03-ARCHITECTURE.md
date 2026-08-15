@@ -104,15 +104,35 @@ mécanismes répondent à cela, et aucun ne dépend de l'intégrité de la machi
 |---|---|---|---|---|
 | `ks-core` | vocabulaire : `Item`, `Nature`, `Desire`, `Drift`, `Plan`, `Action`, `Snapshot`, `JournalEntry` | portable | aucun | ✅ 39 tests unitaires |
 | `ks-collectors` | collecte **lecture seule** | portable ; matériel, inventaire logiciel, posture par le registre **et état effectif par WMI** — TPM, BitLocker et SMART restent hors de portée sans élévation (Phase 2) | aucun | ✅ 61 tests unitaires, 4 collecteurs |
-| `ks-cli` | la CLI `ks`, surface de référence | Windows (et Linux pour le dev) | aucun | ✅ `scan`/`status`/`explain`/`journal`/`report` + lecteur de `workstation.yaml`, 49 tests unitaires + **7 d'intégration** (binaire lancé en sous-processus) |
+| `ks-cli` | la CLI `ks`, surface de référence | Windows (et Linux pour le dev) | aucun | ✅ `scan`/`status`/`explain`/`journal`/`report`/`import`/`diff` + lecteur **et émetteur** de `workstation.yaml`, 65 tests unitaires + **10 d'intégration** (binaire lancé en sous-processus) |
 | `ks-broker` | service privilégié | Windows visé ; compile aussi ailleurs, sans effet | élevé | 🔨 verbes énumérés + **huit** barrières SEC-02 et SEC-03, 13 tests unitaires — aucun verbe implémenté |
 | `ks-agent-linux` | agent satellite | Linux musl | aucun | 🔨 scan local, 4 tests unitaires |
 | `ks-ui` | coque de bureau (ADR-0012) | Windows + WebView2 | aucun | ✅ affiche le **poste de pilotage** branché sur l'état réel, jamais les chiffres de la maquette · workspace **séparé**, 30 tests |
 
-**173 tests au total** dans le workspace principal — `ks-ui` vit dans un workspace séparé et porte les siens (30), tous portables et tous exécutés — `cargo test --workspace`,
+**192 tests au total** dans le workspace principal — `ks-ui` vit dans un workspace séparé et porte les siens (30), tous portables et tous exécutés — `cargo test --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings` et `cargo fmt --all --check`
 passent. Ce n'était pas le cas au premier commit : rien n'avait alors jamais été
 compilé, et les comptes annoncés étaient des déclarations.
+
+### Ce que `ks-cli` partage en bibliothèque
+
+Le binaire `ks` consomme sa propre bibliothèque comme n'importe quel autre
+client, et la coque `ks-ui` consomme la même. Quatre modules y vivent, pour une
+raison unique : **deux implémentations de la même chose finissent par ne plus
+dire la même chose, et le jour où ça arrive, on ne sait plus laquelle croire.**
+
+| Module | Ce qu'il rend | Qui l'appelle |
+|---|---|---|
+| `rapport` | le HTML autonome de `ks report` | `ks report`, la coque |
+| `lisible` | les tailles en unités, les jetons en français (ADR-0015) | `ks scan`, `ks diff`, la coque |
+| `etat_desire` | la lecture de `workstation.yaml` (ADR-0016) | `confrontation` |
+| `emetteur` | l'écriture de `workstation.yaml` (ADR-0016, décision n° 3) | `ks import` |
+| `confrontation` | `charger` un fichier, le `confronter` à un scan, publier le verdict | `ks diff`, **et la coque, le jour où elle sera branchée** |
+
+Tant que `ui/ks-ui` n'appelle pas `confrontation`, ses items lui arrivent sans
+désir, `Item::verdict()` répond `NonContraint` partout, et sa vue Dérive reste
+« sans objet ». Le module est public pour rendre ce branchement possible sans
+qu'un second chargeur soit écrit.
 
 ## Ce que la coque affiche, et ce qu'elle refuse d'afficher
 

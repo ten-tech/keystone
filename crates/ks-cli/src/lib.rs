@@ -20,6 +20,13 @@
 //! écrits séparément finissent par en afficher deux, et le jour où ça arrive,
 //! on ne sait plus lequel croire.
 //!
+//! [`confrontation`] existe pour la même raison, et c'est la plus visible :
+//! sans elle, la coque charge les items sans leur désir, `Item::verdict()`
+//! répond `NonContraint` partout, et sa vue Dérive affiche « sans objet » pour
+//! toujours. Deux chargements de `workstation.yaml` écrits séparément
+//! finiraient par ne plus refuser les mêmes fichiers, et l'écran et la CLI ne
+//! diraient plus la même chose du même document.
+//!
 //! ## Ce que cette bibliothèque n'expose pas
 //!
 //! Le magasin du journal reste privé au binaire. Il ouvre une base SQLite en
@@ -29,6 +36,14 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod confrontation;
+pub mod emetteur;
 pub mod etat_desire;
 pub mod lisible;
 pub mod rapport;
+
+// L'inventaire figé sur lequel s'éprouvent l'émetteur et la confrontation. Un
+// test qui appellerait les collecteurs mesurerait la machine qui l'exécute, et
+// ne prouverait donc rien sur la CI Linux — où aucun item n'est déclarable.
+#[cfg(test)]
+mod machine_de_reference;

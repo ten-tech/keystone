@@ -133,14 +133,14 @@ confirme qu'aucun octet n'a été modifié.
 exact, et la dérive suivie pendant 7 jours sans faux positif inexpliqué.
 
 - [ ] JSON Schema publié et validation stricte (`schema/workstation.schema.json` existe déjà)
-- [ ] **Import de l'existant** (D2-02) : génération du yaml initial depuis la machine. *Aucun formulaire à remplir — c'est le moment de vérité M1.*
-- [ ] Moteur de diff, par domaine et par item
+- [x] **Import de l'existant** (D2-02) : `ks import` écrit le yaml depuis l'état lu de la machine, par un émetteur maison qui guillemète tout texte et n'écrit jamais ce qu'il n'a pas su lire (ADR-0016). *Aucun formulaire à remplir — c'est le moment de vérité M1.*
+- [x] Moteur de diff, par domaine et par item : `ks diff` publie les quatre verdicts, l'écart et l'incomparable ligne à ligne (ADR-0008)
 - [ ] **Attribution de la source du changement** (D2-05) : Windows Update, MDM, installeur, humain, **inconnu**
 - [ ] Dérive acceptée avec raison et expiration **obligatoires** (D2-06)
 - [ ] Journal des décisions (D2-07)
 - [ ] Héritage base + surcouche par machine (D2-10)
-- [ ] Intégration git : commit automatique du yaml à chaque changement accepté
-- [ ] `ks diff` opérationnel
+- [x] Le yaml est écrit atomiquement, sans écrasement implicite ; la commande git est **proposée**, jamais exécutée (ADR-0017)
+- [x] `ks diff` opérationnel
 
 ---
 
@@ -240,15 +240,16 @@ Si tu ouvres le projet demain matin.
 1. **Persister les valeurs observées.** La dérive sur sept jours — critère de
    sortie de la Phase 1 — n'est pas mesurable tant qu'aucun relevé n'est
    comparé au précédent. Le magasin existe, il ne stocke que le journal.
-2. **Charger `workstation.yaml`** — **le lecteur existe** (ADR-0016) : le type du
-   document, la table `desired` en scalaires bruts, le refus d'une clé racine
-   inconnue et d'une clé en double, et surtout le typage du scalaire par la
-   **forme de la valeur constatée**, qui neutralise les huit conversions muettes
-   de YAML sur vingt et un scalaires mesurés. Restent `ks import`, qui écrira le
-   fichier avec un émetteur maison, et `ks diff`, qui confrontera la table à un
-   scan. Tant qu'ils manquent, `Item::verdict()` répond `NonContraint` sur les
-   116 items, la posture du poste de pilotage reste « pas encore calculable », et
-   la vue Dérive n'a rien à comparer.
+2. **Brancher la coque sur l'état désiré.** `ks import` et `ks diff` existent
+   (ADR-0016, ADR-0017), et le chargement vit dans la **bibliothèque** `ks-cli`
+   — `confrontation::charger` puis `confrontation::confronter` — précisément
+   pour que `ui/ks-ui` s'en serve. Tant qu'elle ne les appelle pas, tous ses
+   items lui arrivent sans désir, `Item::verdict()` répond `NonContraint`
+   partout, la posture reste « pas encore calculable » et la vue Dérive affiche
+   « sans objet ». C'est un branchement, plus une écriture de moteur.
+   Reste aussi la **génération du schéma JSON** depuis les types Rust, décidée
+   par l'ADR-0010 et non faite : `schema/workstation.schema.json` décrit encore
+   la forme imbriquée, que plus rien ne lit.
 3. **Réconciliation d'inventaire logiciel** — livrée pour l'essentiel, mais
    l'attribution reste incomplète : 54 applications sur 150 sans gestionnaire
    identifié, et le module le déclare lui-même plutôt que d'arrondir.
