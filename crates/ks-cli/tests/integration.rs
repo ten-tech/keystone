@@ -445,3 +445,60 @@ fn accept_refuse_une_raison_vide() {
         "une erreur ne s'écrit pas sur la sortie standard"
     );
 }
+
+/// En `--json`, `applied` dit ce qui a EU LIEU, jamais ce qui a été demandé.
+///
+/// C'est le champ qu'un script lira pour décider s'il doit committer. S'il
+/// recopiait le drapeau `--apply`, il vaudrait `true` même quand la commande a
+/// refusé, et le script committerait un fichier que personne n'a modifié.
+///
+/// Le contrat de sortie est vérifié en même temps : le JSON est **seul** sur sa
+/// sortie standard, donc analysable sans découpage préalable.
+#[test]
+fn accept_en_json_ne_dit_applied_que_sil_a_ecrit() {
+    let fichier = fichier_de_travail("ks-accept-json.yaml");
+    let chemin = fichier.display().to_string();
+    let import = ks(&["import", "-o", &chemin]);
+    assert!(import.status.success(), "{}", texte(&import.stderr));
+
+    let ecrit = std::fs::read_to_string(&fichier).expect("le fichier vient d'être écrit");
+    let Some((item, avec_ecart)) = fabriquer_un_ecart(&ecrit) else {
+        eprintln!("aucun item textuel déclarable sur cet hôte : contrat non exerçable ici");
+        return;
+    };
+    std::fs::write(&fichier, &avec_ecart).expect("écriture du fichier d'essai");
+    let avant = std::fs::read(&fichier).expect("lecture");
+
+    let sortie = ks(&[
+        "--json",
+        "--config",
+        &chemin,
+        "accept",
+        &item,
+        "--reason",
+        "essai du contrat json",
+        "--until",
+        "2099-12-31",
+    ]);
+    assert!(sortie.status.success(), "{}", texte(&sortie.stderr));
+
+    let brut = texte(&sortie.stdout);
+    let json: serde_json::Value = serde_json::from_str(&brut)
+        .unwrap_or_else(|e| panic!("sortie non analysable : {e}\n{brut}"));
+
+    assert_eq!(
+        json["applied"],
+        serde_json::json!(false),
+        "une simulation ne s'annonce pas appliquée"
+    );
+    assert_eq!(json["path"], serde_json::json!(item));
+    assert!(
+        json.get("journalSeq").is_none(),
+        "aucune entrée de journal ne doit exister sans écriture : {brut}"
+    );
+    assert_eq!(
+        avant,
+        std::fs::read(&fichier).expect("lecture"),
+        "le fichier a bougé alors que « applied » vaut false"
+    );
+}

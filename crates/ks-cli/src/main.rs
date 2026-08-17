@@ -288,7 +288,7 @@ fn main() -> ExitCode {
             reason,
             until,
             apply,
-        } => cmd_accept(&cli.config, path, reason, until, *apply),
+        } => cmd_accept(cli.json, &cli.config, path, reason, until, *apply),
 
         // Toutes les commandes qui écriront un jour sont déclarées mais inertes en
         // Phase 0. C'est volontaire : le contrat de la CLI est figé, l'implémentation
@@ -842,7 +842,14 @@ fn ecrire_atomiquement(destination: &std::path::Path, contenu: &str) -> Result<(
 /// Sans `--apply`, la commande n'écrit **ni le fichier, ni le journal**. C'est la
 /// même règle que `ks scan --record` : une décision consignée alors que le
 /// fichier n'a pas bougé décrirait une tolérance qui n'existe nulle part.
-fn cmd_accept(config: &str, path: &str, reason: &str, until: &str, apply: bool) -> Result<()> {
+fn cmd_accept(
+    json: bool,
+    config: &str,
+    path: &str,
+    reason: &str,
+    until: &str,
+    apply: bool,
+) -> Result<()> {
     let chemin = std::path::Path::new(config);
     let aujourd_hui = aujourd_hui();
 
@@ -922,6 +929,34 @@ fn cmd_accept(config: &str, path: &str, reason: &str, until: &str, apply: bool) 
     let bloc = decision.bloc();
     let jours = (echeance - aujourd_hui).num_days();
 
+    // `--json` vaut pour TOUTES les commandes, y compris celle-ci. Le
+    // doc-module en fait une des deux règles visibles de la CLI ; l'oublier sur
+    // une commande nouvelle rendrait la phrase fausse pour cette commande-là, et
+    // c'est ainsi qu'une promesse générale devient un mensonge particulier.
+    //
+    // `applied` dit ce qui a EU LIEU, jamais ce qui a été demandé : un script
+    // qui lirait le drapeau plutôt que le résultat croirait avoir écrit chaque
+    // fois qu'il a passé `--apply`, y compris quand la commande a refusé.
+    if json {
+        let mut sortie = serde_json::json!({
+            "config": chemin.display().to_string(),
+            "path": path,
+            "reason": decision.raison,
+            "expires": echeance,
+            "decidedBy": decision.decideur,
+            "daysLeft": jours,
+            "block": bloc,
+            "applied": apply,
+        });
+        if apply {
+            let entree = appliquer_tolerance(chemin, &source, &bloc, &decision)?;
+            sortie["journalSeq"] = serde_json::json!(entree.seq);
+            sortie["journalDigest"] = serde_json::json!(entree.digest());
+        }
+        println!("{}", serde_json::to_string_pretty(&sortie)?);
+        return Ok(());
+    }
+
     if !apply {
         println!("Rien n'a été modifié.\n");
         println!("« {path} » est en écart :");
@@ -948,43 +983,7 @@ fn cmd_accept(config: &str, path: &str, reason: &str, until: &str, apply: bool) 
         return Ok(());
     }
 
-    let sortie = acceptation::inserer(&source, &bloc);
-
-    // Le document réécrit est relu par le lecteur du produit AVANT d'atteindre
-    // le disque. Un fichier d'état que Keystone n'accepte plus est la source de
-    // vérité du poste qui disparaît, et il ne faut pas la remplacer par un
-    // document invalide au motif qu'on l'a bien formé.
-    let relu = ks_cli::etat_desire::EtatDesire::lire(&sortie).with_context(|| {
-        format!(
-            "Le document obtenu après insertion n'est plus relisible par Keystone. \
-             « {} » n'a PAS été modifié.",
-            chemin.display()
-        )
-    })?;
-    anyhow::ensure!(
-        relu.accepted_drift.iter().any(|a| a.item == path),
-        "La tolérance n'a pas été retrouvée après insertion. « {} » n'a PAS été modifié.",
-        chemin.display()
-    );
-
-    ecrire_atomiquement(chemin, &sortie)?;
-
-    let magasin = magasin::Magasin::ouvrir(&chemin_journal()?)?;
-    let entree = magasin.ajouter(ks_core::JournalEntry {
-        seq: 0,
-        at: decision.decide_le,
-        actor: ks_core::Actor::Human(decision.decideur.clone()),
-        verb: "accept".to_owned(),
-        target: path.to_owned(),
-        // Le diff entre dans l'empreinte : la trace de ce qui a été écrit ne se
-        // réécrit pas sans casser la chaîne.
-        diff: Some(bloc.trim_end().to_owned()),
-        outcome: ks_core::Outcome::Decided {
-            reason: decision.raison.clone(),
-            expires: echeance,
-        },
-        prev_digest: String::new(),
-    })?;
+    let entree = appliquer_tolerance(chemin, &source, &bloc, &decision)?;
 
     println!("Tolérance écrite dans « {} ».\n", chemin.display());
     println!("  item      {path}");
@@ -1004,6 +1003,61 @@ fn cmd_accept(config: &str, path: &str, reason: &str, until: &str, apply: bool) 
     println!("\nPour la versionner :");
     println!("  git add {} && git commit", chemin.display());
     Ok(())
+}
+
+/// Écrit la tolérance dans le fichier, puis consigne la décision au journal.
+///
+/// **Un seul chemin d'écriture**, appelé par la sortie texte comme par la sortie
+/// `--json`. Les deux l'avaient d'abord en double, ce qui est une divergence qui
+/// attend son heure : le jour où l'une gagne un contrôle et l'autre non, le
+/// même produit se comporte différemment selon un drapeau d'affichage.
+///
+/// L'ordre compte. Le document est relu **par le lecteur du produit** avant
+/// d'atteindre le disque, et le journal n'est écrit qu'après le fichier : une
+/// décision consignée sur une écriture qui a échoué décrirait une tolérance qui
+/// n'existe nulle part.
+fn appliquer_tolerance(
+    chemin: &std::path::Path,
+    source: &str,
+    bloc: &str,
+    decision: &acceptation::Decision,
+) -> Result<ks_core::JournalEntry> {
+    let ecrit = acceptation::inserer(source, bloc);
+
+    // Un fichier d'état que Keystone n'accepte plus, c'est la source de vérité
+    // du poste qui disparaît. On ne la remplace pas par un document invalide au
+    // motif qu'on l'a bien formé.
+    let relu = ks_cli::etat_desire::EtatDesire::lire(&ecrit).with_context(|| {
+        format!(
+            "Le document obtenu après insertion n'est plus relisible par Keystone. \
+             « {} » n'a PAS été modifié.",
+            chemin.display()
+        )
+    })?;
+    anyhow::ensure!(
+        relu.accepted_drift.iter().any(|a| a.item == decision.item),
+        "La tolérance n'a pas été retrouvée après insertion. « {} » n'a PAS été modifié.",
+        chemin.display()
+    );
+
+    ecrire_atomiquement(chemin, &ecrit)?;
+
+    let magasin = magasin::Magasin::ouvrir(&chemin_journal()?)?;
+    magasin.ajouter(ks_core::JournalEntry {
+        seq: 0,
+        at: decision.decide_le,
+        actor: ks_core::Actor::Human(decision.decideur.clone()),
+        verb: "accept".to_owned(),
+        target: decision.item.clone(),
+        // Le diff entre dans l'empreinte : la trace de ce qui a été écrit ne se
+        // réécrit pas sans casser la chaîne.
+        diff: Some(bloc.trim_end().to_owned()),
+        outcome: ks_core::Outcome::Decided {
+            reason: decision.raison.clone(),
+            expires: decision.echeance,
+        },
+        prev_digest: String::new(),
+    })
 }
 
 /// Qui décide, tel que le journal et le fichier l'enregistrent.
