@@ -18,14 +18,18 @@
 //! démarrage des services, le pare-feu, le firmware, l'horloge.
 //!
 //! **WMI** donne l'exécution, et lui seul. Aucune valeur de registre n'atteste
-//! que VBS tourne, que le noyau sécurisé a démarré, ou que la protection en
-//! temps réel est active. Ces états vivent dans `Win32_DeviceGuard` et
-//! `MSFT_MpComputerStatus` — voir [`crate::etat_effectif`] et l'ADR-0005.
+//! que VBS tourne, que le noyau sécurisé a démarré, que la protection en temps
+//! réel est active, ni **qu'un service réglé sur « automatique » s'exécute
+//! effectivement**. Ces états vivent dans `Win32_DeviceGuard`,
+//! `MSFT_MpComputerStatus` et `Win32_Service` — voir [`crate::etat_effectif`]
+//! et l'ADR-0005.
 //!
 //! Les chemins le disent : `vbs_policy` contre `vbs_running`, `hvci_policy`
-//! contre `hvci_running`. **Leur divergence est ce qui vaut d'être regardé** —
-//! une configuration sans exécution décrit une machine qu'on croit protégée et
-//! qui ne l'est pas.
+//! contre `hvci_running`, `services.<nom>.startup` contre
+//! `services.<nom>.running`. **Leur divergence est ce qui vaut d'être
+//! regardé** — une configuration sans exécution décrit une machine qu'on croit
+//! protégée et qui ne l'est pas. Mesuré sur la machine de référence le
+//! 2026-08-17 : neuf services y sont en démarrage automatique sans s'exécuter.
 //!
 //! Ni l'une ni l'autre source n'exige un bloc `unsafe` : la bibliothèque WMI
 //! expose une API sûre de bout en bout pour ce qu'on en fait. Ce qui l'exigerait
@@ -56,8 +60,8 @@ use chrono::{DateTime, Utc};
 use ks_core::{Item, ItemValue};
 
 use crate::jetons::{
-    DemarrageService, EtatProtectionLsa, EtatVbs, IntegriteCode, ProtectionVerrouillable,
-    ServiceHyperviseur, TableDeCodes,
+    DemarrageService, EtatProtectionLsa, EtatVbs, ExecutionService, IntegriteCode,
+    ProtectionVerrouillable, TableDeCodes,
 };
 
 // `Domain`, `Nature` et `Provenance` ne servent qu'à fabriquer un item, ce que
@@ -266,7 +270,7 @@ pub mod service_vbs {
 pub fn service_vbs_present(lecture: &Lecture<Vec<u32>>, code: u32) -> ItemValue {
     match lecture {
         Lecture::Trouvee(codes) => {
-            ItemValue::Text(ServiceHyperviseur::depuis_presence(codes.contains(&code)).jeton())
+            ItemValue::Text(ExecutionService::depuis_execution(codes.contains(&code)).jeton())
         }
         Lecture::Absente => ItemValue::Absent,
         Lecture::Refusee => ItemValue::illisible(REFUS),
@@ -1102,6 +1106,16 @@ mod windows_impl {
         ));
 
         // ─── Services de sécurité ───────────────────────────────────────────
+        //
+        // Deux items par service, et **leur divergence est l'information** —
+        // exactement comme `vbs_policy` contre `vbs_running`. Le registre porte
+        // le type de démarrage ; il ne dit rien de l'exécution. Un service réglé
+        // sur « automatique » puis arrêté à la main garde sa valeur `Start`
+        // intacte : mesuré sur cette machine, neuf services sont dans ce cas.
+        //
+        // Une seule requête WMI alimente les six items d'exécution.
+        let services = crate::etat_effectif::lire_services();
+
         for (service, role) in SERVICES_SURVEILLES {
             let depart = u32_registre(
                 &format!(r"SYSTEM\CurrentControlSet\Services\{service}"),
@@ -1118,8 +1132,30 @@ mod windows_impl {
                 role,
                 "Un service de sécurité mis à « désactivé » est le premier maillon de \
                  la plupart des chaînes d'attaque (§6). Attention à la portée : cet \
-                 item lit le TYPE DE DÉMARRAGE, pas l'exécution. Un service en \
-                 « automatique » mais arrêté à la main reste vert ici.",
+                 item lit le TYPE DE DÉMARRAGE, pas l'exécution — celle-ci se lit à \
+                 côté, sur le même service, en « .running ».",
+                Some("docs/04-MODELE-DE-MENACE.md § 6"),
+            ));
+
+            items.push(item_posture(
+                &format!("security.services.{}.running", service.to_lowercase()),
+                // **Objectif, et pas réglage.** Le type de démarrage s'écrit au
+                // registre, donc un verbe l'écrira ; l'exécution, elle, ne
+                // s'écrit nulle part. Un service peut refuser de démarrer —
+                // dépendance absente, stratégie gérée, binaire manquant — sans
+                // qu'aucune valeur de configuration bouge. C'est la position que
+                // l'ADR-0009 tient déjà sur l'exécution effective de VBS : on
+                // peut la vouloir, la mesurer et la signaler sans savoir agir.
+                Nature::Objectif,
+                crate::etat_effectif::execution_service(&services, service),
+                &format!(
+                    "{role}. Exécution réellement constatée, lue dans « Win32_Service », \
+                     et non type de démarrage."
+                ),
+                "Un service réglé sur « automatique » puis arrêté à la main affiche une \
+                 configuration conforme sans rien protéger. C'est l'écart que le type de \
+                 démarrage seul ne montre pas. Un service non installé sur cette machine \
+                 reste absent, jamais « à l'arrêt ».",
                 Some("docs/04-MODELE-DE-MENACE.md § 6"),
             ));
         }
@@ -1536,7 +1572,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn la_posture_repartit_ses_items_en_quatre_natures() {
-        // Ce collecteur pousse toujours les mêmes 39 chemins, quelle que soit
+        // Ce collecteur pousse toujours les mêmes 45 chemins, quelle que soit
         // la machine : ce qui varie est la VALEUR, jamais la liste. Les quatre
         // décomptes ci-dessous sont donc reproductibles partout, y compris sur
         // un agent d'intégration continue où rien n'est configuré.
@@ -1559,9 +1595,12 @@ mod tests {
 
         assert_eq!(
             (reglages, objectifs, mesures, constats),
-            // Un objectif de plus qu'avant l'ADR-0015 : le verrou UEFI de la
-            // protection LSA, déplié de l'état qui le portait dans sa chaîne.
-            (24, 7, 4, 4),
+            // Six objectifs de plus : l'exécution effective des six services
+            // surveillés. Aucun verbe ne démarre un service, donc on peut la
+            // vouloir sans savoir la produire — la définition même d'`Objectif`.
+            // Le verrou UEFI de la protection LSA, déplié par l'ADR-0015, est le
+            // septième.
+            (24, 13, 4, 4),
             "répartition des natures de posture : {} items",
             items.len()
         );
@@ -1595,6 +1634,15 @@ mod tests {
             nature("security.services.windefend.startup"),
             Nature::Reglage
         );
+        // Et l'exécution du même service n'est PAS un réglage : le type de
+        // démarrage s'écrit au registre, l'exécution ne s'écrit nulle part. La
+        // classer réglage promettrait une convergence qu'aucun verbe ne tient.
+        assert_eq!(
+            nature("security.services.windefend.running"),
+            Nature::Objectif
+        );
+        assert!(!nature("security.services.windefend.running").est_convergeable());
+        assert!(nature("security.services.windefend.running").est_declarable());
 
         // Le préfixe ne décide de rien : un constat au milieu du domaine
         // `security.`, à côté d'un réglage et d'une mesure.
@@ -1643,6 +1691,93 @@ mod tests {
                 ItemValue::Absent,
                 "« {chemin} » : ce service existe sur tout Windows 11 — \
                  le nom interrogé est probablement mal orthographié"
+            );
+        }
+    }
+
+    /// L'exécution effective est-elle publiée pour chaque service surveillé ?
+    ///
+    /// # Ce que ce test attrape, et que le précédent ne voyait pas
+    ///
+    /// Le rapprochement entre `SERVICES_SURVEILLES` et `Win32_Service` se fait
+    /// sur un **nom**, et les deux sources ne l'écrivent pas pareil : la liste
+    /// dit `MpsSvc`, WMI rapporte `mpssvc`. Une comparaison littérale ne
+    /// trouverait aucune ligne, donc publierait « absent » — c'est-à-dire « ce
+    /// service n'est pas installé » — sur un pare-feu qui tourne. C'est le
+    /// défaut `wscvc` à l'identique, avec la casse à la place d'une lettre.
+    ///
+    /// Ces trois services existent et tournent sur toute installation de
+    /// Windows 11 ; `Sense` et `wscsvc` restent hors de la liste, pour la même
+    /// raison que dans le test voisin — une absence légitime ne doit pas faire
+    /// échouer un test.
+    #[cfg(windows)]
+    #[test]
+    fn lexecution_dun_service_toujours_present_ne_remonte_ni_absente_ni_illisible() {
+        let items = PostureCollector::items();
+
+        // Les deux familles vont par paires : un service surveillé sans son
+        // item d'exécution redeviendrait vert alors qu'il est arrêté.
+        for (service, _) in SERVICES_SURVEILLES {
+            let court = service.to_lowercase();
+            let chemin = format!("security.services.{court}.running");
+            let execution = items
+                .iter()
+                .find(|i| i.path == chemin)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "« {chemin} » n'est pas produit : le service est surveillé sur \
+                         son type de démarrage, et pas sur son exécution"
+                    )
+                })
+                .observed
+                .clone();
+
+            // **La barrière, ancrée sur la machine et non sur une table de
+            // test.** Un type de démarrage absent du registre veut dire que le
+            // service n'est pas installé — c'est le cas de `Sense` partout où
+            // Defender for Endpoint n'est pas déployé. Son exécution ne peut
+            // alors pas être « à l'arrêt » : ce serait un écart de sécurité
+            // fabriqué sur une machine qui ne porte simplement pas ce service.
+            let demarrage = &items
+                .iter()
+                .find(|i| i.path == format!("security.services.{court}.startup"))
+                .unwrap_or_else(|| panic!("« {court} » sans type de démarrage"))
+                .observed;
+            if *demarrage == ItemValue::Absent {
+                assert_ne!(
+                    execution,
+                    ItemValue::Text("arrete".into()),
+                    "« {chemin} » : ce service n'est pas installé sur cette machine, \
+                     et l'annoncer à l'arrêt inventerait un écart"
+                );
+            }
+        }
+
+        for service in ["windefend", "mpssvc", "eventlog"] {
+            let chemin = format!("security.services.{service}.running");
+            let item = items
+                .iter()
+                .find(|i| i.path == chemin)
+                .unwrap_or_else(|| panic!("« {chemin} » n'est pas produit du tout"));
+
+            assert_ne!(
+                item.observed,
+                ItemValue::Absent,
+                "« {chemin} » : ce service existe sur tout Windows 11 — le \
+                 rapprochement avec « Win32_Service » ne trouve pas sa ligne, \
+                 probablement à cause de la casse du nom"
+            );
+            assert!(
+                item.observed.est_constat(),
+                "« {chemin} » vaut {} : « Win32_Service » a été mesuré lisible en \
+                 session non élevée, un refus ici est un défaut de lecture",
+                item.observed
+            );
+            assert_eq!(
+                item.observed,
+                ItemValue::Text("en-execution".into()),
+                "« {chemin} » : ce service tourne sur toute installation de \
+                 Windows 11 — s'il ressort à l'arrêt, c'est la lecture qui l'est"
             );
         }
     }

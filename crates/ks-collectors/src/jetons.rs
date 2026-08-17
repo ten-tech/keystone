@@ -408,32 +408,45 @@ impl TableDeCodes for IntegriteCode {
     }
 }
 
-/// Jeton d'un service protégé par l'hyperviseur qui tourne réellement.
+/// Jeton d'un service qui tourne réellement.
 ///
 /// Partagé avec [`EtatVbs::EnExecution`] : c'est le même fait, il ne s'écrit
 /// donc pas de deux façons.
 pub const SERVICE_EN_EXECUTION: &str = "en-execution";
 
-/// Un service protégé par l'hyperviseur figure-t-il dans `SecurityServicesRunning` ?
+/// Un service s'exécute-t-il réellement ?
 ///
 /// Deux valeurs et pas un booléen, délibérément : un booléen s'affiche
 /// « activé », le vocabulaire d'un interrupteur. Or la question posée est
 /// « est-ce que ça tourne ? », à laquelle « activé » répond de travers — c'est
 /// précisément la confusion entre configuration et exécution que la lecture WMI
 /// existe pour lever.
+///
+/// # Deux familles d'items s'en servent, et c'est le même fait
+///
+/// Les services protégés par l'hyperviseur, dont l'exécution se lit dans
+/// `SecurityServicesRunning` (`security.platform.hvci_running`), et les services
+/// Windows surveillés, dont l'exécution se lit dans `Win32_Service`
+/// (`security.services.<nom>.running`). Une seconde table portant les mêmes
+/// jetons dirait deux fois la même chose et divergerait au premier changement ;
+/// c'est la raison pour laquelle cette table ne nomme plus sa source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ServiceHyperviseur {
-    /// Le code figure dans la liste lue.
+pub enum ExecutionService {
+    /// Le service s'exécute.
     EnExecution,
-    /// La liste a été lue, et le code n'y est pas. C'est un constat.
+    /// On a regardé, et il ne s'exécute pas. C'est un constat, pas une lacune.
     Arrete,
 }
 
-impl ServiceHyperviseur {
-    /// Range une appartenance à la liste lue.
+impl ExecutionService {
+    /// Range un constat d'exécution.
+    ///
+    /// Le booléen attendu vient d'une lecture **réussie** : appeler cette
+    /// fonction avec `false` parce qu'on n'a rien pu lire produirait le faux
+    /// négatif que tout ce crate existe pour éviter.
     #[must_use]
-    pub const fn depuis_presence(present: bool) -> Self {
-        if present {
+    pub const fn depuis_execution(en_execution: bool) -> Self {
+        if en_execution {
             Self::EnExecution
         } else {
             Self::Arrete
@@ -441,7 +454,7 @@ impl ServiceHyperviseur {
     }
 }
 
-impl TableDeCodes for ServiceHyperviseur {
+impl TableDeCodes for ExecutionService {
     fn variantes() -> Vec<Self> {
         let echantillons = vec![Self::EnExecution, Self::Arrete];
         for v in &echantillons {
@@ -463,7 +476,7 @@ impl TableDeCodes for ServiceHyperviseur {
 /// Ce que le matériel sait faire, d'après `AvailableSecurityProperties`.
 ///
 /// Réponse textuelle, pas booléenne, pour la même raison que
-/// [`ServiceHyperviseur`] : la question est « ce matériel en est-il capable »,
+/// [`ExecutionService`] : la question est « ce matériel en est-il capable »,
 /// jamais « est-ce en service ». Sur une machine où la protection DMA est
 /// disponible mais non activée, « activé » serait un faux positif de sécurité.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -567,7 +580,7 @@ pub fn tous() -> Vec<String> {
     ajouter::<EtatProtectionLsa>(&mut vocabulaire);
     ajouter::<EtatVbs>(&mut vocabulaire);
     ajouter::<IntegriteCode>(&mut vocabulaire);
-    ajouter::<ServiceHyperviseur>(&mut vocabulaire);
+    ajouter::<ExecutionService>(&mut vocabulaire);
     ajouter::<ProprieteMaterielle>(&mut vocabulaire);
     ajouter::<Attribution>(&mut vocabulaire);
     vocabulaire
@@ -679,7 +692,7 @@ mod tests {
             &["eteinte", "audit", "imposee", "code-inconnu:9"],
         );
         attendu(
-            ServiceHyperviseur::variantes()
+            ExecutionService::variantes()
                 .into_iter()
                 .map(TableDeCodes::jeton)
                 .collect(),

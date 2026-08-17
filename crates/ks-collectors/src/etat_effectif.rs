@@ -14,14 +14,26 @@
 //!
 //! ## Ce qui est lu, et ce qui ne l'est pas
 //!
-//! Deux classes, mesurées **lisibles en session non élevée** sur une machine
+//! Trois classes, mesurées **lisibles en session non élevée** sur une machine
 //! réelle — c'est-à-dire dans les conditions où la CLI s'exécute (SEC-01) :
-//! `Win32_DeviceGuard` et `MSFT_MpComputerStatus`.
+//! `Win32_DeviceGuard`, `MSFT_MpComputerStatus` et `Win32_Service`.
 //!
 //! `Win32_Tpm` et `Win32_EncryptableVolume` renvoient « accès refusé ». Ils ne
 //! butent pas sur une API manquante mais sur une liste de contrôle d'accès :
 //! aucun choix de bibliothèque ne les rendrait lisibles ici. Ils appartiennent
 //! au broker, donc à la Phase 2.
+//!
+//! ## `Win32_Service`, et l'angle mort qu'il comble
+//!
+//! Le registre porte le **type de démarrage** d'un service, jamais son
+//! exécution. Un service réglé sur « automatique » puis arrêté à la main garde
+//! sa valeur `Start` inchangée : le collecteur de registre l'affiche conforme,
+//! et il ne protège rien. Mesuré sur la machine de référence le 2026-08-17 :
+//! **neuf services y sont en démarrage automatique sans s'exécuter.**
+//!
+//! C'est le même écart que `vbs_policy` contre `vbs_running`, sur les services
+//! que le §6 du modèle de menace place au premier rang. `Win32_Service` porte
+//! `StartMode` **et** `State`, et il répond sans élévation.
 //!
 //! ## Aucune méthode WMI n'est invoquée
 //!
@@ -67,6 +79,37 @@ pub struct EtatPlateforme {
     pub proprietes_disponibles: Lecture<Vec<u32>>,
 }
 
+/// L'état d'exécution des services de la machine, par nom **en minuscules**.
+///
+/// # La casse, et pourquoi elle est normalisée à la lecture
+///
+/// Les noms de services Windows sont insensibles à la casse, et les sources ne
+/// s'accordent pas : `SERVICES_SURVEILLES` écrit `MpsSvc`, `Win32_Service`
+/// rapporte `mpssvc`. Une comparaison littérale ne trouverait pas la ligne,
+/// donc publierait une **absence** — c'est-à-dire « ce service n'est pas
+/// installé » — sur un pare-feu qui tourne. C'est le défaut `wscvc` à
+/// l'identique, avec la casse à la place d'une lettre manquante.
+///
+/// # Pourquoi l'état reste une chaîne brute
+///
+/// La valeur est `Win32_Service.State` telle que WMI la rend, sans
+/// interprétation. Celle-ci vit dans [`execution_service`], donc dans une
+/// fonction pure qu'un test éprouve sans WMI ni machine Windows — c'est la
+/// règle que le collecteur de registre applique déjà à ses valeurs.
+///
+/// `None` dit que la ligne existe mais que la classe n'a rapporté **aucun**
+/// état pour elle. Ce n'est pas « à l'arrêt » : c'est une lecture manquante, et
+/// elle ressort illisible.
+pub type ServicesObserves = std::collections::BTreeMap<String, Option<String>>;
+
+/// La valeur de `Win32_Service.State` qui signifie « le service s'exécute ».
+///
+/// Mesurée sur la machine de référence le 2026-08-17, en session non élevée et
+/// sur un Windows en français : la propriété rend `Running` et `Stopped`, non
+/// traduits. La comparaison est néanmoins **insensible à la casse**, parce que
+/// rien ne contractualise l'inverse.
+const ETAT_EN_EXECUTION: &str = "Running";
+
 /// Ce que `MSFT_MpComputerStatus` rapporte, réduit à ce qu'on publie.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct EtatDefender {
@@ -93,6 +136,43 @@ pub fn lire() -> (EtatPlateforme, EtatDefender) {
     #[cfg(not(windows))]
     {
         (EtatPlateforme::default(), EtatDefender::default())
+    }
+}
+
+/// Lit l'exécution effective de **tous** les services de la machine.
+///
+/// # Une seule requête, et pas une par service
+///
+/// `Win32_Service` s'énumère d'un coup, et la bibliothèque ne demande que les
+/// colonnes de la projection (`SELECT Name,State FROM Win32_Service`). Six
+/// requêtes filtrées coûteraient six allers-retours COM pour la même
+/// information ; la liste des services surveillés grandira, la requête non.
+///
+/// # Pourquoi ce n'est pas [`lire`] qui la rend
+///
+/// Le fil dédié porte un **délai** (`DELAI_WMI`, propre à Windows, donc cité
+/// sans lien pour que cette page se construise aussi ailleurs) qui borne
+/// l'attente. Le
+/// partager avec les deux autres classes rendrait une énumération lente des
+/// services capable de faire passer VBS, l'intégrité mémoire, Credential Guard
+/// et la protection DMA en « illisible » d'un coup. Un budget par lecture garde
+/// les échecs indépendants, ce qui est exactement ce que [`crate::attribution`]
+/// fait déjà de son côté.
+///
+/// Ne renvoie jamais d'erreur : un échec se range en [`Lecture::Refusee`], et
+/// l'item affiche « illisible » plutôt qu'un service à l'arrêt qu'on n'a pas vu.
+#[must_use]
+pub fn lire_services() -> Lecture<ServicesObserves> {
+    #[cfg(windows)]
+    {
+        windows_impl::lire_services()
+    }
+    #[cfg(not(windows))]
+    {
+        // Hors Windows il n'y a pas de service Windows à lire. `Absente` et
+        // non `Trouvee(vide)` : une table vide dirait « aucun de ces services
+        // n'est installé », ce qui est un constat qu'on n'a pas fait.
+        Lecture::Absente
     }
 }
 
@@ -203,6 +283,20 @@ mod windows_impl {
         behavior_monitor_enabled: Option<bool>,
     }
 
+    /// Projection de `Win32_Service`.
+    ///
+    /// Deux colonnes, et pas une de plus : la bibliothèque construit sa requête
+    /// à partir des champs de la structure, donc chaque champ ajouté ici est une
+    /// colonne demandée à WMI pour les quelque trois cents services de la
+    /// machine. `StartMode` n'y figure pas — le type de démarrage se lit déjà au
+    /// registre, et deux sources pour un même fait divergeraient.
+    #[derive(Deserialize, Debug)]
+    #[serde(rename = "Win32_Service", rename_all = "PascalCase")]
+    struct Service {
+        name: Option<String>,
+        state: Option<String>,
+    }
+
     /// Une valeur présente est un constat ; une valeur absente n'en est pas un.
     fn depuis<T>(valeur: Option<T>) -> Lecture<T> {
         valeur.map_or(Lecture::Absente, Lecture::Trouvee)
@@ -259,6 +353,43 @@ mod windows_impl {
         (plateforme, defender)
     }
 
+    /// Lit `Win32_Service` sur un fil dédié — voir [`super::sur_un_fil_dedie`],
+    /// qui porte le raisonnement sur COM, sur le délai, et sur ce que le repli
+    /// ne couvre pas.
+    pub(super) fn lire_services() -> Lecture<super::ServicesObserves> {
+        super::sur_un_fil_dedie(interroger_services, || Lecture::Refusee)
+    }
+
+    fn interroger_services() -> Lecture<super::ServicesObserves> {
+        use wmi::{COMLibrary, WMIConnection};
+
+        // Un échec ici est un refus de lecture, jamais un constat : c'est la
+        // doctrine du module, et elle vaut d'autant plus ici qu'un service
+        // faussement rapporté à l'arrêt est un écart de sécurité inventé.
+        let Ok(com) = COMLibrary::new() else {
+            return Lecture::Refusee;
+        };
+        // `Win32_Service` vit dans `root\CIMV2`, l'espace de noms par défaut —
+        // le même que les correctifs de `crate::attribution`.
+        let Ok(connexion) = WMIConnection::new(com) else {
+            return Lecture::Refusee;
+        };
+        let Ok(lignes) = connexion.query::<Service>() else {
+            return Lecture::Refusee;
+        };
+
+        // Une ligne sans nom est **écartée** : elle ne peut être rapprochée
+        // d'aucun service surveillé, donc la garder ne dirait rien de plus. Son
+        // état, lui, est conservé tel quel jusqu'à la fonction pure, `None`
+        // compris — voir [`super::ServicesObserves`].
+        Lecture::Trouvee(
+            lignes
+                .into_iter()
+                .filter_map(|l| Some((l.name?.to_lowercase(), l.state)))
+                .collect(),
+        )
+    }
+
     fn refus_plateforme() -> EtatPlateforme {
         EtatPlateforme {
             vbs: Lecture::Refusee,
@@ -296,6 +427,60 @@ pub fn propriete_disponible(etat: &EtatPlateforme, code: u32) -> ItemValue {
         ),
         Lecture::Absente => ItemValue::Absent,
         Lecture::Refusee => ItemValue::illisible("WMI n'a pas répondu"),
+    }
+}
+
+/// Ce service s'exécute-t-il **réellement** ?
+///
+/// Réponse **textuelle**, pas booléenne, et pour la raison qui gouverne déjà
+/// [`crate::posture::service_vbs_present`] : un booléen s'affiche « activé », ce
+/// qui est le vocabulaire d'un interrupteur, donc celui de la configuration. La
+/// question posée ici est « est-ce que ça tourne ? ».
+///
+/// # Les quatre réponses, et celle qu'il ne faut jamais confondre
+///
+/// | Cas | Valeur | Sens |
+/// |---|---|---|
+/// | la ligne existe, l'état vaut `Running` | `en-execution` | le service tourne |
+/// | la ligne existe, l'état vaut autre chose | `arrete` | on a regardé, il ne tourne pas |
+/// | **aucune ligne à ce nom** | [`ItemValue::Absent`] | le service n'est pas installé ici |
+/// | rien n'a pu être lu | [`ItemValue::Illisible`] | on n'a pas regardé |
+///
+/// La troisième ligne est celle qui compte. `Sense` n'existe que là où Defender
+/// for Endpoint est déployé : publier « à l'arrêt » sur une machine qui ne le
+/// porte pas fabriquerait un écart de sécurité de toutes pièces, sur un item
+/// que le §6 du modèle de menace place au premier rang. Une absence n'est ni
+/// vraie ni fausse, et c'est exactement ce qu'il faut en dire.
+///
+/// # La limite, nommée plutôt que découverte
+///
+/// `Win32_Service.State` connaît des états transitoires — `Start Pending`,
+/// `Stop Pending`, `Paused`. Ils tombent tous dans `arrete`, ce qui est vrai au
+/// sens de la question (le service ne tourne pas) mais grossier au sens de
+/// l'état. Le vocabulaire fermé de [`crate::jetons`] n'a pas de jeton pour eux,
+/// et lui en ajouter un pour une fenêtre de quelques secondes au démarrage
+/// serait payer un vocabulaire permanent pour un état fugace. Le sens de
+/// l'erreur est le bon : on ne déclare jamais protégé ce qui ne l'est pas.
+#[must_use]
+pub fn execution_service(services: &Lecture<ServicesObserves>, nom: &str) -> ItemValue {
+    match services {
+        Lecture::Trouvee(observes) => match observes.get(&nom.to_lowercase()) {
+            Some(Some(etat)) => ItemValue::Text(
+                crate::jetons::ExecutionService::depuis_execution(
+                    etat.eq_ignore_ascii_case(ETAT_EN_EXECUTION),
+                )
+                .jeton(),
+            ),
+            // La ligne existe, son état non. Ce n'est pas « à l'arrêt » : rien
+            // ne l'atteste, et un arrêt inventé est un écart inventé.
+            Some(None) => ItemValue::illisible("Win32_Service n'a pas rapporté l'état du service"),
+            // Aucune ligne à ce nom : le service n'est pas installé ici.
+            None => ItemValue::Absent,
+        },
+        // `Absente` comme `Refusee` : on n'a pas lu. Ni un arrêt, ni une
+        // absence — le dépôt a déjà payé cette confusion sur les exclusions
+        // Defender, où « 0 élément » s'affichait sur une clé jamais ouverte.
+        Lecture::Absente | Lecture::Refusee => ItemValue::illisible("WMI n'a pas répondu"),
     }
 }
 
@@ -343,6 +528,124 @@ mod tests {
         assert!(!propriete_disponible(&refuse, 3).est_constat());
     }
 
+    /// Les services relevés le 2026-08-17, réduits à ce que les tests éprouvent.
+    ///
+    /// La casse est celle que `Win32_Service` rapporte réellement — `mpssvc` en
+    /// minuscules là où `SERVICES_SURVEILLES` écrit `MpsSvc`. C'est ce
+    /// désaccord, mesuré, qui rend le rapprochement insensible à la casse
+    /// nécessaire ; l'écrire ici plutôt qu'en minuscules partout est ce qui
+    /// permet au test de le prouver.
+    fn services_de_reference() -> Lecture<ServicesObserves> {
+        Lecture::Trouvee(
+            [
+                ("windefend", Some("Running")),
+                ("mpssvc", Some("Running")),
+                ("eventlog", Some("Running")),
+                ("wscsvc", Some("Running")),
+                ("bits", Some("Running")),
+                // Neuf services de la machine de référence sont ainsi : réglés
+                // sur « automatique », et pourtant à l'arrêt.
+                ("w32time", Some("Stopped")),
+                // Une ligne sans état. Elle existe, on ne sait rien d'elle.
+                ("sansetat", None),
+                // Et `Sense` est volontairement ABSENT de cette table : il n'est
+                // installé qu'avec Defender for Endpoint.
+            ]
+            .into_iter()
+            .map(|(nom, etat)| ((*nom).to_owned(), etat.map(str::to_owned)))
+            .collect(),
+        )
+    }
+
+    #[test]
+    fn un_service_absent_de_la_machine_ne_se_publie_jamais_comme_arrete() {
+        // **La barrière du lot.** `Sense` n'existe que là où Defender for
+        // Endpoint est déployé. Publier « à l'arrêt » sur une machine qui ne le
+        // porte pas fabriquerait un écart de sécurité de toutes pièces, sur un
+        // item que le §6 du modèle de menace place au premier rang.
+        //
+        // Une absence n'est ni vraie ni fausse : c'est ce que dit `Absent`, et
+        // c'est la seule chose honnête à en dire.
+        let lus = services_de_reference();
+        let sense = execution_service(&lus, "Sense");
+
+        assert_eq!(sense, ItemValue::Absent);
+        assert_ne!(
+            sense,
+            ItemValue::Text("arrete".into()),
+            "un service non installé n'est pas un service arrêté"
+        );
+        assert_ne!(sense, ItemValue::Bool(false));
+
+        // Ce qui a été lu, lui, est un constat dans les deux sens.
+        assert_eq!(
+            execution_service(&lus, "WinDefend"),
+            ItemValue::Text("en-execution".into())
+        );
+        assert_eq!(
+            execution_service(&lus, "W32Time"),
+            ItemValue::Text("arrete".into()),
+            "la ligne a été lue : « Stopped » est un constat, pas une lacune"
+        );
+
+        // Jamais le vocabulaire de l'interrupteur : « activé » redirait la
+        // confusion entre configuration et exécution que cet item lève.
+        assert!(!execution_service(&lus, "WinDefend")
+            .to_string()
+            .contains("activ"));
+
+        // La casse ne décide de rien. `SERVICES_SURVEILLES` écrit « MpsSvc »,
+        // `Win32_Service` rapporte « mpssvc » : une comparaison littérale
+        // publierait « absent » sur un pare-feu qui tourne.
+        for ecriture in ["MpsSvc", "mpssvc", "MPSSVC"] {
+            assert_eq!(
+                execution_service(&lus, ecriture),
+                ItemValue::Text("en-execution".into()),
+                "« {ecriture} » ne se rapproche pas de la ligne relevée"
+            );
+        }
+
+        // Un état transitoire ne passe jamais pour une exécution — le sens de
+        // l'erreur est le bon, et c'est la limite nommée dans la documentation.
+        let transitoire = Lecture::Trouvee(
+            [("windefend".to_owned(), Some("Start Pending".to_owned()))]
+                .into_iter()
+                .collect(),
+        );
+        assert_eq!(
+            execution_service(&transitoire, "WinDefend"),
+            ItemValue::Text("arrete".into())
+        );
+    }
+
+    #[test]
+    fn une_lecture_de_services_refusee_ne_produit_ni_arret_ni_absence() {
+        // Le défaut que ce dépôt a déjà payé, transposé : « 0 exclusion »
+        // s'affichait sur une clé jamais ouverte. Ici, « à l'arrêt »
+        // s'afficherait sur un service jamais regardé — donc un écart inventé —
+        // et « absent » prétendrait qu'il n'est pas installé.
+        for muet in [
+            Lecture::<ServicesObserves>::Refusee,
+            Lecture::<ServicesObserves>::Absente,
+        ] {
+            let valeur = execution_service(&muet, "WinDefend");
+            assert_ne!(valeur, ItemValue::Text("arrete".into()));
+            assert_ne!(valeur, ItemValue::Text("en-execution".into()));
+            assert_ne!(valeur, ItemValue::Absent);
+            assert!(
+                !valeur.est_constat(),
+                "un refus ne doit jamais alimenter un décompte"
+            );
+        }
+
+        // Et une ligne présente dont l'état manque est illisible elle aussi :
+        // la ligne existe, donc « absent » serait faux, et rien n'atteste un
+        // arrêt.
+        let sans_etat = execution_service(&services_de_reference(), "SansEtat");
+        assert!(!sans_etat.est_constat());
+        assert_ne!(sans_etat, ItemValue::Absent);
+    }
+
     #[test]
     fn la_lecture_ne_fait_jamais_tomber_lappelant() {
         // Sur toute plateforme, y compris sans WMI : la fonction rend la main.
@@ -357,6 +660,13 @@ mod tests {
         ));
         assert!(matches!(
             defender.temps_reel,
+            Lecture::Trouvee(_) | Lecture::Absente | Lecture::Refusee
+        ));
+
+        // La lecture des services obéit à la même règle, et sur un second fil
+        // dédié : elle rend la main, quoi qu'ait répondu WMI.
+        assert!(matches!(
+            lire_services(),
             Lecture::Trouvee(_) | Lecture::Absente | Lecture::Refusee
         ));
     }

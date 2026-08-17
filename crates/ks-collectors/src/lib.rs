@@ -38,9 +38,11 @@
 //!
 //! [`PostureCollector`] — Secure Boot, VBS/HVCI, Credential Guard, protection
 //! LSA, exclusions et règles ASR de Defender, pare-feu, firmware, microcode,
-//! horloge : la **configuration**, lue au registre. Et l'**état effectif** de
-//! VBS, de l'intégrité mémoire, de Credential Guard et de la protection en temps
-//! réel, lu par WMI ([`etat_effectif`], ADR-0005) — le registre ne le porte pas.
+//! horloge, type de démarrage des services : la **configuration**, lue au
+//! registre. Et l'**état effectif** de VBS, de l'intégrité mémoire, de
+//! Credential Guard, de la protection en temps réel et de **l'exécution des
+//! services surveillés**, lu par WMI ([`etat_effectif`], ADR-0005) — le registre
+//! ne le porte pas.
 //!
 //! [`VirtualisationCollector`] — distributions WSL par le registre : version,
 //! taille réelle du disque virtuel, intégration et montage des lecteurs.
