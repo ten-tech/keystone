@@ -35,6 +35,7 @@ use std::fmt::Write as _;
 use crate::emetteur::citer;
 
 /// Une décision de tolérance, telle qu'on la demande à Keystone.
+
 #[derive(Debug, Clone)]
 pub struct Decision {
     /// Le chemin de l'item toléré.
@@ -157,7 +158,7 @@ impl Decision {
     /// Le bloc YAML de cette tolérance, tel qu'il s'insère sous `acceptedDrift:`.
     ///
     /// Tout texte est cité, sans exception ni heuristique, par le même
-    /// [`citer`] que l'émetteur : une raison contenant `off`, un deux-points ou
+    /// `citer` que l'émetteur, privé au crate : une raison contenant `off`, un deux-points ou
     /// un guillemet doit se relire telle qu'elle a été écrite, et une liste de
     /// valeurs dangereuses écrite à la main ne détecte jamais ce qu'on a oublié
     /// d'y mettre.

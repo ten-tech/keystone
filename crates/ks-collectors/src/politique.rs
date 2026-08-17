@@ -62,7 +62,7 @@ pub const CHEMINS: &[&str] = &["security.defender.asr_rules.policy"];
 ///
 /// * le chemin figure dans [`CHEMINS`], c'est-à-dire que le collecteur a
 ///   réellement lu cette valeur sous la ruche de politique ;
-/// * **une valeur a été lue** — voir [`valeur_lue`]. Une clé absente ou
+/// * **une valeur a été lue** — voir `valeur_lue`, privée à ce module. Une clé absente ou
 ///   refusée n'atteste aucune autorité.
 ///
 /// La fonction prend et rend l'[`Item`] plutôt que de le muter en place : la

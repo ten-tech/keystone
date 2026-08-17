@@ -27,7 +27,7 @@
 //! ## La table `desired` sort d'ici non typée, et c'est voulu
 //!
 //! Elle est lue en [`ScalaireBrut`], c'est-à-dire « ce que YAML a donné ». Le
-//! typage se fait ensuite, item par item, par [`Desire::contraindre`], contre la
+//! typage se fait ensuite, item par item, par [`ks_core::Desire::contraindre`], contre la
 //! **forme de la valeur constatée**. C'est le seul moyen de neutraliser le
 //! typage implicite de YAML dans un fichier édité à la main, où c'est l'humain
 //! qui écrira `off`.
@@ -105,7 +105,7 @@ pub struct EtatDesire {
     /// `BTreeMap` et non `HashMap` : l'ordre des clés est stable d'une lecture à
     /// l'autre, donc un diff affiché deux fois s'affiche deux fois pareil.
     ///
-    /// Le schéma décrit la **valeur** par [`ScalaireDeclare`] et laisse la clé
+    /// Le schéma décrit la **valeur** par `ScalaireDeclare`, privé à ce module, et laisse la clé
     /// libre : il n'existe pas de catalogue statique des chemins d'items, et en
     /// inventer un ici en ferait une troisième source de vérité, à côté des
     /// collecteurs et du modèle (ADR-0010, dette assumée).
@@ -177,7 +177,8 @@ pub struct EcartAccepte {
 ///
 /// Le refus est donc porté par le type et non par une fonction de validation
 /// appelée quelque part : une fonction, on oublie de l'appeler ; un type, le
-/// compilateur l'impose. C'est le même geste que [`Vrai`] pour `absent: false`.
+/// compilateur l'impose. C'est le même geste que `Vrai`, privé à ce module, pour
+/// `absent: false`.
 ///
 /// La blancheur compte autant que le vide : `reason: "   "` est un contournement
 /// à un espace près, et il serait le premier trouvé.
