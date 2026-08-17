@@ -59,7 +59,18 @@ outil qui parle tous les matins pour ne rien dire finit en règle de filtrage.
 * **Pourquoi cet item existe** — la finalité, obligatoire (P6, D1-10).
 * **Ce que change l'écart** — la conséquence, pas la valeur brute.
 * **Accepter la dérive** et **Accepter la dérive — note requise** : la note et
-  l'expiration ne sont pas optionnelles (D2-06).
+  l'expiration ne sont pas optionnelles (D2-06). La note ne peut être ni vide ni
+  blanche, ce que le typage tient, et l'échéance est **incluse** : la tolérance
+  vaut tout le jour inscrit et cesse le lendemain.
+* **Tolérer n'est pas masquer.** Un écart accepté reste affiché parmi les écarts,
+  annoté de son échéance et des jours restants ; il ne se range ni dans les
+  conformes, ni dans une liste à part. C'est ce qui garantit qu'à l'échéance il
+  réapparaît sans qu'aucune commande soit lancée : il n'avait jamais cessé d'être
+  là. Une tolérance en vigueur ne porte donc **aucune couleur d'état favorable**.
+* **Tolérances à revoir** — les trois façons dont un fichier d'état pourrit :
+  échue depuis N jours, l'item n'est plus en écart, aucun item observé ne porte
+  ce chemin. Chacune se dit avec sa raison d'origine, pour qu'on décide de
+  reconduire ou de retirer sans rouvrir le fichier.
 * **Faire converger cet item**, **Faire converger la sélection**.
 
 ### Plan de convergence

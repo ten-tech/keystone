@@ -83,7 +83,7 @@ minutes de finalisation avant d'ouvrir quoi que ce soit. Ce n'est pas un défaut
 du point de retour : c'est ce que le disque contenait à ce moment-là, et l'avoir
 appris justifie le second. On repart de `prete`.
 
-## Les sept pièges, chacun payé une fois
+## Les neuf pièges, chacun payé une fois
 
 **`if=virtio` rend le disque invisible.** Windows Setup n'embarque aucun pilote
 virtio : l'écran de sélection affiche une liste vide, le fichier de réponses ne
@@ -118,6 +118,18 @@ annoncé « arrêt propre » au bout de dix secondes sur une machine encore allu
 `pgrep -f` compare la ligne de commande complète, et s'exclut lui-même,
 contrairement à `ps | grep`. Et l'on éprouve le détecteur **avant** de le croire :
 `vivante || refus` sur une VM que l'on sait allumée.
+
+**`sendkey` émet des scancodes US, l'invité est en AZERTY.** Frapper
+`Keystone!Lab1` touche par touche produit `Keystone/Lqb&` : `a` se trouve à la
+position US `q`, `!` à la position US `/`, et les chiffres exigent la touche
+majuscule. Rien ne le signale, l'écran de verrouillage affiche des points, et
+l'on conclut à un mot de passe erroné. La traduction est dans
+`scripts/labo/ouvrir.sh`.
+
+**Un écran noir ne veut pas dire « bloqué ».** Windows éteint l'affichage après
+quelques minutes d'inactivité, y compris session ouverte. Une touche envoyée par
+le moniteur QEMU tranche en six secondes, là où une capture d'écran ne tranche
+rien.
 
 **Le dossier de démarrage de l'utilisateur est à dix niveaux de profondeur.**
 `Users/lab/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup` : un
