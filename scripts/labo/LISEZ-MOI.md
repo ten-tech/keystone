@@ -66,7 +66,24 @@ compte Microsoft. Compter une trentaine de minutes.
 Pro et pas Famille, et ce n'est pas un confort : **Hyper-V n'existe pas en
 Famille**, et c'est exactement ce qu'il reste à éprouver dans l'invité.
 
-## Les quatre pièges, chacun payé une fois
+## Les deux points de retour, et pourquoi le second existe
+
+```bash
+qemu-img snapshot -l /srv/lab/vm/ks-lab.qcow2   # les lister
+qemu-img snapshot -a prete /srv/lab/vm/ks-lab.qcow2   # y revenir, VM éteinte
+```
+
+| Marque | Ce qu'elle contient |
+|---|---|
+| `clean` | disque juste après l'installation, **mises à jour du 4 août non finalisées** |
+| `prete` | après finalisation et première ouverture de session ; c'est celui qu'on veut |
+
+Revenir à `clean` ramène la machine à un état qui redemande une trentaine de
+minutes de finalisation avant d'ouvrir quoi que ce soit. Ce n'est pas un défaut
+du point de retour : c'est ce que le disque contenait à ce moment-là, et l'avoir
+appris justifie le second. On repart de `prete`.
+
+## Les sept pièges, chacun payé une fois
 
 **`if=virtio` rend le disque invisible.** Windows Setup n'embarque aucun pilote
 virtio : l'écran de sélection affiche une liste vide, le fichier de réponses ne
@@ -87,21 +104,49 @@ depuis l'hôte.
 retombe en interactif, et l'on croit à un problème de support. `xmllint --noout`
 avant usage.
 
+**« Progression de la mise à jour : 100 %. N'éteignez pas votre ordinateur. »**
+Cet écran veut dire ce qu'il dit. Trois arrêts successifs, à cinq puis vingt
+minutes, ont chacun renvoyé la finalisation à son début, si bien qu'aucune
+session ne s'ouvrait jamais et que la machine paraissait bloquée. Elle ne l'était
+pas : c'est l'observateur qui la remettait à zéro. On attend, ou l'on ne démarre
+pas.
+
+**`pgrep -x qemu-system-x86_64` ne trouve jamais rien.** Le noyau tronque le nom
+de processus à quinze caractères, et celui-ci en fait dix-huit : la recherche est
+structurellement incapable de répondre oui. La boucle qui l'employait a donc
+annoncé « arrêt propre » au bout de dix secondes sur une machine encore allumée.
+`pgrep -f` compare la ligne de commande complète, et s'exclut lui-même,
+contrairement à `ps | grep`. Et l'on éprouve le détecteur **avant** de le croire :
+`vivante || refus` sur une VM que l'on sait allumée.
+
+**Le dossier de démarrage de l'utilisateur est à dix niveaux de profondeur.**
+`Users/lab/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup` : un
+`find -maxdepth 9` s'arrête juste au-dessus et rend une liste vide, qui se lit
+comme une absence. Le lanceur y était pourtant depuis le début.
+
 ## Surveiller sans se mentir
 
-Trois détecteurs ont été écrits avant d'en avoir un juste, et les deux premiers
-se sont trompés de la même façon — en concluant depuis un signal supposé plutôt
-que mesuré.
+Quatre détecteurs ont été écrits avant d'en avoir deux justes, et les trois
+manqués se sont trompés de la même façon : en concluant depuis un signal supposé
+plutôt que mesuré.
 
 | Critère | Ce qu'il a donné |
 |---|---|
 | « le disque ne grossit plus » | déclenché à **54 %** — l'installateur fait des pauses pendant l'expansion des fichiers |
 | « la couleur n'est plus le bleu `0 120 215` » | déclenché au **premier relevé** — le bleu réel est `0 90 158`, la valeur avait été écrite de mémoire |
 | « la couleur n'est plus celle **mesurée au démarrage** » | correct |
+| `pgrep -x qemu-system-x86_64` | **toujours faux** — nom tronqué à quinze caractères, donc jamais de correspondance possible |
+| `pgrep -f qemu-system-x86_64`, **éprouvé sur une VM allumée avant d'être cru** | correct |
 
-Un détecteur ne se cale jamais sur une valeur supposée. C'est la règle que ce
-dépôt applique à ses barrières de code ; elle vaut aussi pour l'outillage qui
-les observe.
+Un détecteur ne se cale jamais sur une valeur supposée, et une barrière qu'on n'a
+pas essayé de franchir ne prouve rien. C'est la règle que ce dépôt applique à ses
+barrières de code ; elle vaut aussi pour l'outillage qui les observe, et les deux
+détecteurs justes de ce tableau sont précisément les deux qui ont été confrontés
+au cas positif avant de servir.
+
+Corollaire, appris le même jour : une capture d'écran montre un bureau, elle ne
+prouve pas qu'une session s'est ouverte. La preuve est l'horodatage de
+`Users/<nom>/NTUSER.DAT`, qui se lit disque démonté.
 
 ## Le mot de passe
 

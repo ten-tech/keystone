@@ -228,30 +228,35 @@ laquelle on installe un hyperviseur cesse d'être une distribution de travail.
 
 **Windows 11 Pro est installé dans ce labo**, sans intervention, le 2026-08-03.
 Les scripts sont dans [`scripts/labo/`](../scripts/labo/LISEZ-MOI.md), avec les
-quatre pièges rencontrés et le mot de passe du compte jetable.
+sept pièges rencontrés et le mot de passe du compte jetable.
 
-Restent deux points, dans cet ordre :
+Ce qui est **mesuré** au 2026-08-17, et non plus supposé :
 
-1. **Hyper-V dans l'invité.** `vmx` est exposé — mesuré, contre-épreuve
-   comprise — donc le prérequis matériel est là. Reste à démarrer réellement
-   Hyper-V, ce qui décide entre le **labo dégradé** (registre, services,
-   Defender, politiques : l'essentiel des verbes du broker) et le **labo
-   complet** (collecteurs WSL et Hyper-V, instantanés par point de contrôle).
-2. **Le point de contrôle `clean`.** `qemu-img snapshot -c clean` sur le
-   qcow2 rend toutes les remises à zéro instantanées. C'est ce qui transforme
-   une installation d'une demi-heure en un cycle de vingt secondes, et c'est la
-   raison d'être du labo.
+1. **Le TPM virtuel tient bout en bout.** `swtpm` branché à QEMU, démarrage
+   sécurisé sur OVMF, et Windows 11 qui accepte l'un et l'autre à
+   l'installation puis à chaque démarrage. C'était le premier des points
+   incertains ; il ne l'est plus.
+2. **L'ouverture de session automatique fonctionne**, et la preuve n'est pas la
+   capture d'écran du bureau : c'est l'horodatage de `NTUSER.DAT`, qui se lit
+   disque démonté. Un bureau à l'écran prouve qu'une image s'affiche, pas
+   qu'une session s'est ouverte.
+3. **Deux points de retour existent**, `clean` et `prete`, et le second n'est
+   pas un doublon : `clean` précède la finalisation des mises à jour, donc y
+   revenir redemande une demi-heure avant d'ouvrir quoi que ce soit. C'est
+   `prete` qui donne le cycle de vingt secondes, et c'est lui la raison d'être
+   du labo.
 
-### Ce qui reste à éprouver avant d'y installer Windows
+Reste **un** point, et c'est celui qui décide de la suite : **Hyper-V dans
+l'invité.** `vmx` est exposé, contre-épreuve comprise, donc le prérequis
+matériel est là ; démarrer réellement Hyper-V tranche entre le **labo dégradé**
+(registre, services, Defender, politiques : l'essentiel des verbes du broker) et
+le **labo complet** (collecteurs WSL et Hyper-V, instantanés par point de
+contrôle). Tant qu'il n'est pas mesuré, ce document décrit sur ce point-là une
+voie crédible et non une voie éprouvée. La distinction est le sujet de tout ce
+dépôt.
 
-1. La consommation **sous charge**, pas au démarrage.
-2. Le TPM virtuel bout en bout : `swtpm` branché à QEMU, et Windows 11 qui
-   l'accepte à l'installation.
-3. Hyper-V dans l'invité — l'inconnue qui décide entre labo dégradé et labo
-   complet.
-
-Tant que ces trois points ne sont pas mesurés, ce document décrit une voie
-crédible, pas une voie éprouvée. La distinction est le sujet de tout ce dépôt.
+La consommation **sous charge**, par ailleurs, n'a toujours pas été relevée : les
+chiffres connus sont ceux du démarrage.
 
 ## Rappel
 
