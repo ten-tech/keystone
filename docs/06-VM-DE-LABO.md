@@ -228,7 +228,7 @@ laquelle on installe un hyperviseur cesse d'être une distribution de travail.
 
 **Windows 11 Pro est installé dans ce labo**, sans intervention, le 2026-08-03.
 Les scripts sont dans [`scripts/labo/`](../scripts/labo/LISEZ-MOI.md), avec les
-sept pièges rencontrés et le mot de passe du compte jetable.
+pièges rencontrés et le mot de passe du compte jetable.
 
 Ce qui est **mesuré** au 2026-08-17, et non plus supposé :
 

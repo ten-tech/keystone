@@ -83,7 +83,7 @@ minutes de finalisation avant d'ouvrir quoi que ce soit. Ce n'est pas un défaut
 du point de retour : c'est ce que le disque contenait à ce moment-là, et l'avoir
 appris justifie le second. On repart de `prete`.
 
-## Les neuf pièges, chacun payé une fois
+## Les pièges, chacun payé une fois
 
 **`if=virtio` rend le disque invisible.** Windows Setup n'embarque aucun pilote
 virtio : l'écran de sélection affiche une liste vide, le fichier de réponses ne
@@ -135,6 +135,19 @@ rien.
 `Users/lab/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup` : un
 `find -maxdepth 9` s'arrête juste au-dessus et rend une liste vide, qui se lit
 comme une absence. Le lanceur y était pourtant depuis le début.
+
+**`cmd.exe /c "…"` lancé depuis Git Bash bascule en session interactive.** La
+commande n'est jamais exécutée : `cmd` ouvre une invite, affiche sa bannière de
+version, et attend une saisie qui ne viendra pas. Vu de l'extérieur, l'appel ne
+rend rien puis expire, ce qui se lit comme un refus d'accès ou comme un outil qui
+ne répond plus. En cause, la traduction de chemins de MSYS, qui atteint
+l'argument `/c` avant que `cmd` ne le reçoive. Deux parades : `cmd //c "…"`, où le
+double slash protège l'argument, ou un fichier `.bat` déposé puis appelé par son
+chemin Windows, forme préférable dès qu'il y a des guillemets ou des
+redirections. Rencontré en reproduisant un relevé de `reg export` pour
+l'[ADR-0021](../../docs/adr/0021-ce-quun-instantane-sait-defaire.md), et payé le
+même jour par deux personnes qui ont chacune conclu, à tort, à un refus de
+`reg.exe`.
 
 ## Surveiller sans se mentir
 

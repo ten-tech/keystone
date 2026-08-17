@@ -61,6 +61,7 @@ effacer la trace de son passage, parce qu'elle est déjà ailleurs.
 | SEC-10 | Limitation de débit sur les verbes destructeurs | A1, A6 |
 | SEC-11 | Pas d'auto-mise-à-jour silencieuse | A4 |
 | SEC-12 | **Aucun port réseau en écoute** | A1 |
+| SEC-13 | **Ce document est revu à chaque version majeure**, et la liste de ses limites tenue à jour | tous |
 
 ## 5. Ce qui n'est pas couvert — et ne le sera jamais
 
