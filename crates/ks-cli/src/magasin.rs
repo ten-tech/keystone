@@ -59,7 +59,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use ks_core::{ItemValue, JournalEntry, GENESIS_DIGEST, GENESIS_SEQ};
+use ks_core::{Change, ItemValue, JournalEntry, GENESIS_DIGEST, GENESIS_SEQ};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
 /// Le dossier de données de Keystone.
@@ -495,6 +495,50 @@ impl Magasin {
         Ok(serie)
     }
 
+    /// Les changements qu'une série d'intervalles atteste.
+    ///
+    /// **Fonction pure, et c'est délibéré** : elle porte la règle de l'ADR-0011
+    /// — un changement est un *intervalle*, jamais un instant — et doit pouvoir
+    /// s'éprouver sans base de données, sur des séries fabriquées à la main.
+    ///
+    /// Deux intervalles consécutifs donnent un changement, et un seul : la
+    /// valeur de l'ancien, celle du nouveau, et la fenêtre qui les sépare. Cette
+    /// fenêtre court du **dernier scan qui a confirmé l'ancienne valeur** au
+    /// **premier scan qui a vu la nouvelle** : entre les deux, le magasin ne
+    /// sait rien.
+    ///
+    /// Elle peut couvrir plusieurs jours si l'item est resté illisible entre
+    /// les deux — un relevé qui n'est pas un constat ne ferme rien et n'avance
+    /// rien. Le changement sortira alors sans auteur identifiable, et c'est le
+    /// résultat correct : un changement survenu pendant qu'on était aveugle n'a
+    /// pas d'auteur connu.
+    ///
+    /// Un intervalle unique ne produit **aucun** changement : une valeur qu'on
+    /// a toujours vue n'a jamais bougé.
+    pub fn changements_de(serie: &[Intervalle]) -> Vec<Change> {
+        serie
+            .windows(2)
+            .filter_map(|paire| {
+                let [avant, apres] = paire else { return None };
+                Some(Change::unattributed(
+                    &apres.path,
+                    (avant.value.clone(), avant.last_seen),
+                    (apres.value.clone(), apres.first_seen),
+                ))
+            })
+            .collect()
+    }
+
+    /// Les changements attestés pour un chemin, du plus ancien au plus récent.
+    ///
+    /// **Sans auteur** : l'attribution est un second temps, qui a besoin de
+    /// sources que le magasin ne connaît pas (`ks_collectors::attribution`).
+    /// Les séparer garde le magasin ignorant de la plateforme, donc testable
+    /// partout.
+    pub fn changements(&self, path: &str) -> Result<Vec<Change>> {
+        Ok(Self::changements_de(&self.serie(path)?))
+    }
+
     /// La date du dernier scan qui a **confirmé** une valeur pour ce chemin.
     ///
     /// Elle répond à une question que rien d'autre ne sait poser : « ce
@@ -846,6 +890,133 @@ mod tests {
         // entre ces deux bornes, sans qu'on puisse dire où.
         assert!(serie[0].last_seen < serie[1].first_seen);
         let _ = std::fs::remove_file(chemin);
+    }
+
+    #[test]
+    fn deux_intervalles_consecutifs_donnent_un_changement_date_et_sans_auteur() {
+        // La matière de l'attribution, fabriquée depuis le magasin (ADR-0011).
+        // Les deux bornes ne sont pas interchangeables : `after_scan_at` est le
+        // dernier scan qui a vu l'ANCIENNE valeur, `before_scan_at` le premier
+        // qui a vu la nouvelle.
+        let (m, chemin) = magasin_neuf("changement-date");
+        let voie = "inventory.os.kernel";
+        for (minute, valeur) in [(0, "26100"), (1, "26100"), (2, "26200")] {
+            m.enregistrer_observation(voie, &ItemValue::Text(valeur.into()), scan_a(minute))
+                .expect("relevé");
+        }
+
+        let changements = m.changements(voie).expect("changements");
+        assert_eq!(changements.len(), 1, "un changement, pas deux");
+        let c = &changements[0];
+        assert_eq!(c.path, voie);
+        assert_eq!(c.before, ItemValue::Text("26100".into()));
+        assert_eq!(c.after, ItemValue::Text("26200".into()));
+        assert_eq!(
+            c.after_scan_at,
+            scan_a(1),
+            "le changement est survenu APRÈS la dernière confirmation de l'ancienne valeur"
+        );
+        assert_eq!(
+            c.before_scan_at,
+            scan_a(2),
+            "…et AVANT le scan qui a vu la nouvelle"
+        );
+
+        // Un changement naît sans auteur, donc en signal. L'attribution est un
+        // second temps, et son échec doit laisser ce signal en place.
+        assert_eq!(c.provenance, ks_core::Provenance::Unknown);
+        assert!(c.is_security_signal());
+        let _ = std::fs::remove_file(chemin);
+    }
+
+    #[test]
+    fn une_valeur_qui_na_jamais_bouge_ne_produit_aucun_changement() {
+        let (m, chemin) = magasin_neuf("changement-stable");
+        let voie = "security.defender.realtime";
+        for minute in 0..5 {
+            m.enregistrer_observation(voie, &ItemValue::Bool(true), scan_a(minute))
+                .expect("relevé");
+        }
+        assert!(
+            m.changements(voie).expect("changements").is_empty(),
+            "une valeur toujours vue n'a jamais changé"
+        );
+        // Et un chemin jamais observé n'invente pas d'histoire non plus.
+        assert!(m.changements("chemin.inexistant").expect("vide").is_empty());
+        let _ = std::fs::remove_file(chemin);
+    }
+
+    #[test]
+    fn une_periode_illisible_elargit_lintervalle_du_changement() {
+        // La contrepartie assumée du refus d'écrire l'illisible dans la série :
+        // quand l'item redevient lisible avec une autre valeur, la fenêtre du
+        // changement s'étend du dernier relevé lisible au premier relevé lisible
+        // suivant. Aucune source datée à la journée ne s'y attribuera, et le
+        // changement sortira sans auteur — ce qui est le résultat correct, un
+        // changement survenu pendant qu'on était aveugle n'ayant pas d'auteur
+        // connu.
+        let (m, chemin) = magasin_neuf("changement-aveugle");
+        let voie = "security.firmware.microcode_revision";
+        m.enregistrer_observation(voie, &ItemValue::Text("23410000".into()), scan_a(0))
+            .expect("relevé");
+        m.enregistrer_observation(voie, &ItemValue::illisible("accès refusé"), scan_a(1))
+            .expect("aveu");
+        m.enregistrer_observation(voie, &ItemValue::illisible("accès refusé"), scan_a(2))
+            .expect("aveu");
+        m.enregistrer_observation(voie, &ItemValue::Text("23500000".into()), scan_a(3))
+            .expect("relevé");
+
+        let changements = m.changements(voie).expect("changements");
+        assert_eq!(
+            changements.len(),
+            1,
+            "un aveu ne fabrique pas deux changements"
+        );
+        assert_eq!(
+            (changements[0].after_scan_at, changements[0].before_scan_at),
+            (scan_a(0), scan_a(3)),
+            "la fenêtre couvre toute la période d'aveuglement"
+        );
+        let _ = std::fs::remove_file(chemin);
+    }
+
+    #[test]
+    fn une_serie_dun_seul_intervalle_natteste_aucun_changement() {
+        // La fonction pure, éprouvée hors base : c'est elle qui porte la règle,
+        // et une série d'un seul élément est le cas où `windows(2)` ne rend
+        // rien — donc celui qu'on vérifie plutôt que de le supposer.
+        let un = Intervalle {
+            path: "inventory.os.kernel".into(),
+            value: ItemValue::Text("26100".into()),
+            first_seen: scan_a(0),
+            last_seen: scan_a(9),
+            closed: false,
+        };
+        assert!(Magasin::changements_de(&[]).is_empty());
+        assert!(Magasin::changements_de(std::slice::from_ref(&un)).is_empty());
+
+        // Trois intervalles : deux changements, dans l'ordre du temps.
+        let deux = Intervalle {
+            value: ItemValue::Text("26200".into()),
+            first_seen: scan_a(10),
+            last_seen: scan_a(19),
+            ..un.clone()
+        };
+        let trois = Intervalle {
+            value: ItemValue::Text("26300".into()),
+            first_seen: scan_a(20),
+            last_seen: scan_a(20),
+            ..un.clone()
+        };
+        let changements = Magasin::changements_de(&[un, deux, trois]);
+        assert_eq!(changements.len(), 2);
+        assert!(changements[0].before_scan_at <= changements[1].after_scan_at);
+        for c in &changements {
+            assert!(
+                c.after_scan_at < c.before_scan_at,
+                "toute fenêtre court dans le sens du temps"
+            );
+        }
     }
 
     #[test]

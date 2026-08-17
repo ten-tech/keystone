@@ -1,6 +1,9 @@
 # ADR-0018 — Un relevé peut être `Managed`, jamais `Keystone` ni `Unknown`
 
-- **Statut** : Proposé
+- **Statut** : Accepté — implémentée le 2026-08-17 (`ks_collectors::politique`,
+  test `un_releve_nest_ni_lauteur_de_la_valeur_ni_un_signal`). Mesuré sur la
+  machine de référence : **zéro item `Managed`**, et c'est un résultat, pas un
+  échec — voir « Ce que la mise en œuvre a mesuré » en fin de document.
 - **Date** : 2026-08-03
 - **Exigences concernées** : D2-05, D12-01, D12-03, P10, SEC-01
 - **Complète** : ADR-0011 (dont elle ferme le seul point resté ouvert côté code)
@@ -199,3 +202,62 @@ le savoir plutôt que de le découvrir en cherchant pourquoi rien ne remonte.
 **Rien ici ne détecte l'oscillation** (D12-04), qui exige de voir une valeur
 repoussée à chaque cycle — donc l'historique du magasin, donc la Phase 1 finie,
 donc au plus tôt la Phase 2.
+
+## Ce que la mise en œuvre a mesuré, le 2026-08-17
+
+### Zéro item `Managed`, et pourquoi c'est un résultat
+
+Sur les **120 items** de la machine de référence, aucun ne ressort `Managed`.
+La raison est mesurée trois fois, par trois chemins indépendants :
+
+- `Test-Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Windows Defender Exploit Guard\ASR\Rules'` répond **False** ;
+- l'énumération de `HKLM\SOFTWARE\Policies\Microsoft\Windows Defender` ne montre **ni valeur, ni sous-clé** ;
+- `ks scan --json` publie `security.defender.asr_rules.policy = {"absent": true}`, contre `security.defender.asr_rules.local = []` — la clé locale existe, celle de stratégie non.
+
+C'est la conclusion attendue sur un poste personnel non inscrit, et c'est
+exactement ce que la décision prévoyait : `Managed` devient **atteignable**, il
+ne devient pas *fréquent*. Une machine réellement gérée le produira.
+
+### `Managed` exige qu'une valeur ait été **lue**
+
+Point que la décision laissait implicite, et qui compte autant que le reste :
+une clé de politique **absente** ou **refusée** ne marque rien. Marquer une
+absence rendrait `is_sovereign` vrai sur *toute* machine — donc tout non
+convergeable — c'est-à-dire le piège d'`Enrollments` de l'ADR-0011, remonté d'un
+étage. Une liste **vide**, elle, compte comme lue : la clé existe sous la ruche,
+une autorité l'a créée, et « cette autorité n'impose aucune règle » est un fait.
+
+### Le `match` de la décision n° 3 n'était pas exhaustif
+
+L'esquisse écrivait `autre => panic!(…)`. C'est un `_` déguisé : un bras de
+liaison capture **toute** variante future, donc ajouter une valeur à
+`Provenance` n'aurait pas cassé la compilation — ce que la décision affirmait
+pourtant en toutes lettres. Le code écrit énumère donc les cinq variantes
+interdites une par une. La garantie annoncée est désormais celle qui existe.
+
+### La barrière qui manquait, et qui ne mordait nulle part
+
+Le test réécrit **encadre** les `Managed` existants ; il n'en exige aucun. Sur
+cette machine, où la branche de stratégie est absente, retirer l'appel à
+`politique::marquer` laissait donc toute la suite verte — et il en va de même en
+intégration continue, et sur toute machine non gérée. Le mécanisme aurait été
+mort exactement comme avant, mais avec un test pour le certifier vivant.
+
+Un second contrôle, **textuel** comme celui qui tient la liste des collecteurs,
+exige que le collecteur appelle encore la ruche. Sa première rédaction cherchait
+son motif par `contains` d'un littéral… présent dans sa propre assertion, que
+`include_str!` relit. La falsification l'a laissée verte. Le motif est désormais
+**assemblé à l'exécution**, et la falsification casse.
+
+### Les injections, et ce qu'elles ont cassé
+
+| Défaut injecté | Ce qui a cassé |
+|---|---|
+| un collecteur rendant `Keystone` | `un_releve_nest_ni_lauteur_de_la_valeur_ni_un_signal` |
+| un collecteur rendant `Unknown` | le même, sur `is_security_signal` |
+| `marquer` sans le contrôle de `CHEMINS` — donc `Managed` partout | le même, sur l'encadrement de `Managed` |
+| l'appel à `politique::marquer` retiré du collecteur | `le_releve_de_la_branche_de_strategie_passe_par_la_ruche_de_politique` |
+
+Chaque injection a été prouvée par `grep` **avant** d'exécuter le test, puis
+restaurée et revérifiée. Une substitution qui rate ne remplace rien, et un test
+vert sur du code non modifié ne prouve rien.

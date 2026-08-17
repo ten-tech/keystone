@@ -812,7 +812,18 @@ mod windows_impl {
                 Lecture::Refusee => Lecture::Refusee,
             };
 
-            items.push(item_posture(
+            // La branche `policy` vit sous `HKLM\SOFTWARE\Policies\…` : une
+            // valeur qu'on y lit n'a pas d'autre auteur possible qu'une
+            // autorité, et `politique::marquer` la porte jusqu'à la provenance
+            // (ADR-0018). L'information était produite ici même — deux chemins,
+            // deux origines — et jetée à la ligne suivante.
+            //
+            // La décision se lit dans l'expression qui construit l'item, à côté
+            // du chemin qui la justifie : `marquer` ne marque que ce qui figure
+            // dans `politique::CHEMINS` ET dont une valeur a été lue, donc la
+            // branche `local` en ressort inchangée sans qu'aucune condition
+            // s'écrive ici.
+            items.push(crate::politique::marquer(item_posture(
                 &format!("security.defender.asr_rules.{source}"),
                 Nature::Reglage,
                 liste(regles),
@@ -821,7 +832,7 @@ mod windows_impl {
                 "Aucune règle configurée n'est pas une faute en soi, mais c'est une \
                  couche de défense qu'on n'a pas prise.",
                 None,
-            ));
+            )));
         }
 
         // ─── État EFFECTIF, par WMI (ADR-0005) ──────────────────────────────
@@ -1202,7 +1213,18 @@ mod tests {
         for item in PostureCollector::items() {
             assert!(!item.purpose.is_empty(), "« {} » sans finalité", item.path);
             assert!(!item.risk.is_empty(), "« {} » sans risque", item.path);
-            assert_eq!(item.provenance, Provenance::Observed);
+            // `Observed` partout, SAUF sous la ruche de politique, qui est une
+            // origine et non une supposition (ADR-0018). L'encadrement complet
+            // — quelles provenances sont interdites, et à quelles conditions
+            // `Managed` est permis — vit dans `un_releve_nest_ni_lauteur_…`, à
+            // l'échelle du crate ; ici on garde ce qui vaut pour CE collecteur.
+            assert!(
+                item.provenance == Provenance::Observed
+                    || crate::politique::CHEMINS.contains(&item.path.as_str()),
+                "« {} » : provenance {:?} hors ruche de politique",
+                item.path,
+                item.provenance
+            );
             assert!(item.desired.is_none(), "un collecteur ne décide de rien");
             assert!(
                 item.path.starts_with("security."),
@@ -1210,6 +1232,45 @@ mod tests {
                 item.path
             );
         }
+    }
+
+    /// La branche de stratégie passe-t-elle encore par la ruche de politique ?
+    ///
+    /// # Pourquoi un contrôle textuel, et pas une assertion sur les items
+    ///
+    /// Parce qu'une assertion sur les items **ne mordrait nulle part ici**. Sur
+    /// la machine de référence, mesuré le 2026-08-17, la clé
+    /// `HKLM\SOFTWARE\Policies\Microsoft\Windows Defender\…\ASR\Rules` n'existe
+    /// pas : le relevé vaut `Absent`, donc `politique::marquer` est un
+    /// non-opérant, donc retirer l'appel laisserait toute la suite verte. Il en
+    /// va de même en intégration continue, et sur toute machine non gérée —
+    /// c'est-à-dire partout où ce projet s'exécute aujourd'hui.
+    ///
+    /// La barrière est donc la même que celle qui tient la liste des
+    /// collecteurs : textuelle, autonome, et éprouvée par falsification. Sa
+    /// limite est assumée — elle vérifie qu'un appel est écrit, pas qu'il est
+    /// juste. C'est la revue qui attrape le reste.
+    ///
+    /// # Le motif est assemblé à l'exécution, et ce n'est pas une coquetterie
+    ///
+    /// `include_str!` lit **ce fichier-ci**, tests compris. Un motif écrit tel
+    /// quel dans l'assertion s'y trouverait lui-même, et le test passerait avec
+    /// ou sans l'appel. Ce n'est pas une hypothèse : la première rédaction de
+    /// ce test l'a fait, et la falsification — remplacer l'appel par
+    /// `std::convert::identity` — l'a laissée verte.
+    #[test]
+    fn le_releve_de_la_branche_de_strategie_passe_par_la_ruche_de_politique() {
+        const SOURCE: &str = include_str!("posture.rs");
+
+        let appel = ["crate::politique", "::marquer(", "item_posture("].concat();
+        assert_eq!(
+            SOURCE.matches(appel.as_str()).count(),
+            1,
+            "l'item des règles ASR ne passe plus par la ruche de politique : \
+             `Provenance::Managed` redevient inatteignable depuis un collecteur, \
+             donc `DriftStatus::Conflict` inconstructible et le principe P10 sans \
+             support (ADR-0018)"
+        );
     }
 
     #[test]

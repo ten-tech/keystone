@@ -111,11 +111,32 @@ impl Nature {
     }
 }
 
-/// D'où vient l'information — ou, pour un changement, **qui l'a fait**.
+/// D'où vient l'information, ou qui a écrit la valeur — selon ce qui la porte.
 ///
 /// C'est le champ le plus important du modèle. Une dérive dont l'auteur est
 /// connu est une information ; une dérive [`Provenance::Unknown`] est un signal
 /// de sécurité, et elle est remontée comme telle au domaine [`Domain::Security`].
+///
+/// # Deux porteurs, deux questions, et il faut les distinguer
+///
+/// Cette énumération répondait à deux questions à la fois, et sa propre
+/// documentation l'avouait — « d'où vient l'information **ou, pour un
+/// changement, qui l'a fait** ». Les ADR-0011 et 0018 les ont séparées :
+///
+/// * portée par un [`Item`], elle répond à **d'où vient cette lecture** : d'un
+///   collecteur ([`Self::Observed`]) ou d'une ruche de politique
+///   ([`Self::Managed`]). Un relevé ne vaut jamais [`Self::Keystone`] — l'outil
+///   n'est l'auteur d'aucune valeur qu'il a lue — ni [`Self::Unknown`], qui
+///   qualifie un changement et non une lecture ;
+/// * portée par un [`crate::Change`], elle répond à **qui a écrit cette
+///   valeur**, et c'est là que [`Self::Unknown`] est atteignable, donc que le
+///   signal de sécurité de D2-05 est vivant.
+///
+/// [`Self::Human`] et [`Self::Application`] ne sont attribués par personne en
+/// Phase 1 : seul l'événement 4657 dirait qui a écrit une valeur de registre,
+/// il vit dans le journal `Security`, sa lecture est refusée sans élévation, et
+/// il exige en outre une SACL — donc une écriture système. Ils appartiennent au
+/// broker (ADR-0011).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", tag = "kind", content = "who")]
 pub enum Provenance {
@@ -327,7 +348,13 @@ pub struct Item {
     pub observed: ItemValue,
     /// Quand cette observation a été faite.
     pub observed_at: Timestamp,
-    /// Qui a produit la valeur constatée, autant qu'on puisse le savoir.
+    /// **D'où vient cette lecture**, et rien d'autre.
+    ///
+    /// Deux valeurs seulement sont atteignables ici : [`Provenance::Observed`],
+    /// le cas courant, et [`Provenance::Managed`] quand la valeur a été lue
+    /// sous une ruche de politique, qui n'a pas d'autre auteur possible
+    /// (ADR-0018). L'auteur d'un *changement* vit sur [`crate::Change`], pas
+    /// ici.
     pub provenance: Provenance,
     /// À quoi sert cet item, en une phrase lisible (principe P6 — explicabilité).
     pub purpose: String,

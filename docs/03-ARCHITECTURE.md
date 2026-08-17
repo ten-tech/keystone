@@ -102,14 +102,14 @@ mécanismes répondent à cela, et aucun ne dépend de l'intégrité de la machi
 
 | Crate | Rôle | Plateforme | Privilège | État |
 |---|---|---|---|---|
-| `ks-core` | vocabulaire : `Item`, `Nature`, `Desire`, `Drift`, `Plan`, `Action`, `Snapshot`, `JournalEntry` | portable | aucun | ✅ 39 tests unitaires |
-| `ks-collectors` | collecte **lecture seule** | portable ; matériel, inventaire logiciel, posture par le registre **et état effectif par WMI** — TPM, BitLocker et SMART restent hors de portée sans élévation (Phase 2) | aucun | ✅ 61 tests unitaires, 4 collecteurs |
-| `ks-cli` | la CLI `ks`, surface de référence | Windows (et Linux pour le dev) | aucun | ✅ `scan`/`status`/`explain`/`journal`/`report`/`import`/`diff` + lecteur **et émetteur** de `workstation.yaml`, **et la source du JSON Schema** (ADR-0010), 69 tests unitaires + **10 d'intégration** (binaire lancé en sous-processus) |
+| `ks-core` | vocabulaire : `Item`, `Nature`, `Desire`, `Drift`, `Change`, `Plan`, `Action`, `Snapshot`, `JournalEntry` | portable | aucun | ✅ 43 tests unitaires |
+| `ks-collectors` | collecte **lecture seule**, et l'attribution d'un changement | portable ; matériel, inventaire logiciel, posture par le registre **et état effectif par WMI** — TPM, BitLocker et SMART restent hors de portée sans élévation (Phase 2) | aucun | ✅ 79 tests unitaires, 4 collecteurs |
+| `ks-cli` | la CLI `ks`, surface de référence | Windows (et Linux pour le dev) | aucun | ✅ `scan`/`status`/`explain`/`journal`/`report`/`import`/`diff` + lecteur **et émetteur** de `workstation.yaml`, **et la source du JSON Schema** (ADR-0010), 73 tests unitaires + **10 d'intégration** (binaire lancé en sous-processus) |
 | `ks-broker` | service privilégié | Windows visé ; compile aussi ailleurs, sans effet | élevé | 🔨 verbes énumérés + **huit** barrières SEC-02 et SEC-03, 13 tests unitaires — aucun verbe implémenté |
 | `ks-agent-linux` | agent satellite | Linux musl | aucun | 🔨 scan local, 4 tests unitaires |
 | `ks-ui` | coque de bureau (ADR-0012) | Windows + WebView2 | aucun | ✅ affiche le **poste de pilotage** branché sur l'état réel, jamais les chiffres de la maquette · workspace **séparé**, 30 tests |
 
-**196 tests au total** dans le workspace principal — `ks-ui` vit dans un workspace séparé et porte les siens (30), tous portables et tous exécutés — `cargo test --workspace`,
+**222 tests au total** dans le workspace principal — `ks-ui` vit dans un workspace séparé et porte les siens (30), tous portables et tous exécutés — `cargo test --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings` et `cargo fmt --all --check`
 passent. Ce n'était pas le cas au premier commit : rien n'avait alors jamais été
 compilé, et les comptes annoncés étaient des déclarations.
@@ -133,6 +133,48 @@ Tant que `ui/ks-ui` n'appelle pas `confrontation`, ses items lui arrivent sans
 désir, `Item::verdict()` répond `NonContraint` partout, et sa vue Dérive reste
 « sans objet ». Le module est public pour rendre ce branchement possible sans
 qu'un second chargeur soit écrit.
+
+### D'où vient une lecture, et qui a écrit une valeur
+
+Ce sont **deux** questions, et `Provenance` les tenait toutes les deux — sa
+propre documentation l'avouait. Les ADR-0011 et 0018 les ont séparées, et la
+séparation traverse trois crates.
+
+| Question | Qui la porte | Réponses atteignables |
+|---|---|---|
+| D'où vient cette lecture ? | `Item::provenance` | `Observed`, et `Managed` sous une ruche de politique |
+| Qui a écrit cette valeur ? | `Change::provenance` | `WindowsUpdate` par liste blanche, `Unknown` partout ailleurs |
+
+**Un relevé ne vaut jamais `Keystone`** — l'outil n'est l'auteur d'aucune valeur
+qu'il a lue — **ni `Unknown`** : le signal de sécurité de D2-05 naît d'une
+comparaison entre deux relevés, jamais d'un seul. Une barrière l'exige, par un
+`match` exhaustif sans bras `_` ni bras de liaison : ajouter une variante à
+`Provenance` casse la compilation, donc la CI.
+
+`Managed` est **structurel, pas heuristique** : une valeur lue sous
+`HKLM\SOFTWARE\Policies\…` n'a pas d'autre auteur possible. Une clé **absente**
+ou **refusée** n'est pas marquée : rien n'y a été lu, donc aucune autorité n'est
+attestée. Et l'autorité s'annonce « stratégie de groupe ou MDM », jamais
+« Intune » : la ruche ne dit pas qui a écrit la politique (D12-01 reste ouverte).
+
+Le chemin complet d'un changement, en trois étages :
+
+1. `Magasin::changements` transforme deux intervalles consécutifs de la table
+   `observation` en un `Change` daté — **un intervalle, jamais un instant** ;
+2. `attribution::Sources::lire()` interroge `Win32_QuickFixEngineering`, la seule
+   source datée lisible sans élévation ;
+3. `attribution::attribuer` revendique le changement **si et seulement si** son
+   chemin figure dans la liste blanche de la source **et** que son intervalle
+   tient entièrement dans la journée d'un correctif.
+
+Sinon, `Unknown`. C'est le résultat le plus fréquent, et c'est le résultat
+correct : une corrélation temporelle large attribuerait, sur une machine à jour,
+la quasi-totalité des changements à Windows Update, et le signal mourrait.
+
+`Human` et `Application` ne sont attribués par personne en Phase 1 : seul
+l'événement 4657 dit qui a écrit une valeur de registre, il vit dans le journal
+`Security`, sa lecture est refusée sans élévation, et il exige en outre une
+SACL — donc une écriture système. Ils appartiennent au broker.
 
 ## Ce que la coque affiche, et ce qu'elle refuse d'afficher
 
@@ -254,6 +296,10 @@ rester des contrôles d'admission assumés.
 | Un conflit MDM n'est jamais convergeable (**P10**) | `Drift::is_convergeable` |
 | Une acceptation expirée redevient un écart, sans intervention (**D2-06**) | `Drift::is_expired_acceptance` |
 | Un changement sans auteur est un signal de sécurité (**D2-05**) | `Provenance::is_security_signal` |
+| Un changement naît **sans auteur**, jamais « observé » (**D2-05**) | `Change::unattributed` |
+| Une source ne revendique un changement que par liste blanche **et** par date (**D2-05**) | `attribution::attribuer` |
+| Un relevé n'est ni l'auteur de la valeur, ni un signal (**D2-05**) | test `un_releve_nest_ni_lauteur_de_la_valeur_ni_un_signal` — `match` exhaustif sans bras `_` |
+| Une valeur lue sous une ruche de politique est souveraine (**P10**, **D12-03**) | `politique::marquer` |
 | Une exclusion Defender exige raison **et** expiration (**D11-02**) | `Verb::AddDefenderExclusion` — champs obligatoires |
 | Un item sans finalité ni risque documenté n'est pas construisible (**P6**) | constructeur `observed()` |
 | Une sauvegarde jamais restaurée n'est pas digne de confiance (**D6-03**) | `BackupSet::is_trustworthy` |

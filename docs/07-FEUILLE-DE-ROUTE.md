@@ -135,7 +135,7 @@ exact, et la dérive suivie pendant 7 jours sans faux positif inexpliqué.
 - [x] **JSON Schema publié et validation stricte** : `schema/workstation.schema.json` est **généré** depuis les types de `ks-cli` par `cargo run -p ks-cli --example generer-schema`, et un travail de CI le régénère puis refuse tout écart (ADR-0010, décision n° 2). L'exemple versionné est validé deux fois, par le schéma **et** par `EtatDesire::lire` (décision n° 4)
 - [x] **Import de l'existant** (D2-02) : `ks import` écrit le yaml depuis l'état lu de la machine, par un émetteur maison qui guillemète tout texte et n'écrit jamais ce qu'il n'a pas su lire (ADR-0016). *Aucun formulaire à remplir — c'est le moment de vérité M1.*
 - [x] Moteur de diff, par domaine et par item : `ks diff` publie les quatre verdicts, l'écart et l'incomparable ligne à ligne (ADR-0008)
-- [ ] **Attribution de la source du changement** (D2-05) : Windows Update, MDM, installeur, humain, **inconnu**
+- [x] **Attribution de la source du changement** (D2-05) : `Managed` devient atteignable depuis un relevé lu sous la ruche de politique (ADR-0018), un changement se construit depuis les intervalles du magasin, et `Win32_QuickFixEngineering` revendique un changement **par liste blanche et par date**, jamais par corrélation (ADR-0011). Tout le reste est **inconnu**, ce qui est le résultat correct et non un échec. *Installeur applicatif et utilisateur horodaté ne sont pas tenables en lecture seule — seul l'événement 4657 les donnerait, et il exige le journal `Security` et une SACL : ils appartiennent à la Phase 2, et D2-05 a été corrigée en ce sens.*
 - [ ] Dérive acceptée avec raison et expiration **obligatoires** (D2-06)
 - [ ] Journal des décisions (D2-07)
 - [ ] Héritage base + surcouche par machine (D2-10)

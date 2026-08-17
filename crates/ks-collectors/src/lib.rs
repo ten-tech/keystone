@@ -52,6 +52,25 @@
 //! La cohérence de l'horloge figurait ici comme restant à écrire, quinze lignes
 //! sous les items `security.clock.*` qui la produisent depuis plusieurs commits.
 //!
+//! ## Ce qu'un relevé dit de son origine, et ce qu'il ne dit pas
+//!
+//! Un collecteur produit un **relevé**, pas un changement. Sa provenance répond
+//! donc à une seule question : *d'où vient cette lecture ?* Deux réponses sont
+//! atteignables, et deux seulement :
+//!
+//! * `Provenance::Observed` — le cas courant, sans prétention sur l'auteur ;
+//! * `Provenance::Managed` — la valeur a été lue sous une **ruche de politique**,
+//!   qui n'a pas d'autre auteur possible ([`politique`], ADR-0018).
+//!
+//! Les deux interdictions comptent autant que la règle. `Keystone` serait faux —
+//! l'outil n'est l'auteur d'aucune valeur qu'il a lue — et `Unknown` serait pire
+//! encore : c'est le signal de sécurité de D2-05, et il naît d'une **comparaison
+//! entre deux relevés**, jamais d'un seul. Le test
+//! `un_releve_nest_ni_lauteur_de_la_valeur_ni_un_signal` en fait une barrière.
+//!
+//! L'auteur d'un *changement*, lui, vit dans [`attribution`] : liste blanche,
+//! jamais inférence, et `Unknown` partout ailleurs (ADR-0011).
+//!
 //! ## Ce qu'un collecteur écrit dans un `ItemValue::Text`
 //!
 //! **Un jeton, jamais une phrase** (ADR-0015). Une valeur qui sort d'une table
@@ -60,8 +79,10 @@
 //! raison. Le contrôle est mécanique — voir
 //! `aucun_item_declarable_ne_porte_une_phrase_francaise`.
 
+pub mod attribution;
 pub mod etat_effectif;
 pub mod jetons;
+pub mod politique;
 pub mod posture;
 pub mod software;
 pub mod virtualisation;
@@ -387,29 +408,122 @@ mod tests {
         }
     }
 
+    /// Ce qu'un relevé n'a **jamais** le droit de porter, et ce qu'il encadre.
+    ///
+    /// Ce test remplace une égalité à `Provenance::Observed`. Elle tenait
+    /// **trois** choses à la fois, et deux seulement méritaient d'être tenues :
+    ///
+    /// * `Keystone` est faux — Keystone n'a pas *fait* la version de l'OS ni le
+    ///   remplissage du disque, il les a *lus*. C'est la faute déjà commise, et
+    ///   sa conséquence était lourde : `Unknown` devenait inatteignable, donc
+    ///   `is_security_signal` toujours faux, donc le signal le plus valorisé du
+    ///   modèle structurellement mort ;
+    /// * `Unknown` est faux aussi, et pour la raison symétrique — un **relevé**
+    ///   n'est pas un **changement**. Le signal de D2-05 naît d'une comparaison
+    ///   entre deux relevés, jamais d'un seul.
+    ///
+    /// La troisième chose, l'interdiction de `Managed`, ne se tenait pas : elle
+    /// maintenait `DriftStatus::Conflict` inconstructible et le principe P10
+    /// sans support (ADR-0018). Elle est remplacée par un **encadrement** —
+    /// `Managed` ne se produit que sur un chemin de [`politique::CHEMINS`].
+    ///
+    /// # Le `match` est exhaustif **sans bras `_`**
+    ///
+    /// Et sans bras de liaison non plus : `autre => panic!(…)` aurait été un
+    /// `_` déguisé, qui laisserait passer une variante nouvelle sans casser la
+    /// compilation. Les cinq variantes interdites sont donc nommées une par
+    /// une. Ajouter une valeur à `Provenance` casse **ici** la compilation,
+    /// donc la CI, avant qu'un test s'exécute : le contributeur est forcé de
+    /// venir décider si un collecteur a le droit de la produire.
     #[test]
-    fn un_releve_ne_sattribue_pas_la_paternite_de_la_valeur() {
-        // Keystone n'a pas *fait* la version de l'OS ni le remplissage du disque :
-        // il les a *lus*. Marquer cela `Keystone` était faux, et avait une
-        // conséquence lourde — `Unknown` devenait inatteignable, donc
-        // `is_security_signal` toujours faux, donc le signal le plus valorisé du
-        // modèle structurellement mort en Phase 0.
-        for item in Inventory::collect_all().items {
-            assert_eq!(
+    fn un_releve_nest_ni_lauteur_de_la_valeur_ni_un_signal() {
+        let items = Inventory::collect_all().items;
+        assert!(!items.is_empty(), "sans item, ce test n'éprouve rien");
+
+        for item in &items {
+            assert_ne!(
                 item.provenance,
-                Provenance::Observed,
-                "« {} » : un item collecté est relevé, pas produit",
+                Provenance::Keystone,
+                "« {} » : l'outil n'est l'auteur d'aucune valeur qu'il a lue",
                 item.path
             );
             assert!(
                 !item.provenance.is_security_signal(),
-                "« {} » : un simple relevé ne doit rien déclencher",
+                "« {} » : un simple relevé ne doit rien déclencher — le signal \
+                 naît d'une comparaison entre deux relevés",
                 item.path
             );
+
+            match &item.provenance {
+                Provenance::Observed => {}
+                Provenance::Managed(autorite) => {
+                    assert!(
+                        politique::CHEMINS.contains(&item.path.as_str()),
+                        "« {} » se dit imposé par une autorité sans être lu sous une \
+                         ruche de politique — voir `politique::CHEMINS`",
+                        item.path
+                    );
+                    assert_eq!(
+                        autorite,
+                        politique::AUTORITE,
+                        "« {} » nomme une autorité qu'on n'a pas identifiée",
+                        item.path
+                    );
+                }
+                Provenance::Keystone
+                | Provenance::Unknown
+                | Provenance::Human(_)
+                | Provenance::WindowsUpdate
+                | Provenance::Application(_) => panic!(
+                    "« {} » : provenance interdite pour un relevé — {:?}",
+                    item.path, item.provenance
+                ),
+            }
+        }
+    }
+
+    /// Un chemin de la ruche dont la valeur **a été lue** est marqué `Managed`.
+    ///
+    /// C'est la barrière qui garde `Managed` **atteignable**. Sans elle,
+    /// retirer l'appel à `politique::marquer` du collecteur laisserait tous les
+    /// tests verts : le test ci-dessus n'exige aucune occurrence de `Managed`,
+    /// il encadre celles qui existent. On retomberait alors dans la situation
+    /// d'avant — un mécanisme mort qu'on croit vivant parce qu'il est testé.
+    #[test]
+    fn un_chemin_de_la_ruche_dont_la_valeur_est_lue_ressort_managed() {
+        let items = Inventory::collect_all().items;
+
+        for chemin in politique::CHEMINS {
+            let Some(item) = items.iter().find(|i| i.path == *chemin) else {
+                // Hors Windows, aucun collecteur de posture ne tourne. L'absence
+                // du chemin est alors normale, et l'assertion de présence vit
+                // sous `cfg(windows)` juste en dessous.
+                continue;
+            };
+            // La règle, appliquée à l'item réellement produit : si une valeur a
+            // été lue, l'autorité est attestée ; sinon, rien ne l'est.
+            let attendu =
+                if item.observed == ks_core::ItemValue::Absent || !item.observed.est_constat() {
+                    Provenance::Observed
+                } else {
+                    Provenance::Managed(politique::AUTORITE.to_owned())
+                };
+            assert_eq!(
+                item.provenance, attendu,
+                "« {chemin} » vaut {} : la provenance ne suit pas la lecture",
+                item.observed
+            );
+        }
+
+        // Et l'ancrage ne pourrit pas : chaque chemin déclaré existe encore
+        // dans l'inventaire. Un item renommé y laisserait sinon une liste qui
+        // ne désigne plus rien, donc une barrière qui ne barre plus.
+        #[cfg(windows)]
+        for chemin in politique::CHEMINS {
             assert!(
-                !item.provenance.is_sovereign(),
-                "« {} » : un relevé n'est pas une politique gérée",
-                item.path
+                items.iter().any(|i| i.path == *chemin),
+                "« {chemin} » est déclaré lu sous la ruche de politique mais \
+                 n'existe plus dans l'inventaire"
             );
         }
     }

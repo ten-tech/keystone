@@ -51,6 +51,7 @@ parce que son coût est réel.
 | **Attribution** | répondre à « *qui* consomme mon disque » ou « *qui* a fait ce changement ». Le contraire d'un « nettoyage » ou d'une alerte anonyme. |
 | **Battement de cœur** | signal périodique attendu par le puits externe. **Son absence est l'alerte**, pas un silence neutre. |
 | **Canari** | leurre — fichier, identifiant, compte — dont tout usage révèle un adversaire par son comportement, y compris un adversaire inconnu. |
+| **Changement** | ce qui a bougé entre **deux** relevés, avec sa fenêtre et son auteur (`Change`, ADR-0011). Un intervalle, jamais un instant : un sondage ne sait pas *quand* une valeur a changé, seulement entre quels deux scans. Un changement naît sans auteur, donc en signal. |
 | **Convergence** | amener l'état réel vers l'état désiré déclaré. |
 | **Couloir sécurité** | mécanisme par lequel une vulnérabilité critique et activement exploitée court-circuite les anneaux. |
 | **Dérive acceptée** | écart volontairement toléré, avec **raison et date d'expiration obligatoires**. Sans expiration, un fichier d'état pourrit en trois ans. |
@@ -60,9 +61,10 @@ parce que son coût est réel.
 | **Nature** | ce qu'un item a **vocation** à devenir dans `workstation.yaml`, décidé par le collecteur qui le fabrique (ADR-0009). `Reglage` se déclare et se converge ; `Objectif` se déclare et se suit, mais aucun verbe ne l'écrit ; `Mesure` bouge seule, donc ni déclarée ni suivie en Phase 1 ; `Constat` ne se déclare jamais. Le préfixe du chemin ne la décide pas : `security.firmware.version` est un constat, `virtualization.wsl[*].interop` un réglage. |
 | **Oscillation** | item repoussé par la MDM à chaque cycle. Identifié comme tel plutôt que reconverti en boucle. |
 | **Plan** | ensemble ordonné de vagues, montré intégralement avant d'être appliqué. |
-| **Provenance** | qui a produit la valeur constatée. `Observed` dit « relevé, sans prétention sur l'auteur » ; `Unknown` dit « un changement a eu lieu et personne n'en est l'auteur » — c'est **le** signal du produit, et confondre les deux le rend muet. |
+| **Provenance** | répond à deux questions selon ce qui la porte, et les confondre rend le produit muet. Sur un **relevé** : d'où vient cette lecture — `Observed`, ou `Managed` quand la valeur est lue sous une ruche de politique, qui n'a pas d'autre auteur possible (ADR-0018). Sur un **changement** : qui a écrit la valeur — `WindowsUpdate` s'il est revendiqué par liste blanche **et** par date, `Unknown` partout ailleurs. `Unknown` est **le** signal du produit ; un relevé ne le porte jamais. |
 | **Quarantaine** | zone de rétention temporaire remplaçant la suppression. |
 | **Réconciliation d'inventaire** | croiser toutes les sources d'installation pour produire la liste des applications gérées par **aucun** gestionnaire. Le livrable le plus sous-estimé. |
+| **Ruche de politique** | `HKLM\SOFTWARE\Policies\…` et `PolicyManager\current\device`, lisibles sans élévation. Une valeur qu'on y lit est imposée par une autorité, et le relevé la porte en `Managed`. L'autorité s'annonce « stratégie de groupe ou MDM » : la ruche ne dit pas **qui** a écrit la politique, et nommer Intune serait inventer. |
 | **Test de fumée** | vérification définie par l'utilisateur qui juge si un changement est acceptable. Seul juge du résultat. |
 | **Vague** | groupe d'actions appliquées ensemble puis jugées. Deux composants couplés ne sont jamais dans la même vague. |
 | **Verbe** | opération typée et énumérée exposée par le broker. Il n'existe aucun verbe d'exécution libre. |

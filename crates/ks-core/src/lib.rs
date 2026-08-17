@@ -33,6 +33,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod change;
 pub mod desire;
 pub mod drift;
 pub mod item;
@@ -40,6 +41,7 @@ pub mod journal;
 pub mod plan;
 pub mod snapshot;
 
+pub use change::Change;
 pub use desire::{Desire, ErreurDeTypage, FormeAttendue, ScalaireBrut};
 pub use drift::{Drift, DriftStatus, DriftSummary, Severity};
 pub use item::{Domain, Item, ItemValue, Nature, Provenance};

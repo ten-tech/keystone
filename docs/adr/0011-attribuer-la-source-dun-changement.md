@@ -1,6 +1,9 @@
 # ADR-0011 — Attribuer la source d'un changement sans élévation
 
-- **Statut** : Proposé
+- **Statut** : Accepté — implémentée le 2026-08-17 (`ks_core::Change`,
+  `Magasin::changements`, `ks_collectors::attribution`). Voir « Ce que la mise en
+  œuvre a mesuré » en fin de document : les chiffres y sont ceux de la machine,
+  pas ceux de la décision.
 - **Date** : 2026-08-02
 - **Exigences concernées** : D2-05, D12-01, D5, SEC-01, P6
 
@@ -178,3 +181,72 @@ exigence qu'on sait fausse se corrige, elle ne se contourne pas.
 
 L'espoir d'une attribution fine du « qui » sans le broker. Cette porte se rouvre
 en Phase 2, avec le journal Security et une SACL posée par un verbe, et pas avant.
+
+## Ce que la mise en œuvre a mesuré, le 2026-08-17
+
+### Deux écarts assumés par rapport à l'esquisse
+
+**`Change` est `#[non_exhaustive]`, et son constructeur prend deux couples.**
+L'esquisse donnait cinq champs publics, donc cinq paramètres positionnels — dont
+deux `ItemValue` et deux `Timestamp`, avec des noms qui se croisent
+(`before` va avec `after_scan_at`). C'est un appariement qu'on inverse en
+silence. `Change::unattributed(path, (before, after_scan_at), (after,
+before_scan_at))` le rend **structurel**, et `#[non_exhaustive]` empêche de
+contourner le constructeur par un littéral hors du crate.
+
+**Un changement naît `Unknown`, pas `Observed`.** L'esquisse ne le disait pas.
+C'est pourtant la moitié du dispositif : si le repli d'une attribution qui échoue
+était `Observed`, `is_security_signal` répondrait faux dès la construction et le
+signal serait mort avant d'exister.
+
+### La liste blanche de Windows Update, et sa brièveté
+
+Deux chemins, nommément : `inventory.os.kernel` — le numéro de build change à
+chaque cumulatif — et `security.firmware.microcode_revision`. Rien d'autre.
+
+Les versions du moteur et des signatures de Defender **n'y figurent pas**, et ce
+n'est pas un oubli : elles sont de nature `Mesure`, donc hors de la série
+d'observations (ADR-0014), donc aucun changement n'est jamais construit pour
+elles. Les inscrire donnerait une liste qui a l'air plus complète et qui
+n'attribuerait rien de plus.
+
+Un test refuse tout chemin `security.defender.*`, `security.services.*`,
+`security.firewall.*` ou `security.platform.*` dans cette liste : une protection
+ne se met pas à jour par Windows Update, et l'y inscrire rendrait attribuable —
+donc invisible — exactement ce que le §6 du modèle de menace place en tête.
+
+### `InstalledOn` : une chaîne, mesurée
+
+La propriété est un `string` de la classe CIM, pas une date. Relevé sur la
+machine de référence, en session non élevée : **4 correctifs**, `8/14/2026`,
+`8/13/2026`, `8/14/2026`, `10/8/2025`. Les deux `14` et `13` **prouvent** que le
+premier nombre est le mois — et que la forme ne suit pas la locale, la machine
+étant en `fr-FR`. La seconde forme documentée, un `FILETIME` hexadécimal, est
+relue aussi. Toute autre forme rend `None`, et le correctif ne fournit alors
+aucune fenêtre : un correctif sans date n'attribue rien, il n'invente pas un jour.
+
+L'absence de fuseau sur `InstalledOn` est une approximation nommée dans le code :
+le jour est lu comme un jour UTC. Le garde-fou réel n'est pas la fenêtre, c'est
+la liste blanche.
+
+### Les barrières, éprouvées en les franchissant
+
+Trois injections, chacune vérifiée par `grep` avant d'exécuter le test, puis
+restaurées :
+
+| Défaut injecté | Ce qui a cassé |
+|---|---|
+| la liste blanche court-circuitée (`if false`) | `un_changement_hors_liste_blanche_reste_sans_auteur` |
+| un changement naissant `Observed` | `un_changement_nait_sans_auteur_et_donc_en_signal` |
+| un collecteur rendant `Keystone`, puis `Unknown` | `un_releve_nest_ni_lauteur_de_la_valeur_ni_un_signal` |
+
+La première tentative de falsification a d'ailleurs **échoué en silence** :
+`cargo test tests::<nom> -- --exact` filtrait tout, les tests vivant dans des
+modules imbriqués (`attribution::tests::…`). C'est le piège que `ci.yml`
+documente déjà pour les barrières du broker ; il s'est refermé une fois de plus.
+
+### Ce qui reste sans appelant, et pourquoi
+
+`Magasin::changements` et `attribution::attribuer` sont livrés en bibliothèque,
+sans commande `ks` qui les expose. Ajouter un sous-commande à la CLI est un
+changement de la surface du produit, et il n'appartient pas à cette décision-ci.
