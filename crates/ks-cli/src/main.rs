@@ -802,7 +802,10 @@ fn ecrire_atomiquement(destination: &std::path::Path, contenu: &str) -> Result<(
         .file_name()
         .with_context(|| format!("« {} » ne nomme pas un fichier", destination.display()))?;
     let mut nom_temporaire = nom.to_os_string();
-    nom_temporaire.push(".ks-import-tmp");
+    // Le suffixe ne nomme plus une commande : `ks accept` écrit par ce chemin
+    // lui aussi, et un temporaire baptisé « import » abandonné après une panne
+    // de courant enverrait chercher au mauvais endroit.
+    nom_temporaire.push(".ks-tmp");
     let temporaire = destination.with_file_name(nom_temporaire);
 
     std::fs::write(&temporaire, contenu)
@@ -817,11 +820,6 @@ fn ecrire_atomiquement(destination: &std::path::Path, contenu: &str) -> Result<(
     Ok(())
 }
 
-/// Confronte le fichier d'état désiré à ce que la machine porte aujourd'hui.
-///
-/// Un écart n'est pas une erreur de la commande : le code de sortie dit si la
-/// comparaison a **eu lieu**, jamais ce qu'elle a trouvé. Un script qui veut
-/// agir sur les écarts lit la sortie `--json`.
 /// Tolère un écart : simule par défaut, écrit sur `--apply` (D2-06, D2-07).
 ///
 /// # Pourquoi `--apply` plutôt qu'un bloc à recopier
@@ -1024,6 +1022,11 @@ fn nom_du_decideur() -> String {
         .unwrap_or_else(|| "inconnu".to_owned())
 }
 
+/// Confronte le fichier d'état désiré à ce que la machine porte aujourd'hui.
+///
+/// Un écart n'est pas une erreur de la commande : le code de sortie dit si la
+/// comparaison a **eu lieu**, jamais ce qu'elle a trouvé. Un script qui veut
+/// agir sur les écarts lit la sortie `--json`.
 fn cmd_diff(json: bool, config: &str, domain: Option<&str>) -> Result<()> {
     let filtre = filtre_de_domaine(domain)?;
     let chemin = std::path::Path::new(config);
