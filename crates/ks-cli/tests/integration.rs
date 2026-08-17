@@ -299,3 +299,149 @@ fn explain_sur_un_item_inconnu_oriente_au_lieu_de_planter() {
         "le message doit dire où trouver la liste"
     );
 }
+
+/// Sans `--apply`, `ks accept` ne touche à rien — ni au fichier, ni au journal.
+///
+/// **C'est le principe P2 éprouvé sur le seul chemin d'écriture de la Phase 1.**
+/// La comparaison porte sur les **octets** du fichier, et non sur ce que la
+/// commande annonce : une commande qui écrit en prétendant simuler dit
+/// exactement la même chose qu'une commande qui simule.
+///
+/// # Le test doit d'abord FABRIQUER un écart, sinon il ne garde rien
+///
+/// La première écriture de ce test se contentait d'appeler `ks accept` sur un
+/// item quelconque après un import. Or un import rend tout conforme : la commande
+/// refusait donc « rien à tolérer » et n'atteignait **jamais** la branche de
+/// simulation. Éprouvé par falsification, le test restait vert avec une écriture
+/// délibérément injectée dans cette branche — il gardait une porte que personne
+/// n'empruntait.
+///
+/// D'où l'écart fabriqué de toutes pièces, et surtout l'assertion que la branche
+/// a bien été atteinte : c'est elle qui empêche le test de redevenir vide en
+/// silence.
+///
+/// Sur un hôte sans item déclarable — la CI Linux —, aucun écart n'est
+/// fabricable, et le test le dit plutôt que de faire semblant.
+#[test]
+fn accept_sans_apply_laisse_le_fichier_octet_pour_octet() {
+    let fichier = fichier_de_travail("ks-accept-p2.yaml");
+    let chemin = fichier.display().to_string();
+
+    let import = ks(&["import", "-o", &chemin]);
+    assert!(import.status.success(), "{}", texte(&import.stderr));
+
+    let ecrit = std::fs::read_to_string(&fichier).expect("le fichier vient d'être écrit");
+    let Some((item, avec_ecart)) = fabriquer_un_ecart(&ecrit) else {
+        eprintln!(
+            "aucun item textuel déclarable sur cet hôte : la barrière P2 n'est pas \
+             exerçable ici, elle l'est sur un poste Windows"
+        );
+        return;
+    };
+    std::fs::write(&fichier, &avec_ecart).expect("écriture du fichier d'essai");
+    let avant = std::fs::read(&fichier).expect("le fichier vient d'être écrit");
+
+    let sortie = ks(&[
+        "--config",
+        &chemin,
+        "accept",
+        &item,
+        "--reason",
+        "essai de simulation",
+        "--until",
+        "2099-12-31",
+    ]);
+
+    let apres = std::fs::read(&fichier).expect("le fichier doit toujours exister");
+    assert_eq!(
+        avant, apres,
+        "`ks accept` sans --apply a modifié « {chemin} » — le principe P2 est rompu"
+    );
+
+    // **L'assertion qui empêche ce test de redevenir vide.** Sans elle, un refus
+    // en amont le rendrait vert sans qu'aucune simulation ait eu lieu.
+    let annonce = texte(&sortie.stdout);
+    assert!(
+        sortie.status.success(),
+        "la simulation devait aboutir sur « {item} » : {}",
+        texte(&sortie.stderr)
+    );
+    assert!(
+        annonce.contains("Rien n'a été modifié"),
+        "la branche de simulation n'a pas été atteinte : {annonce}"
+    );
+    assert!(
+        annonce.contains("--apply"),
+        "la simulation doit dire comment écrire : {annonce}"
+    );
+}
+
+/// Fabrique un écart en changeant la valeur d'une déclaration textuelle.
+///
+/// Le choix d'une valeur **textuelle** n'est pas un détail : la déclaration est
+/// typée contre la forme de la valeur constatée, et remplacer un booléen par du
+/// texte ferait refuser le document au lieu de produire un écart. Rend le chemin
+/// touché et le document modifié, ou `None` si l'hôte n'a aucun item déclarable.
+fn fabriquer_un_ecart(document: &str) -> Option<(String, String)> {
+    for ligne in document.lines() {
+        let Some((gauche, droite)) = ligne.split_once(": ") else {
+            continue;
+        };
+        let chemin = gauche.trim();
+        // Une déclaration est indentée de deux espaces sous `desired:` ; les
+        // clés d'en-tête ne le sont pas, et les entrées de tolérance commencent
+        // par un tiret.
+        if !ligne.starts_with("  ") || chemin.starts_with('-') || !chemin.contains('.') {
+            continue;
+        }
+        if !droite.starts_with('"') {
+            continue;
+        }
+        return Some((
+            chemin.to_owned(),
+            document.replace(
+                ligne,
+                &format!("  {chemin}: \"ecart-fabrique-par-le-test\""),
+            ),
+        ));
+    }
+    None
+}
+
+/// `ks accept` refuse une raison vide, et le refuse **avant** de lire la machine.
+///
+/// Une exception permanente silencieuse est précisément ce que D2-06 interdit,
+/// et le typage seul ne l'attrapait pas : `reason` était obligatoire, son contenu
+/// ne l'était pas.
+#[test]
+fn accept_refuse_une_raison_vide() {
+    let fichier = fichier_de_travail("ks-accept-raison.yaml");
+    let chemin = fichier.display().to_string();
+    let import = ks(&["import", "-o", &chemin]);
+    assert!(import.status.success(), "{}", texte(&import.stderr));
+
+    let sortie = ks(&[
+        "--config",
+        &chemin,
+        "accept",
+        "security.services.windefend.startup",
+        "--reason",
+        "   ",
+        "--until",
+        "2099-12-31",
+    ]);
+
+    assert!(
+        !sortie.status.success(),
+        "une raison blanche a été acceptée"
+    );
+    let erreur = texte(&sortie.stderr);
+    assert!(
+        erreur.contains("exception permanente"),
+        "le refus doit dire pourquoi : {erreur}"
+    );
+    assert!(
+        texte(&sortie.stdout).trim().is_empty(),
+        "une erreur ne s'écrit pas sur la sortie standard"
+    );
+}

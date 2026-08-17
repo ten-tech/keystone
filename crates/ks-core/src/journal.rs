@@ -69,6 +69,26 @@ pub enum Outcome {
     /// Aucune des deux n'est vraie, et un journal qui se trompe sur la nature de
     /// ce qu'il consigne perd sa raison d'être.
     Observed,
+
+    /// **Un humain a tranché** : il tolère un écart, jusqu'à une date.
+    ///
+    /// Ajoutée en Phase 1 pour l'exigence D2-07, et pour la même raison
+    /// qu'`Observed` l'avait été : les six variantes précédentes décrivent
+    /// toutes le sort d'une *action* tentée sur la machine, et une décision n'en
+    /// est pas une. `Refused` s'en approche et ment tout de même : elle dit qu'un
+    /// contrôle d'admission a écarté une action, quand ici personne n'a rien
+    /// tenté et que c'est un choix qui est consigné.
+    ///
+    /// Le journal reste la mémoire du **pourquoi**. Le fichier d'état désiré, lui,
+    /// porte les tolérances en vigueur et reste seul consulté pour calculer un
+    /// verdict : les deux répondent à des questions différentes, et l'ADR-0020
+    /// explique pourquoi aucune des deux ne remplace l'autre.
+    Decided {
+        /// Pourquoi cet écart est toléré. Jamais vide (exigence D2-06).
+        reason: String,
+        /// Le jour où la tolérance cesse, inclus.
+        expires: chrono::NaiveDate,
+    },
 }
 
 impl Actor {
@@ -104,20 +124,40 @@ impl Outcome {
             Self::RolledBack { .. } => "rolled-back",
             Self::Failed { .. } => "failed",
             Self::Observed => "observed",
+            Self::Decided { .. } => "decided",
         }
     }
 
-    /// La charge utile du résultat, vide pour les variantes qui n'en portent pas.
+    /// La charge utile du résultat, champ par champ.
     ///
     /// Elle entre dans l'empreinte : sans elle, on pourrait changer le motif d'un
-    /// refus ou le test de fumée fautif sans casser la chaîne.
+    /// refus, le test de fumée fautif, ou **l'échéance d'une tolérance** sans
+    /// casser la chaîne.
+    ///
+    /// # Pourquoi une liste, et pourquoi l'arité variable ne crée pas d'ambiguïté
+    ///
+    /// `Decided` porte deux champs, les autres un seul. Un matériau d'arité
+    /// variable serait ambigu si rien ne disait combien de champs suivent ; ici
+    /// [`Self::etiquette_stable`] les précède, elle vient d'un ensemble fermé, et
+    /// elle détermine donc l'arité. Chaque champ reste par ailleurs préfixé de sa
+    /// longueur, de sorte qu'aucune valeur ne peut déplacer une frontière.
+    ///
+    /// # Les variantes sans charge utile rendent **un champ vide**, pas zéro
+    ///
+    /// Ce n'est pas une coquetterie : elles émettaient déjà `""` avant que cette
+    /// méthode remplace un `detail_stable` unique, et rendre zéro champ au lieu
+    /// d'un champ vide changerait leur empreinte, donc rendrait invérifiable tout
+    /// journal déjà écrit. C'est exactement ce que surveille
+    /// `le_materiau_dune_entree_existante_na_pas_bouge`, qui porte les cinq
+    /// valeurs mesurées avant ce changement.
     #[must_use]
-    pub fn detail_stable(&self) -> &str {
+    pub fn champs_stables(&self) -> Vec<String> {
         match self {
-            Self::Simulated | Self::Applied | Self::Observed => "",
-            Self::Refused { reason } => reason,
-            Self::RolledBack { failed_test } => failed_test,
-            Self::Failed { detail } => detail,
+            Self::Simulated | Self::Applied | Self::Observed => vec![String::new()],
+            Self::Refused { reason } => vec![reason.clone()],
+            Self::RolledBack { failed_test } => vec![failed_test.clone()],
+            Self::Failed { detail } => vec![detail.clone()],
+            Self::Decided { reason, expires } => vec![reason.clone(), expires.to_string()],
         }
     }
 }
@@ -216,7 +256,11 @@ impl JournalEntry {
         // diff absent produiraient la même empreinte.
         champ(if self.diff.is_some() { "1" } else { "0" });
         champ(self.outcome.etiquette_stable());
-        champ(self.outcome.detail_stable());
+        // L'étiquette vient d'être écrite, et elle détermine combien de champs
+        // suivent : le découpage reste non ambigu malgré l'arité variable.
+        for valeur in self.outcome.champs_stables() {
+            champ(&valeur);
+        }
         champ(&self.prev_digest);
 
         // Le préfixe nomme l'algorithme. Il n'est pas décoratif : le jour où une
@@ -288,6 +332,124 @@ mod tests {
             outcome: Outcome::Simulated,
             prev_digest: prev.into(),
         }
+    }
+
+    /// Une entrée **entièrement déterministe**, pour figer l'empreinte.
+    ///
+    /// Aucune horloge : `Utc::now()` rendrait la valeur irreproductible, donc le
+    /// test impossible à écrire. C'est la même règle que partout ailleurs dans ce
+    /// dépôt — pas d'`Instant::now()` ni de `rand` nu dans un chemin asserté.
+    fn entree_figee(outcome: Outcome) -> JournalEntry {
+        JournalEntry {
+            seq: 1,
+            at: chrono::DateTime::parse_from_rfc3339("2026-08-17T09:12:00+02:00")
+                .expect("date littérale valide")
+                .with_timezone(&Utc),
+            actor: Actor::Human("exemple".into()),
+            verb: "scan".into(),
+            target: "inventory".into(),
+            diff: None,
+            outcome,
+            prev_digest: GENESIS_DIGEST.into(),
+        }
+    }
+
+    #[test]
+    fn le_materiau_dune_entree_existante_na_pas_bouge() {
+        // **Ce test protège les journaux déjà écrits, pas le code.**
+        //
+        // `digest()` couvre l'étiquette du résultat et sa charge utile. Le jour
+        // où une variante s'ajoute — et il est arrivé le 2026-08-17 avec
+        // `Decided` —, la tentation est de refondre le matériau au passage. Une
+        // refonte, même correcte, rend invérifiable tout journal écrit avant
+        // elle : `verify_chain` répond « rompue » sur une chaîne intacte, et
+        // « invérifiable » est indiscernable de « falsifié ».
+        //
+        // Les valeurs ci-dessous ont été **mesurées sur le code d'alors**, puis
+        // recopiées. Elles ne se recalculent pas : un attendu qu'on régénère
+        // depuis le code qu'il surveille ne surveille rien.
+        //
+        // Les cinq variantes d'origine sont là, dont les trois sans charge utile,
+        // parce que c'est précisément leur champ vide qui disparaît si l'on passe
+        // d'un détail unique à une liste de champs sans y prendre garde.
+        for (outcome, attendu) in [
+            (
+                Outcome::Simulated,
+                "blake3:cb960d40d68b5c2a3d5858ee3990657d6ee9c2dd78175fe229ed990b6a5a032e",
+            ),
+            (
+                Outcome::Applied,
+                "blake3:6800b44caaa93adb3779f397b75c7dd1bed4a09da3fa126e59a300c9e8df4785",
+            ),
+            (
+                Outcome::Observed,
+                "blake3:a15f053833d1398ec94b835cf709a04962a84727c252b7a533bd651a6b56cadc",
+            ),
+            (
+                Outcome::Refused {
+                    reason: "conflit de politique gérée".into(),
+                },
+                "blake3:5cf10de22c115129ccd96c7fca026780d0ad1fb0fcca4af2edf8fd7448cdcebe",
+            ),
+            (
+                Outcome::Failed {
+                    detail: "E_ACCESSDENIED".into(),
+                },
+                "blake3:8625f10f04a4f599dc3becda281c4a7c365e7df6ae2352945e3150f76087dbaa",
+            ),
+        ] {
+            let etiquette = outcome.etiquette_stable();
+            assert_eq!(
+                entree_figee(outcome).digest(),
+                attendu,
+                "le matériau de « {etiquette} » a changé : tout journal déjà écrit \
+                 devient invérifiable. Si le changement est voulu, il faut une \
+                 étiquette de version (« ks-journal-v2 ») et une migration, \
+                 jamais une réécriture silencieuse."
+            );
+        }
+    }
+
+    /// Une décision figée, dont on fera varier un champ à la fois.
+    fn decision(raison: &str, echeance: &str) -> JournalEntry {
+        entree_figee(Outcome::Decided {
+            reason: raison.to_owned(),
+            expires: echeance.parse().expect("date littérale valide"),
+        })
+    }
+
+    #[test]
+    fn modifier_lecheance_dune_decision_casse_lempreinte() {
+        // Le cœur de D2-07 : sans échéance dans le matériau, une tolérance de
+        // trois mois se réécrit en tolérance de dix ans sans qu'aucune chaîne ne
+        // s'en aperçoive. L'exception permanente silencieuse que l'exigence
+        // interdit reviendrait alors par la porte du journal.
+        let court = decision("pilote du scanner du labo", "2026-10-15");
+        let long = decision("pilote du scanner du labo", "2036-10-15");
+        assert_ne!(court.digest(), long.digest());
+    }
+
+    #[test]
+    fn modifier_la_raison_dune_decision_casse_lempreinte() {
+        // L'oubli du pourquoi est la principale cause de pourrissement des
+        // configurations ; une raison réécrite après coup est pire que pas de
+        // raison, parce qu'elle se croit.
+        let vraie = decision("pilote du scanner du labo", "2026-10-15");
+        let refaite = decision("on verra plus tard", "2026-10-15");
+        assert_ne!(vraie.digest(), refaite.digest());
+    }
+
+    #[test]
+    fn deux_champs_ne_se_confondent_pas_avec_un_seul() {
+        // Le piège de l'arité variable, éprouvé plutôt qu'affirmé : une raison
+        // qui contiendrait la date collée derrière elle ne doit pas produire le
+        // matériau d'une décision à deux champs. C'est le préfixe de longueur
+        // qui l'empêche, et c'est ici qu'on le vérifie.
+        let deux_champs = decision("raison", "2026-10-15");
+        let un_seul = entree_figee(Outcome::Refused {
+            reason: "raison2026-10-15".into(),
+        });
+        assert_ne!(deux_champs.digest(), un_seul.digest());
     }
 
     #[test]

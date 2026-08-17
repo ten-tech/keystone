@@ -155,14 +155,71 @@ pub struct Metadata {
 pub struct EcartAccepte {
     /// Le chemin de l'item toléré.
     pub item: String,
-    /// Pourquoi cet écart est toléré.
-    pub reason: String,
+    /// Pourquoi cet écart est toléré. Ni vide, ni blanche.
+    pub reason: Raison,
     /// Quand la tolérance expire, et l'écart redevient actif tout seul.
     pub expires: chrono::NaiveDate,
     /// Qui a décidé.
     pub decided_by: String,
     /// Quand la décision a été prise.
     pub decided_at: ks_core::Timestamp,
+}
+
+/// Une raison de tolérance, dont l'état vide est **inconstructible** depuis un fichier.
+///
+/// # Pourquoi un type plutôt qu'un contrôle
+///
+/// `reason: String` tenait la moitié de l'exigence D2-06 : le typage rendait le
+/// champ obligatoire, donc `reason` ne pouvait pas manquer. Il ne disait rien de
+/// son contenu, et `reason: ""` passait la lecture sans un mot. C'est très
+/// exactement l'exception permanente silencieuse que l'exigence interdit
+/// nommément, arrivée par la porte d'à côté.
+///
+/// Le refus est donc porté par le type et non par une fonction de validation
+/// appelée quelque part : une fonction, on oublie de l'appeler ; un type, le
+/// compilateur l'impose. C'est le même geste que [`Vrai`] pour `absent: false`.
+///
+/// La blancheur compte autant que le vide : `reason: "   "` est un contournement
+/// à un espace près, et il serait le premier trouvé.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+#[schemars(
+    inline,
+    // `\S` exige au moins un caractère non blanc — la traduction exacte du refus
+    // porté par `Deserialize` ci-dessous. `minLength: 1` laisserait passer
+    // « reason: "   " », donc dirait au validateur externe autre chose que ce que
+    // le produit fait, et une divergence entre les deux est précisément ce que
+    // l'ADR-0010 ferme.
+    extend("pattern" = r"\S"),
+    description = "Pourquoi cet écart est toléré. Une phrase, pas un mot : ce texte est \
+                   ce qu'on relira dans six mois pour décider de reconduire ou non."
+)]
+pub struct Raison(String);
+
+impl Raison {
+    /// Le texte de la raison.
+    #[must_use]
+    pub fn texte(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for Raison {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Raison {
+    fn deserialize<D: serde::Deserializer<'de>>(deserialiseur: D) -> Result<Self, D::Error> {
+        let texte = String::deserialize(deserialiseur)?;
+        if texte.trim().is_empty() {
+            return Err(serde::de::Error::custom(
+                "une tolérance sans raison est une exception permanente : \
+                 écrivez pourquoi cet écart est accepté",
+            ));
+        }
+        Ok(Self(texte))
+    }
 }
 
 /// Ce qu'une entrée de `desired` a le droit d'être, **pour le seul schéma**.
@@ -311,6 +368,24 @@ pub enum ErreurDeLecture {
         /// Ce que ce lecteur sait relire.
         attendu: &'static str,
     },
+
+    /// Deux tolérances visent le même chemin d'item.
+    ///
+    /// `acceptedDrift` est une liste, pas une table : rien dans la forme
+    /// n'empêche d'y écrire deux fois le même chemin, et rien nulle part ne
+    /// disait laquelle l'emporte. Les deux réponses possibles sont mauvaises :
+    /// prendre la première ignore en silence une décision plus récente, prendre
+    /// la dernière ignore en silence une échéance plus courte. On refuse le
+    /// document, comme pour la clé écrite deux fois dans `desired`.
+    #[error(
+        "Deux tolérances visent « {item} », avec des raisons ou des échéances qui \
+         peuvent différer. Rien n'a été comparé : Keystone ne choisit pas à votre \
+         place laquelle vaut. Gardez celle qui a cours et retirez l'autre."
+    )]
+    AcceptationEnDouble {
+        /// Le chemin visé deux fois.
+        item: String,
+    },
 }
 
 impl EtatDesire {
@@ -342,6 +417,18 @@ impl EtatDesire {
                 return Err(ErreurDeLecture::Format {
                     trouve: trouve.clone(),
                     attendu,
+                });
+            }
+        }
+
+        // Le doublon se cherche après la lecture, et non pendant : `serde` voit
+        // une liste, et une liste n'a pas de notion de clé en double. C'est le
+        // sens métier qui en fait une, et c'est donc ici qu'il se contrôle.
+        let mut vus: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+        for accepte in &document.accepted_drift {
+            if !vus.insert(accepte.item.as_str()) {
+                return Err(ErreurDeLecture::AcceptationEnDouble {
+                    item: accepte.item.clone(),
                 });
             }
         }
@@ -738,6 +825,112 @@ acceptedDrift:
         }
     }
 
+    #[test]
+    fn une_raison_vide_ou_blanche_est_refusee() {
+        // **Le défaut que le typage seul ne voyait pas.** `reason: String`
+        // rendait le champ obligatoire, jamais son contenu : `reason: ""`
+        // passait la lecture sans un mot, et l'exception permanente silencieuse
+        // que D2-06 interdit revenait par la porte d'à côté.
+        //
+        // La blancheur compte autant que le vide : à un espace près, le
+        // contournement serait le premier trouvé.
+        for vide in ["\"\"", "\"   \"", "\"\\t\""] {
+            let source = format!(
+                "{EN_TETE}acceptedDrift:\n  \
+                 - item: security.services.fax.startup\n    \
+                 reason: {vide}\n    \
+                 expires: 2026-10-15\n    \
+                 decidedBy: exemple\n    \
+                 decidedAt: \"2026-07-18T09:12:00+02:00\"\n"
+            );
+            let e =
+                EtatDesire::lire(&source).expect_err(&format!("une raison {vide} a été acceptée"));
+            let ErreurDeLecture::Document { detail } = &e else {
+                panic!("mauvaise erreur : {e:?}");
+            };
+            assert!(
+                detail.contains("exception permanente"),
+                "le détail ne dit pas ce qui manque : {detail}"
+            );
+        }
+    }
+
+    #[test]
+    fn une_raison_renseignee_est_acceptee() {
+        // Le pendant du refus : sans lui, un contrôle qui refuserait tout
+        // passerait le test précédent en trompant sur toute la ligne.
+        let source = format!(
+            "{EN_TETE}acceptedDrift:\n  \
+             - item: security.services.fax.startup\n    \
+             reason: \"pilote du scanner du labo\"\n    \
+             expires: 2026-10-15\n    \
+             decidedBy: exemple\n    \
+             decidedAt: \"2026-07-18T09:12:00+02:00\"\n"
+        );
+        let d = EtatDesire::lire(&source).expect("une raison renseignée est refusée");
+        assert_eq!(
+            d.accepted_drift[0].reason.texte(),
+            "pilote du scanner du labo"
+        );
+    }
+
+    #[test]
+    fn deux_acceptations_du_meme_chemin_sont_refusees() {
+        // `acceptedDrift` est une liste : rien dans la forme n'empêche d'y
+        // écrire deux fois le même chemin, et les deux résolutions possibles
+        // sont mauvaises — la première ignore une décision plus récente, la
+        // dernière ignore une échéance plus courte. On refuse le document.
+        let une = |echeance: &str| {
+            format!(
+                "  - item: security.services.fax.startup\n    \
+                 reason: \"pilote du scanner du labo\"\n    \
+                 expires: {echeance}\n    \
+                 decidedBy: exemple\n    \
+                 decidedAt: \"2026-07-18T09:12:00+02:00\"\n"
+            )
+        };
+        let source = format!(
+            "{EN_TETE}acceptedDrift:\n{}{}",
+            une("2026-10-15"),
+            une("2036-10-15")
+        );
+        let e = EtatDesire::lire(&source).expect_err("un doublon de chemin a été accepté");
+        assert_eq!(
+            e,
+            ErreurDeLecture::AcceptationEnDouble {
+                item: "security.services.fax.startup".into(),
+            }
+        );
+        // Le message nomme le chemin, sans quoi il faudrait chercher à l'œil
+        // dans une liste qui peut être longue.
+        assert!(
+            e.to_string().contains("security.services.fax.startup"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn deux_acceptations_de_chemins_differents_passent() {
+        // La contre-épreuve : un contrôle de doublon trop large refuserait tout
+        // fichier portant plus d'une tolérance, ce qui est l'usage normal.
+        let une = |chemin: &str| {
+            format!(
+                "  - item: {chemin}\n    \
+                 reason: \"pilote du scanner du labo\"\n    \
+                 expires: 2026-10-15\n    \
+                 decidedBy: exemple\n    \
+                 decidedAt: \"2026-07-18T09:12:00+02:00\"\n"
+            )
+        };
+        let source = format!(
+            "{EN_TETE}acceptedDrift:\n{}{}",
+            une("security.services.fax.startup"),
+            une("security.defender.realtime")
+        );
+        let d = EtatDesire::lire(&source).expect("deux chemins distincts refusés");
+        assert_eq!(d.accepted_drift.len(), 2);
+    }
+
     // ── Le schéma, et les deux fichiers qu'il engage ───────────────────────
 
     /// Le schéma tel qu'il est commité, lu à la compilation.
@@ -848,7 +1041,7 @@ acceptedDrift:
 
         // L'écart accepté porte sa raison et son échéance, comme D2-06 l'exige.
         assert_eq!(document.accepted_drift.len(), 1);
-        assert!(!document.accepted_drift[0].reason.is_empty());
+        assert!(!document.accepted_drift[0].reason.texte().is_empty());
     }
 
     #[test]

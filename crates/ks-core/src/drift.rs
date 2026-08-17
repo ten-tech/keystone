@@ -48,8 +48,19 @@ pub enum DriftStatus {
     Accepted {
         /// Pourquoi cet écart est toléré.
         reason: String,
-        /// Quand la tolérance expire et l'écart redevient actif.
-        expires: Timestamp,
+        /// Le dernier jour où la tolérance vaut, **inclus**.
+        ///
+        /// Une date civile, et non un horodatage : c'est ce que l'humain écrit
+        /// dans `workstation.yaml` (`expires: 2026-10-15`), et convertir cette
+        /// date en instant obligerait à choisir une heure que personne n'a
+        /// donnée. Le choix se ferait en silence, et l'échéance basculerait à
+        /// 02:00 heure locale sur un poste en heure d'été.
+        ///
+        /// L'inclusivité est éprouvée des deux côtés par
+        /// `une_acceptation_est_en_vigueur_le_jour_de_son_echeance` et
+        /// `une_acceptation_expire_le_lendemain` : une convention qui n'est
+        /// vérifiée que sur une borne se retourne au premier passage.
+        expires: chrono::NaiveDate,
         /// Qui a décidé.
         decided_by: String,
         /// Quand la décision a été prise.
@@ -91,12 +102,16 @@ impl Drift {
     ///
     /// Un conflit MDM ne peut pas : l'autorité est souveraine (principe P10).
     /// Un écart accepté non expiré ne doit pas : c'est une décision humaine.
+    ///
+    /// `aujourd_hui` est **passée en paramètre**, jamais lue d'une horloge ici :
+    /// une fonction de modèle qui appelle `Utc::now()` n'est pas testable sur ses
+    /// bornes, et ce sont précisément les bornes qui comptent.
     #[must_use]
-    pub fn is_convergeable(&self, now: Timestamp) -> bool {
+    pub fn is_convergeable(&self, aujourd_hui: chrono::NaiveDate) -> bool {
         match &self.status {
             DriftStatus::Active => true,
             DriftStatus::Conflict { .. } => false,
-            DriftStatus::Accepted { expires, .. } => *expires <= now,
+            DriftStatus::Accepted { expires, .. } => *expires < aujourd_hui,
         }
     }
 
@@ -110,9 +125,14 @@ impl Drift {
     }
 
     /// Une acceptation arrivée à échéance redevient un écart actif, sans intervention.
+    ///
+    /// « Arrivée à échéance » veut dire **le lendemain** du jour inscrit : la
+    /// tolérance vaut encore tout le jour de son échéance. C'est la lecture
+    /// qu'attend quiconque écrit `expires: 2026-10-15`, et l'autre convention
+    /// retirerait une journée sans le dire.
     #[must_use]
-    pub fn is_expired_acceptance(&self, now: Timestamp) -> bool {
-        matches!(&self.status, DriftStatus::Accepted { expires, .. } if *expires <= now)
+    pub fn is_expired_acceptance(&self, aujourd_hui: chrono::NaiveDate) -> bool {
+        matches!(&self.status, DriftStatus::Accepted { expires, .. } if *expires < aujourd_hui)
     }
 }
 
@@ -153,7 +173,7 @@ impl DriftSummary {
         items_observed: usize,
         items_unreadable: usize,
         drifts: &[Drift],
-        now: Timestamp,
+        aujourd_hui: chrono::NaiveDate,
     ) -> Self {
         let mut s = Self {
             observed: items_observed,
@@ -165,7 +185,7 @@ impl DriftSummary {
                 DriftStatus::Active => s.active += 1,
                 DriftStatus::Conflict { .. } => s.conflicts += 1,
                 DriftStatus::Accepted { expires, .. } => {
-                    if *expires <= now {
+                    if *expires < aujourd_hui {
                         s.active += 1; // l'acceptation a expiré : l'écart est de retour
                     } else {
                         s.accepted += 1;
@@ -189,7 +209,7 @@ impl DriftSummary {
 mod tests {
     use super::*;
     use crate::{Domain, ItemValue, Nature, Provenance};
-    use chrono::{Duration, Utc};
+    use chrono::Utc;
 
     fn drift(status: DriftStatus, provenance: Provenance) -> Drift {
         let now = Utc::now();
@@ -224,38 +244,57 @@ mod tests {
             },
             Provenance::Managed("Intune".into()),
         );
-        assert!(!d.is_convergeable(Utc::now()));
+        assert!(!d.is_convergeable(jour("2026-08-17")));
     }
 
-    #[test]
-    fn une_acceptation_expiree_redevient_convergeable() {
-        let past = Utc::now() - Duration::days(1);
-        let d = drift(
-            DriftStatus::Accepted {
-                reason: "driver du scanner du labo".into(),
-                expires: past,
-                decided_by: "tene".into(),
-                decided_at: past,
-            },
-            Provenance::Human("tene".into()),
-        );
-        assert!(d.is_expired_acceptance(Utc::now()));
-        assert!(d.is_convergeable(Utc::now()));
+    /// Le jour inscrit dans toutes les tolérances de ce module de test.
+    const ECHEANCE: &str = "2026-10-15";
+
+    /// Une date civile littérale, sans horloge.
+    fn jour(litteral: &str) -> chrono::NaiveDate {
+        litteral.parse().expect("date littérale valide")
     }
 
-    #[test]
-    fn une_acceptation_valide_est_respectee() {
-        let future = Utc::now() + Duration::days(30);
-        let d = drift(
+    /// Une tolérance dont l'échéance est [`ECHEANCE`].
+    fn tolere() -> Drift {
+        drift(
             DriftStatus::Accepted {
-                reason: "driver du scanner du labo".into(),
-                expires: future,
+                reason: "pilote du scanner du labo".into(),
+                expires: jour(ECHEANCE),
                 decided_by: "tene".into(),
                 decided_at: Utc::now(),
             },
             Provenance::Human("tene".into()),
-        );
-        assert!(!d.is_convergeable(Utc::now()));
+        )
+    }
+
+    #[test]
+    fn une_acceptation_est_en_vigueur_le_jour_de_son_echeance() {
+        // La première des deux bornes. Qui écrit « expires: 2026-10-15 » attend
+        // que la tolérance couvre ce jour-là ; l'autre convention lui retirerait
+        // une journée sans le dire, et le poste afficherait un écart le matin de
+        // l'échéance.
+        let d = tolere();
+        assert!(!d.is_expired_acceptance(jour(ECHEANCE)));
+        assert!(!d.is_convergeable(jour(ECHEANCE)));
+        assert!(!d.is_convergeable(jour("2026-10-14")));
+    }
+
+    #[test]
+    fn une_acceptation_expire_le_lendemain() {
+        // La seconde borne, et c'est elle qui rend la convention vérifiable :
+        // une inclusivité éprouvée d'un seul côté se retourne au premier
+        // passage, puisque « en vigueur la veille » est vrai des deux
+        // conventions.
+        let d = tolere();
+        assert!(d.is_expired_acceptance(jour("2026-10-16")));
+        assert!(d.is_convergeable(jour("2026-10-16")));
+    }
+
+    #[test]
+    fn une_acceptation_valide_est_respectee() {
+        let d = tolere();
+        assert!(!d.is_convergeable(jour("2026-08-17")));
     }
 
     #[test]
@@ -269,29 +308,29 @@ mod tests {
 
     #[test]
     fn le_resume_compte_les_expirations_comme_actives() {
-        let now = Utc::now();
+        let aujourd_hui = jour("2026-08-17");
         let drifts = vec![
             drift(DriftStatus::Active, Provenance::Unknown),
             drift(
                 DriftStatus::Accepted {
                     reason: "r".into(),
-                    expires: now - Duration::days(1),
+                    expires: jour("2026-08-16"), // la veille : échue
                     decided_by: "tene".into(),
-                    decided_at: now,
+                    decided_at: Utc::now(),
                 },
                 Provenance::Human("tene".into()),
             ),
             drift(
                 DriftStatus::Accepted {
                     reason: "r".into(),
-                    expires: now + Duration::days(1),
+                    expires: aujourd_hui, // le jour même : encore en vigueur
                     decided_by: "tene".into(),
-                    decided_at: now,
+                    decided_at: Utc::now(),
                 },
                 Provenance::Human("tene".into()),
             ),
         ];
-        let s = DriftSummary::build(312, 0, &drifts, now);
+        let s = DriftSummary::build(312, 0, &drifts, aujourd_hui);
         assert_eq!(s.active, 2, "l'acceptation expirée doit redevenir active");
         assert_eq!(s.accepted, 1);
         assert_eq!(s.unattributed, 1);
@@ -304,8 +343,7 @@ mod tests {
         // n'était pas un écart déclaré — y compris une exclusion Defender posée
         // sous une clé qu'on ne sait pas lire. L'outil affichait vert sur ce
         // qu'il n'avait pas regardé, ce qui est le pire des trois états.
-        let now = Utc::now();
-        let s = DriftSummary::build(115, 3, &[], now);
+        let s = DriftSummary::build(115, 3, &[], jour("2026-08-17"));
 
         assert_eq!(s.unreadable, 3);
         assert_eq!(

@@ -31,11 +31,64 @@ use ks_core::{Desire, ErreurDeTypage, Item};
 
 use crate::etat_desire::{ErreurDeLecture, EtatDesire};
 
+/// Ce qu'une tolérance déclarée vaut réellement, une fois confrontée à la machine.
+///
+/// **Une tolérance n'est jamais appliquée en silence.** Les trois qualifications
+/// autres qu'[`Self::EnVigueur`] décrivent chacune une manière dont un fichier
+/// d'état pourrit : une échéance dépassée que personne ne relit, une tolérance
+/// qui ne couvre plus rien parce que l'écart a été résorbé, un chemin qui n'existe
+/// plus sur la machine. Sans elles, les trois se taisent, et c'est le
+/// pourrissement que D2-07 nomme comme la principale cause de configurations
+/// devenues incompréhensibles.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Qualification {
+    /// L'item est en écart et la tolérance court encore.
+    EnVigueur {
+        /// Jours restants, l'échéance comprise. Vaut `0` le jour même.
+        jours_restants: i64,
+    },
+    /// L'échéance est passée : l'écart est redevenu actif, **tout seul**.
+    Echue {
+        /// Depuis combien de jours.
+        depuis_jours: i64,
+    },
+    /// L'item n'est pas en écart : la tolérance ne couvre rien.
+    ///
+    /// Ce n'est pas une faute — l'écart a pu être résorbé entre-temps —, mais
+    /// une ligne inutile dans un fichier qu'on relira dans six mois. Elle se
+    /// signale pour être retirée.
+    SansObjet,
+    /// Aucun item observé ne porte ce chemin.
+    ///
+    /// Même ambiguïté que pour une déclaration non observée, et pour la même
+    /// raison : faute de frappe, ou item légitimement disparu. Les deux causes
+    /// sont nommées, sans en choisir une.
+    NonObservee,
+}
+
+/// Une tolérance déclarée, avec ce qu'elle vaut aujourd'hui.
+#[derive(Debug, Clone)]
+pub struct Tolerance {
+    /// Le chemin visé.
+    pub item: String,
+    /// Pourquoi, tel qu'écrit dans le fichier.
+    pub raison: String,
+    /// Le dernier jour où elle vaut, inclus.
+    pub echeance: chrono::NaiveDate,
+    /// Ce qu'elle vaut réellement.
+    pub qualification: Qualification,
+}
+
 /// Ce que la confrontation d'un fichier et d'un scan a produit.
 #[derive(Debug, Clone, Default)]
 pub struct Confrontation {
     /// Nombre de déclarations effectivement posées sur un item observé.
     pub declarees: usize,
+    /// Les tolérances déclarées, chacune qualifiée.
+    ///
+    /// Dans l'ordre du fichier : c'est celui dans lequel l'utilisateur les
+    /// relira, et le réordonner l'obligerait à chercher.
+    pub tolerances: Vec<Tolerance>,
     /// Les chemins déclarés qu'aucun item observé ne porte.
     ///
     /// **Deux causes, indiscernables ici** : une faute de frappe dans le chemin,
@@ -130,6 +183,18 @@ pub fn charger(chemin: &Path) -> Result<EtatDesire, ErreurDeChargement> {
 /// Les déclarations sont **toutes** typées avant qu'une seule soit posée : un
 /// refus laisse l'inventaire exactement comme il était.
 ///
+/// # Les tolérances ne changent aucun verdict
+///
+/// Elles sont qualifiées, jamais appliquées : un écart toléré **reste publié en
+/// écart**. Le verdict dit le fait constaté, la tolérance dit la politique
+/// décidée, et confondre les deux ferait disparaître de l'écran ce qu'on a
+/// justement choisi de garder sous les yeux jusqu'à une date. C'est aussi ce qui
+/// garantit qu'à l'échéance l'écart réapparaît sans qu'aucune commande soit
+/// lancée : il n'avait jamais cessé d'être là.
+///
+/// `aujourd_hui` est un paramètre et non une lecture d'horloge, pour que les
+/// bornes d'échéance soient éprouvables.
+///
 /// # Erreurs
 ///
 /// [`ErreurDeChargement::Typage`] si une déclaration ne correspond pas à la
@@ -137,6 +202,7 @@ pub fn charger(chemin: &Path) -> Result<EtatDesire, ErreurDeChargement> {
 pub fn confronter(
     document: &EtatDesire,
     items: &mut [Item],
+    aujourd_hui: chrono::NaiveDate,
 ) -> Result<Confrontation, ErreurDeChargement> {
     let mut acceptees: Vec<(usize, Desire)> = Vec::new();
     let mut erreurs: Vec<ErreurDeTypage> = Vec::new();
@@ -161,8 +227,38 @@ pub fn confronter(
     for (rang, desire) in acceptees {
         items[rang].desired = Some(desire.into());
     }
+
+    // Les tolérances se qualifient **après** que les désirs sont posés : il faut
+    // le verdict pour savoir si une tolérance couvre quelque chose, et le verdict
+    // n'existe qu'une fois l'item contraint.
+    let tolerances = document
+        .accepted_drift
+        .iter()
+        .map(|accepte| {
+            let ecart = accepte.expires - aujourd_hui;
+            let qualification = match items.iter().find(|i| i.path == accepte.item) {
+                None => Qualification::NonObservee,
+                Some(item) if verdict_publie(item) != Verdict::Ecart => Qualification::SansObjet,
+                // L'échéance est inclusive : elle vaut encore tout son jour.
+                Some(_) if ecart.num_days() >= 0 => Qualification::EnVigueur {
+                    jours_restants: ecart.num_days(),
+                },
+                Some(_) => Qualification::Echue {
+                    depuis_jours: -ecart.num_days(),
+                },
+            };
+            Tolerance {
+                item: accepte.item.clone(),
+                raison: accepte.reason.texte().to_owned(),
+                echeance: accepte.expires,
+                qualification,
+            }
+        })
+        .collect();
+
     Ok(Confrontation {
         declarees,
+        tolerances,
         non_observes,
     })
 }
@@ -210,6 +306,11 @@ mod tests {
     use crate::emetteur;
     use crate::machine_de_reference;
 
+    /// Une date civile littérale. Aucune horloge dans un chemin asserté.
+    fn jour(litteral: &str) -> chrono::NaiveDate {
+        litteral.parse().expect("date littérale valide")
+    }
+
     /// Les quatre verdicts publiés, comptés.
     fn verdicts(items: &[Item]) -> (usize, usize, usize, usize) {
         let (mut non_contraints, mut conformes, mut ecarts, mut incomparables) = (0, 0, 0, 0);
@@ -236,8 +337,8 @@ mod tests {
         let emission = emetteur::emettre(&items, "WKS-EXEMPLE-01");
 
         let document = EtatDesire::lire(&emission.yaml).expect("Keystone doit relire son écriture");
-        let bilan =
-            confronter(&document, &mut items).expect("le typage refuse notre propre fichier");
+        let bilan = confronter(&document, &mut items, jour("2026-08-17"))
+            .expect("le typage refuse notre propre fichier");
 
         assert_eq!(bilan.declarees, emission.declarations);
         assert!(
@@ -280,7 +381,7 @@ mod tests {
         assert_ne!(modifie, yaml, "la substitution n'a rien remplacé");
 
         let document = EtatDesire::lire(&modifie).expect("document valide");
-        confronter(&document, &mut items).expect("typage");
+        confronter(&document, &mut items, jour("2026-08-17")).expect("typage");
 
         let (_, _, ecarts, _) = verdicts(&items);
         assert_eq!(ecarts, 1, "une valeur changée, un écart — ni zéro, ni deux");
@@ -336,8 +437,8 @@ mod tests {
         assert_ne!(modifie, yaml, "la substitution n'a rien remplacé");
 
         let document = EtatDesire::lire(&modifie).expect("document valide");
-        let e =
-            confronter(&document, &mut items).expect_err("un booléen accepté sur un item texte");
+        let e = confronter(&document, &mut items, jour("2026-08-17"))
+            .expect_err("un booléen accepté sur un item texte");
 
         let ErreurDeChargement::Typage { erreurs } = &e else {
             panic!("mauvaise erreur : {e:?}");
@@ -365,7 +466,7 @@ mod tests {
         assert_ne!(modifie, yaml, "la substitution n'a rien remplacé");
 
         let document = EtatDesire::lire(&modifie).expect("document valide");
-        let bilan = confronter(&document, &mut items).expect("typage");
+        let bilan = confronter(&document, &mut items, jour("2026-08-17")).expect("typage");
 
         assert_eq!(
             bilan.non_observes,
@@ -375,6 +476,147 @@ mod tests {
         // produit aucun écart non plus, faute d'item à comparer.
         let (_, _, ecarts, _) = verdicts(&items);
         assert_eq!(ecarts, 0);
+    }
+
+    // ── Les tolérances : qualifiées, jamais appliquées ─────────────────────
+
+    /// Le chemin sur lequel les essais de tolérance portent tous.
+    const TOLERE: &str = "security.services.windefend.startup";
+
+    /// Un document fabriqué depuis la machine de référence, où l'item [`TOLERE`]
+    /// est déclaré à une valeur qui **ne correspond pas**, et donc en écart, plus
+    /// une tolérance sur le chemin `vise` échéant à `echeance`.
+    fn avec_tolerance(vise: &str, echeance: &str) -> (Vec<Item>, EtatDesire) {
+        let items = machine_de_reference::items();
+        let yaml = emetteur::emettre(&items, "WKS-EXEMPLE-01").yaml;
+        let en_ecart = yaml.replace(
+            &format!("{TOLERE}: \"automatique\""),
+            &format!("{TOLERE}: \"desactive\""),
+        );
+        assert_ne!(en_ecart, yaml, "la substitution n'a pas créé d'écart");
+
+        let avec = en_ecart.replace(
+            "\nacceptedDrift: []",
+            &format!(
+                "\nacceptedDrift:\n  - item: {vise}\n    \
+                 reason: \"pilote du scanner du labo\"\n    \
+                 expires: {echeance}\n    \
+                 decidedBy: exemple\n    \
+                 decidedAt: \"2026-07-18T09:12:00+02:00\"",
+            ),
+        );
+        assert_ne!(avec, en_ecart, "la tolérance n'a pas été insérée");
+
+        (items, EtatDesire::lire(&avec).expect("document valide"))
+    }
+
+    #[test]
+    fn un_ecart_tolere_reste_publie_en_ecart() {
+        // **Le cœur de la décision.** Le verdict dit le fait, la tolérance dit la
+        // politique. Faire disparaître l'item de la liste des écarts ferait
+        // sortir de l'écran ce qu'on a justement choisi de garder sous les yeux
+        // jusqu'à une date — et à l'échéance, il faudrait le faire réapparaître,
+        // alors qu'ici il n'aura jamais cessé d'être là.
+        let (mut items, document) = avec_tolerance(TOLERE, "2026-10-15");
+        let bilan = confronter(&document, &mut items, jour("2026-08-17")).expect("typage");
+
+        let (_, _, ecarts, _) = verdicts(&items);
+        assert_eq!(ecarts, 1, "l'écart toléré a disparu des écarts");
+        assert_eq!(
+            bilan.tolerances[0].qualification,
+            Qualification::EnVigueur { jours_restants: 59 }
+        );
+    }
+
+    #[test]
+    fn une_tolerance_ne_deplace_jamais_un_item_vers_les_conformes() {
+        // La contre-épreuve du test précédent, et elle dit autre chose : non
+        // seulement l'écart reste un écart, mais AUCUN compte ne bouge. Un
+        // décompte identique avec et sans la tolérance est la seule façon de
+        // prouver qu'elle n'a rien déplacé, plutôt que déplacé deux fois.
+        let (mut sans, doc_sans) = avec_tolerance(TOLERE, "2026-10-15");
+        // Un document identique, tolérance retirée.
+        let vide = EtatDesire::lire(
+            &emetteur::emettre(&machine_de_reference::items(), "WKS-EXEMPLE-01")
+                .yaml
+                .replace(
+                    &format!("{TOLERE}: \"automatique\""),
+                    &format!("{TOLERE}: \"desactive\""),
+                ),
+        )
+        .expect("document valide");
+
+        let mut avec = machine_de_reference::items();
+        confronter(&doc_sans, &mut avec, jour("2026-08-17")).expect("typage");
+        confronter(&vide, &mut sans, jour("2026-08-17")).expect("typage");
+
+        assert_eq!(
+            verdicts(&avec),
+            verdicts(&sans),
+            "la tolérance a déplacé un item d'une catégorie à une autre"
+        );
+    }
+
+    #[test]
+    fn une_tolerance_echue_se_signale_plutot_que_de_se_taire() {
+        // À l'échéance, l'écart redevient actif SANS commande : il n'a jamais
+        // cessé de l'être. Ce qui change, c'est que la tolérance se dénonce
+        // elle-même comme périmée, faute de quoi elle resterait dans le fichier
+        // pour trois ans sans que personne ne la relise.
+        let (mut items, document) = avec_tolerance(TOLERE, "2026-08-16");
+        let bilan = confronter(&document, &mut items, jour("2026-08-17")).expect("typage");
+        assert_eq!(
+            bilan.tolerances[0].qualification,
+            Qualification::Echue { depuis_jours: 1 }
+        );
+
+        // Et la veille de ce jour-là, elle valait encore : les deux bornes, sans
+        // quoi la convention d'inclusivité ne serait vérifiée qu'à moitié.
+        let (mut items, document) = avec_tolerance(TOLERE, "2026-08-16");
+        let bilan = confronter(&document, &mut items, jour("2026-08-16")).expect("typage");
+        assert_eq!(
+            bilan.tolerances[0].qualification,
+            Qualification::EnVigueur { jours_restants: 0 }
+        );
+    }
+
+    #[test]
+    fn une_tolerance_sur_un_item_conforme_ne_refuse_pas_le_fichier() {
+        // Elle ne couvre rien — l'écart a pu être résorbé entre-temps —, et ce
+        // n'est pas une faute : c'est une ligne à retirer. La refuser
+        // empêcherait de démarrer sur un fichier parfaitement sain.
+        let items = machine_de_reference::items();
+        let yaml = emetteur::emettre(&items, "WKS-EXEMPLE-01").yaml;
+        let avec = yaml.replace(
+            "\nacceptedDrift: []",
+            &format!(
+                "\nacceptedDrift:\n  - item: {TOLERE}\n    \
+                 reason: \"pilote du scanner du labo\"\n    \
+                 expires: 2026-10-15\n    \
+                 decidedBy: exemple\n    \
+                 decidedAt: \"2026-07-18T09:12:00+02:00\"",
+            ),
+        );
+        let document = EtatDesire::lire(&avec).expect("document valide");
+        let mut items = items;
+        let bilan = confronter(&document, &mut items, jour("2026-08-17")).expect("typage");
+
+        assert_eq!(bilan.tolerances[0].qualification, Qualification::SansObjet);
+        let (_, _, ecarts, _) = verdicts(&items);
+        assert_eq!(ecarts, 0);
+    }
+
+    #[test]
+    fn une_tolerance_sur_un_chemin_disparu_se_signale() {
+        // Le mode de pourrissement le plus discret : le chemin ne correspond
+        // plus à rien, la ligne reste, et rien ne la dénonce.
+        let (mut items, document) =
+            avec_tolerance("security.services.fantome.startup", "2026-10-15");
+        let bilan = confronter(&document, &mut items, jour("2026-08-17")).expect("typage");
+        assert_eq!(
+            bilan.tolerances[0].qualification,
+            Qualification::NonObservee
+        );
     }
 
     /// Un fichier absent se distingue d'un fichier illisible.

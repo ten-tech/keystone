@@ -213,7 +213,7 @@ mod tests {
         };
 
         assert!(
-            !conflit.is_convergeable(now),
+            !conflit.is_convergeable(now.date_naive()),
             "principe P10 : une politique gérée n'est jamais convergeable"
         );
         assert!(

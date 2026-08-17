@@ -221,8 +221,8 @@ Priorités : **P0** = indispensable au premier usage réel · **P1** = valeur fo
 | D2-03 | Domaines couverts : services, tâches planifiées, règles de pare-feu, valeurs de registre, politiques locales, profils d'alimentation, applications et versions, distros WSL et leurs jeux de paquets, VM, fichiers de configuration (*dotfiles*), variables d'environnement, associations de fichiers. |
 | D2-04 | Détection de dérive **par sondage**, avec un diff lisible par un humain. *Le mot « événementielle » figurait ici, et il était faux — mais pas pour la raison qu'on croit. `RegNotifyChangeKeyValue` n'exige aucune élévation ; il exige le crate `windows`, donc du code `unsafe`, plus un processus résident. Ce sont deux décisions non prises, pas des droits manquants. L'événementiel se rouvrira quand ces deux décisions seront prises, et il aura son ADR.* |
 | D2-05 | **Attribution de la source du changement**, à hauteur de ce qui est atteignable sans élévation : Windows Update, MDM/Intune, et **inconnu**. Une dérive sans auteur identifié est marquée comme signal de sécurité et remontée à D5. *Deux attributions sur cinq — installeur applicatif et utilisateur horodaté — ne sont pas tenables en lecture seule : seul l'événement 4657 dit qui a écrit une valeur de registre, il vit dans le journal Security, refusé sans élévation, et il exige en outre une SACL, donc une écriture système. Elles appartiennent au broker, donc à la Phase 2. L'exigence disait cinq ; elle en tenait trois, et le dire vaut mieux qu'une case jamais cochée.* |
-| D2-06 | **Dérive acceptée** : un écart peut être accepté, avec **raison obligatoire** et **date d'expiration obligatoire**. À l'expiration, l'item redevient une dérive active. Aucune exception permanente silencieuse. |
-| D2-07 | **Journal des décisions** : chaque acceptation, chaque épinglage, chaque exclusion produit une entrée durable et consultable expliquant le pourquoi. *L'oubli du pourquoi est la principale cause de pourrissement des configurations.* |
+| D2-06 | **Dérive acceptée** : un écart peut être accepté, avec **raison obligatoire** et **date d'expiration obligatoire**. La raison ne peut être ni vide ni blanche, et c'est le typage qui le tient : `reason: ""` passait le contrôle tant qu'il ne portait que sur la présence du champ, ce qui était l'exception permanente silencieuse arrivée par la porte d'à côté. L'échéance est **inclusive** : la tolérance vaut tout le jour inscrit et cesse le lendemain. À l'expiration, l'item redevient une dérive active **sans qu'aucune commande soit lancée** — il n'avait jamais cessé d'être un écart. *Un écart toléré reste publié en écart, annoté de son échéance : le verdict dit le fait, la tolérance dit la politique (ADR-0020).* |
+| D2-07 | **Journal des décisions** : chaque acceptation, chaque épinglage, chaque exclusion produit une entrée durable et consultable expliquant le pourquoi. *L'oubli du pourquoi est la principale cause de pourrissement des configurations.* **Tenue pour l'acceptation** : `ks accept --apply` écrit une entrée `Decided` dont la raison et l'échéance entrent dans l'empreinte chaînée, et `ks journal` les affiche. L'épinglage et l'exclusion arriveront avec les fonctionnalités qui les produisent, en Phase 2 et Phase 3 ; les annoncer tenues ici serait une case cochée sur du vide. |
 | D2-08 | Convergence sélective : par item, par domaine, ou totale. Toujours simulée d'abord (P2). |
 | D2-09 | **Idempotence garantie** : appliquer deux fois produit le même état, et la seconde exécution ne rapporte aucun changement. Vérifié par test automatisé (NF-07). |
 | D2-10 | Héritage de configuration : un fichier de base commun + une surcouche par machine, pour la flotte personnelle (D13). *Déplacé de la Phase 1 à la Phase 6, avec D13. Il y a **une** machine : une seconde source de configuration sans seconde machine, c'est de la configuration avant le deuxième cas d'usage — ce que le projet s'interdit par ailleurs (YAGNI armé). L'exigence ne change pas, sa phase si.* |
@@ -515,7 +515,7 @@ profiles:                          # D8 — bascule contextuelle
     - { when: "calendar.busy", use: Réunion }
 
 acceptedDrift:                     # D2-06 — toujours daté et justifié
-  - item: services.Fax.startupType
+  - item: security.services.fax.startup
     reason: "requis temporairement par le driver du scanner du labo"
     expires: 2026-10-15
     decidedBy: tene
@@ -545,6 +545,8 @@ acceptedDrift:                     # D2-06 — toujours daté et justifié
 ks status                      # posture composite et vitaux
 ks scan [--domain security]    # collecte, lecture seule
 ks diff [--domain updates]     # dérive contre workstation.yaml
+ks import [-o fichier] [--force]   # adopte l'état lu comme état désiré (D2-02)
+ks accept <item> --reason "..." --until AAAA-MM-JJ [--apply]   # tolère un écart (D2-06)
 ks converge [--apply] [--item ...]
 ks plan updates [--ring stable] [--apply]
 ks rollback <snapshotId>
@@ -555,7 +557,7 @@ ks wsl clone golden/ubuntu-24.04 nouvelle-distro
 ks profile use Réunion
 ks journal since 2026-07-28 [--seal]
 ks isolate                     # isolement d'urgence, exige Hello
-ks explain services.Fax.startupType
+ks explain security.services.fax.startup
 ks rebuild --emit-bootstrap
 ```
 

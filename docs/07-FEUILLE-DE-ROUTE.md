@@ -136,9 +136,9 @@ exact, et la dérive suivie pendant 7 jours sans faux positif inexpliqué.
 - [x] **Import de l'existant** (D2-02) : `ks import` écrit le yaml depuis l'état lu de la machine, par un émetteur maison qui guillemète tout texte et n'écrit jamais ce qu'il n'a pas su lire (ADR-0016). *Aucun formulaire à remplir — c'est le moment de vérité M1.*
 - [x] Moteur de diff, par domaine et par item : `ks diff` publie les quatre verdicts, l'écart et l'incomparable ligne à ligne (ADR-0008)
 - [x] **Attribution de la source du changement** (D2-05) : `Managed` devient atteignable depuis un relevé lu sous la ruche de politique (ADR-0018), un changement se construit depuis les intervalles du magasin, et `Win32_QuickFixEngineering` revendique un changement **par liste blanche et par date**, jamais par corrélation (ADR-0011). Tout le reste est **inconnu**, ce qui est le résultat correct et non un échec. *Installeur applicatif et utilisateur horodaté ne sont pas tenables en lecture seule — seul l'événement 4657 les donnerait, et il exige le journal `Security` et une SACL : ils appartiennent à la Phase 2, et D2-05 a été corrigée en ce sens.*
-- [ ] Dérive acceptée avec raison et expiration **obligatoires** (D2-06)
-- [ ] Journal des décisions (D2-07)
-- [ ] Héritage base + surcouche par machine (D2-10)
+- [x] **Dérive acceptée avec raison et expiration obligatoires** (D2-06) : `ks accept <item> --reason … --until …` simule par défaut et n'écrit que sur `--apply`, par une **insertion chirurgicale** qui laisse le reste du fichier octet pour octet (ADR-0020 et son amendement). La confrontation qualifie chaque tolérance — en vigueur, échue, sans objet, chemin non observé — et **un écart toléré reste publié en écart**, annoté de son échéance. *Le champ existait et n'était lu nulle part : la liste était validée par le typage puis abandonnée, si bien qu'un poste tolérant explicitement un écart obtenait le même `ks diff` qu'un poste n'en tolérant aucun.*
+- [x] **Journal des décisions** (D2-07) pour l'acceptation : entrée `Decided` dont la raison et l'échéance entrent dans l'empreinte chaînée, affichées par `ks journal`. *L'épinglage et l'exclusion, que l'exigence nomme aussi, arriveront avec les fonctionnalités qui les produisent.*
+- [x] **`ks import --force` ne détruit plus les décisions humaines** : tolérances, surcouche de flotte, propriétaire et description sont reconduits. *Le défaut était discret tant qu'une tolérance n'avait aucun effet ; le lot qui lui en a donné un l'a rendu grave.*
 - [x] Le yaml est écrit atomiquement, sans écrasement implicite ; la commande git est **proposée**, jamais exécutée (ADR-0017)
 - [x] `ks diff` opérationnel
 
@@ -219,6 +219,7 @@ auprès de 5 utilisateurs.
 **Critère de sortie :** un tiers installe Keystone à partir de la seule documentation.
 
 - [ ] D13 — flotte personnelle, promotion par demande de fusion, détection de divergence
+- [ ] **Héritage base + surcouche par machine (D2-10)**, arrivé ici avec D13. *Cette ligne figurait en Phase 1, et le cahier des charges l'avait déjà déplacée : les deux documents se contredisaient, l'un réclamant pour sortir de la Phase 1 ce que l'autre renvoyait à la Phase 6. Le motif du déplacement est écrit là-bas et vaut d'être répété : il y a **une** machine, et une seconde source de configuration sans seconde machine, c'est de la configuration avant le deuxième cas d'usage.*
 - [ ] D16-05 — vue mobile en lecture seule, action unique : isoler
 - [ ] Empaquetage signé, amorceur immuable (NF-08)
 - [ ] `ks uninstall` propre et vérifié (critère A14)

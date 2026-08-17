@@ -36,6 +36,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod acceptation;
 pub mod confrontation;
 pub mod emetteur;
 pub mod etat_desire;

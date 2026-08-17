@@ -78,6 +78,34 @@ pub struct Emission {
 /// machine et de déclarer les items d'une autre.
 #[must_use]
 pub fn emettre(items: &[Item], machine: &str) -> Emission {
+    emettre_en_conservant(items, machine, None)
+}
+
+/// Traduit un scan en fichier d'état désiré, **en conservant ce qui ne se relève pas**.
+///
+/// # Le défaut que cette fonction corrige
+///
+/// `ks import --force` réécrivait le document entier depuis le seul scan. Il
+/// détruisait donc, sans un mot, tout ce qu'aucun collecteur ne sait produire :
+/// les tolérances et leurs raisons, la surcouche de flotte, le propriétaire du
+/// poste et sa description. Ce sont des **décisions humaines**, et l'exigence
+/// D2-07 les désigne nommément comme ce qu'il ne faut pas perdre : « l'oubli du
+/// pourquoi est la principale cause de pourrissement des configurations ».
+///
+/// Le défaut existait avant que les tolérances aient un effet, ce qui le rendait
+/// discret ; le lot qui leur en a donné un l'a rendu grave. L'énoncer dans un
+/// message d'avertissement aurait été un demi-remède : ce qui se perd sans qu'on
+/// le veuille ne doit pas se perdre du tout.
+///
+/// Les items relevés, eux, sont **toujours** ceux du scan : c'est le sens même de
+/// la commande, et conserver une ancienne déclaration ferait de l'import une
+/// fusion, ce que personne n'a demandé.
+#[must_use]
+pub fn emettre_en_conservant(
+    items: &[Item],
+    machine: &str,
+    conserve: Option<&crate::etat_desire::EtatDesire>,
+) -> Emission {
     let mut yaml = String::new();
     yaml.push_str(EN_TETE);
     let _ = writeln!(
@@ -88,6 +116,17 @@ pub fn emettre(items: &[Item], machine: &str) -> Emission {
     let _ = writeln!(yaml, "kind: {}", crate::etat_desire::GENRE_ATTENDU);
     yaml.push_str("\nmetadata:\n");
     let _ = writeln!(yaml, "  name: {}", citer(machine));
+    if let Some(ancien) = conserve {
+        for (cle, valeur) in [
+            ("inherits", ancien.metadata.inherits.as_deref()),
+            ("owner", ancien.metadata.owner.as_deref()),
+            ("description", ancien.metadata.description.as_deref()),
+        ] {
+            if let Some(v) = valeur {
+                let _ = writeln!(yaml, "  {cle}: {}", citer(v));
+            }
+        }
+    }
 
     let mut declarations = 0_usize;
     let mut illisibles: Vec<(String, String)> = Vec::new();
@@ -137,7 +176,26 @@ pub fn emettre(items: &[Item], machine: &str) -> Emission {
     // La liste des écarts tolérés existe dès l'import, vide : c'est là que
     // s'écrivent la raison et l'échéance qu'exige D2-06, et une clé absente se
     // cherche plus longtemps qu'une clé vide.
-    yaml.push_str("\nacceptedDrift: []\n");
+    //
+    // Elle est **reconduite telle quelle** quand un document précédent en
+    // portait : ce sont des décisions humaines, pas des relevés, et un scan n'a
+    // rien à en dire. Leur pertinence, elle, est réévaluée à chaque `ks diff` —
+    // une tolérance devenue sans objet s'y signale.
+    let tolerances: Vec<&crate::etat_desire::EcartAccepte> = conserve
+        .map(|a| a.accepted_drift.iter().collect())
+        .unwrap_or_default();
+    if tolerances.is_empty() {
+        yaml.push_str("\nacceptedDrift: []\n");
+    } else {
+        yaml.push_str("\nacceptedDrift:\n");
+        for t in tolerances {
+            let _ = writeln!(yaml, "  - item: {}", citer(&t.item));
+            let _ = writeln!(yaml, "    reason: {}", citer(t.reason.texte()));
+            let _ = writeln!(yaml, "    expires: {}", t.expires);
+            let _ = writeln!(yaml, "    decidedBy: {}", citer(&t.decided_by));
+            let _ = writeln!(yaml, "    decidedAt: {}", citer(&t.decided_at.to_rfc3339()));
+        }
+    }
 
     illisibles.sort_by(|a, b| a.0.cmp(&b.0));
     Emission {
@@ -197,7 +255,7 @@ fn declaration(chemin: &str, desire: &Desire) -> String {
 /// échappements : c'est ce qui permet d'écrire un chemin Windows sans que la
 /// contre-oblique disparaisse, et une valeur contenant un guillemet sans
 /// refermer la chaîne au milieu.
-fn citer(texte: &str) -> String {
+pub(crate) fn citer(texte: &str) -> String {
     let mut cite = String::with_capacity(texte.len() + 2);
     cite.push('"');
     for c in texte.chars() {
@@ -592,5 +650,77 @@ mod tests {
             "2026-08-15",
         );
         assert!(espace.contains("-C \"C:\\Mes documents\""), "{espace}");
+    }
+
+    #[test]
+    fn un_import_conserve_les_decisions_humaines() {
+        // **Le défaut que ce test verrouille.** `ks import --force` réécrivait le
+        // document depuis le seul scan, donc détruisait sans un mot les
+        // tolérances, leurs raisons, la surcouche de flotte, le propriétaire et
+        // la description — tout ce qu'aucun collecteur ne sait produire.
+        //
+        // Il était discret tant qu'une tolérance n'avait aucun effet ; le lot qui
+        // lui en a donné un l'a rendu grave. Un aller-retour complet le prouve :
+        // on émet, on garnit, on relit, on réémet, et tout doit être encore là.
+        use crate::etat_desire::EtatDesire;
+
+        let items = crate::machine_de_reference::items();
+        let premier = emettre(&items, "WKS-EXEMPLE-01").yaml;
+
+        let garni = premier
+            .replace(
+                "  name: \"WKS-EXEMPLE-01\"",
+                "  name: \"WKS-EXEMPLE-01\"\n  \
+                 inherits: \"./base.yaml\"\n  \
+                 owner: \"tene\"\n  \
+                 description: \"poste d'ingénierie\"",
+            )
+            .replace(
+                "\nacceptedDrift: []",
+                "\nacceptedDrift:\n  \
+                 - item: security.services.fax.startup\n    \
+                 reason: \"pilote du scanner : off\"\n    \
+                 expires: 2026-10-15\n    \
+                 decidedBy: \"tene\"\n    \
+                 decidedAt: \"2026-07-18T09:12:00+02:00\"",
+            );
+        let ancien = EtatDesire::lire(&garni).expect("document garni valide");
+
+        let reemis = emettre_en_conservant(&items, "WKS-EXEMPLE-01", Some(&ancien)).yaml;
+        let relu = EtatDesire::lire(&reemis).expect("Keystone doit relire sa réémission");
+
+        assert_eq!(relu.metadata.inherits.as_deref(), Some("./base.yaml"));
+        assert_eq!(relu.metadata.owner.as_deref(), Some("tene"));
+        assert_eq!(
+            relu.metadata.description.as_deref(),
+            Some("poste d'ingénierie")
+        );
+        assert_eq!(relu.accepted_drift.len(), 1);
+        // La raison contient « off » et un deux-points : deux pièges de YAML que
+        // le guillemetage systématique neutralise, y compris sur ce chemin-ci.
+        assert_eq!(
+            relu.accepted_drift[0].reason.texte(),
+            "pilote du scanner : off"
+        );
+        assert_eq!(relu.accepted_drift[0].expires.to_string(), "2026-10-15");
+        assert_eq!(relu.accepted_drift[0].decided_by, "tene");
+
+        // Et le résultat reste déterministe : deux réémissions donnent les mêmes
+        // octets, sans quoi chaque import afficherait un changement là où rien
+        // n'a bougé.
+        assert_eq!(
+            reemis,
+            emettre_en_conservant(&items, "WKS-EXEMPLE-01", Some(&ancien)).yaml
+        );
+    }
+
+    #[test]
+    fn un_import_sans_document_precedent_ecrit_une_liste_vide() {
+        // La contre-épreuve : le cas courant, celui du premier import, ne doit
+        // pas gagner de clé qu'il ne portait pas.
+        let items = crate::machine_de_reference::items();
+        let yaml = emettre_en_conservant(&items, "WKS-EXEMPLE-01", None).yaml;
+        assert!(yaml.contains("\nacceptedDrift: []\n"), "{yaml}");
+        assert!(!yaml.contains("inherits:"), "{yaml}");
     }
 }

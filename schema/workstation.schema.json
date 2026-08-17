@@ -80,8 +80,9 @@
           "type": "string"
         },
         "reason": {
-          "description": "Pourquoi cet écart est toléré.",
-          "type": "string"
+          "description": "Pourquoi cet écart est toléré. Ni vide, ni blanche.",
+          "type": "string",
+          "pattern": "\\S"
         }
       },
       "additionalProperties": false,

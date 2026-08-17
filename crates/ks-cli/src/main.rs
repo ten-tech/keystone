@@ -17,15 +17,21 @@
 //!
 //! Phase 0 : `scan`, `status`, `explain`, `journal` et `report` fonctionnent en
 //! lecture seule. Phase 1 : `import` écrit `workstation.yaml` depuis l'état lu
-//! de la machine, et `diff` le confronte à un scan. Les
-//! commandes mutantes sont déclarées mais refusent de s'exécuter — délibérément :
+//! de la machine, `diff` le confronte à un scan, et `accept` y tolère un écart
+//! avec sa raison et son échéance. Les commandes qui écrivent sur la **machine**
+//! sont déclarées mais refusent de s'exécuter — délibérément :
 //! la structure de la CLI est le contrat du produit, et il vaut mieux la figer tôt
 //! qu'inventer les verbes au fil de l'eau.
 //!
-//! ## Les deux seuls fichiers que Keystone écrit
+//! ## Les trois seules écritures de fichier de Keystone
 //!
-//! `ks report` et `ks import`, tous deux là où l'utilisateur le demande, tous
-//! deux refusant d'écraser sans `--force` (principe P3). Aucune écriture système,
+//! `ks report` et `ks import` déposent un document **entier**, là où
+//! l'utilisateur le demande, et refusent d'écraser sans `--force` (principe P3).
+//! `ks accept --apply` est la troisième, et la seule qui **modifie** un document
+//! existant : elle insère un bloc dans la liste `acceptedDrift` et laisse tout le
+//! reste octet pour octet, ce qu'un test vérifie par soustraction plutôt que par
+//! relecture attentive (ADR-0020 et son amendement). Sans `--apply`, elle
+//! n'écrit ni le fichier ni le journal. Aucune écriture système,
 //! et **aucun processus lancé** : `ks import` affiche la commande git, il ne
 //! l'exécute pas, parce qu'un `git commit` déclenche les crochets du dépôt,
 //! c'est-à-dire l'exécution d'un fichier du disque que Keystone n'a pas choisi
@@ -50,7 +56,7 @@ use ks_core::{Domain, DriftSummary, Item};
 // générateur de rapport divergent (voir `src/lib.rs`). Le chargement de l'état
 // désiré y vit pour la même raison, et pour une plus visible encore : sans lui,
 // la vue Dérive de la coque reste « sans objet » pour toujours.
-use ks_cli::{confrontation, emetteur, lisible, rapport};
+use ks_cli::{acceptation, confrontation, emetteur, lisible, rapport};
 
 /// Plan de contrôle déclaratif pour poste de travail d'ingénieur.
 #[derive(Parser)]
@@ -111,6 +117,36 @@ enum Command {
         /// source de vérité du poste qui disparaît (principe P3).
         #[arg(long)]
         force: bool,
+    },
+
+    /// Tolère un écart, avec une raison et une échéance (D2-06, D2-07).
+    ///
+    /// Simule par défaut : la commande affiche le bloc qu'elle ajouterait et ne
+    /// touche à rien. `--apply` insère ce bloc dans le fichier d'état désiré et
+    /// consigne la décision au journal.
+    ///
+    /// L'écart n'est **pas** masqué pour autant : il reste publié en écart par
+    /// `ks diff`, avec son échéance. Le verdict dit le fait, la tolérance dit la
+    /// politique, et à l'échéance l'écart redevient actif sans qu'aucune commande
+    /// soit lancée.
+    Accept {
+        /// Chemin de l'item à tolérer, tel que `ks scan` le nomme.
+        path: String,
+
+        /// Pourquoi cet écart est toléré. Obligatoire, et jamais vide.
+        #[arg(long)]
+        reason: String,
+
+        /// Dernier jour où la tolérance vaut, inclus. Format `AAAA-MM-JJ`.
+        ///
+        /// Obligatoire : une tolérance sans échéance est une exception permanente
+        /// silencieuse, ce que l'exigence D2-06 interdit nommément.
+        #[arg(long)]
+        until: String,
+
+        /// Écrire réellement. Sans ce drapeau, rien n'est modifié.
+        #[arg(long)]
+        apply: bool,
     },
 
     /// Fait converger l'état réel vers l'état désiré.
@@ -247,6 +283,12 @@ fn main() -> ExitCode {
         Command::Report { out, force } => cmd_report(out, *force),
         Command::Import { out, force } => cmd_import(cli.json, out, *force),
         Command::Diff { domain } => cmd_diff(cli.json, &cli.config, domain.as_deref()),
+        Command::Accept {
+            path,
+            reason,
+            until,
+            apply,
+        } => cmd_accept(&cli.config, path, reason, until, *apply),
 
         // Toutes les commandes qui écriront un jour sont déclarées mais inertes en
         // Phase 0. C'est volontaire : le contrat de la CLI est figé, l'implémentation
@@ -276,13 +318,37 @@ fn main() -> ExitCode {
 /// Le message dit *où* en est le projet, pas seulement que ça ne marche pas. Un
 /// « non implémenté » sec est une impasse ; une phrase qui renvoie à la feuille de
 /// route est une information.
+/// La date du jour, **civile et locale**, seul endroit du produit qui la fabrique.
+///
+/// # Pourquoi `Local` et non `Utc`
+///
+/// Une échéance de tolérance s'écrit `expires: 2026-10-15` dans un fichier édité
+/// à la main : c'est une date de **calendrier**, celle de qui a pris la décision,
+/// pas un instant. Avec `Utc::now().date_naive()`, un poste français bascule
+/// l'échéance à 02:00 heure locale en été, à 01:00 en hiver — c'est-à-dire que la
+/// tolérance tombe pendant la nuit précédant le jour où l'utilisateur l'attend,
+/// et le rapport du matin affiche un écart qui n'aurait pas dû revenir.
+///
+/// C'est le raccourci exact que prend qui « répare la compilation » après un
+/// changement de signature, et c'est pourquoi cette fonction existe plutôt qu'un
+/// appel dispersé : il n'y a qu'un endroit où se tromper, et il porte cette note.
+///
+/// La date est **passée en paramètre** à tout ce qui en dépend, jamais lue depuis
+/// le modèle : c'est ce qui rend les bornes d'échéance testables.
+fn aujourd_hui() -> chrono::NaiveDate {
+    chrono::Local::now().date_naive()
+}
+
 fn not_yet() -> ExitCode {
     println!(
         "Cette commande arrive après la Phase 1.\n\
          \n\
-         Les phases 0 et 1 sont en lecture seule par conception. Ce qui\n\
-         fonctionne : `scan`, `status`, `explain`, `journal`, `report`,\n\
-         `import` et `diff`.\n\
+         Jusque-là, Keystone n'écrit rien sur la machine : ni registre, ni\n\
+         service, ni politique, ni fichier d'un autre programme. Il écrit ses\n\
+         propres données et le fichier d'état désiré, quand on le lui demande.\n\
+         \n\
+         Ce qui fonctionne : `scan`, `status`, `explain`, `journal`, `report`,\n\
+         `import`, `diff` et `accept`.\n\
          \n\
          Voir docs/07-FEUILLE-DE-ROUTE.md."
     );
@@ -533,6 +599,13 @@ fn cmd_journal(json: bool, since: Option<&str>, seal: bool) -> Result<()> {
             e.verb,
             e.target
         );
+        // **Le pourquoi s'affiche, sinon D2-07 n'est pas tenue.** L'exigence
+        // demande une entrée « expliquant le pourquoi » ; une ligne qui ne
+        // montre que le verbe et la cible consigne la décision sans la rendre
+        // consultable, ce qui est la moitié qui compte le moins.
+        if let ks_core::Outcome::Decided { reason, expires } = &e.outcome {
+            println!("        toléré jusqu'au {expires} inclus — « {reason} »");
+        }
     }
 
     if complet {
@@ -607,10 +680,6 @@ fn cmd_report(destination: &std::path::Path, force: bool) -> Result<()> {
 /// phrase à la lettre : elle collecte, elle traduit, elle dépose **un** fichier
 /// là où on le lui demande, et elle ne lance rien.
 fn cmd_import(json: bool, destination: &std::path::Path, force: bool) -> Result<()> {
-    let inv = Inventory::collect_all();
-    let machine = rapport::nom_machine(&inv.items);
-    let emission = emetteur::emettre(&inv.items, &machine);
-
     // Même refus que `ks report`, et pour la même raison : écraser un fichier
     // est irréversible, et Keystone ne fait rien d'irréversible par omission
     // (principe P3). Un état désiré écrasé, c'est la source de vérité du poste
@@ -622,6 +691,33 @@ fn cmd_import(json: bool, destination: &std::path::Path, force: bool) -> Result<
             destination.display()
         );
     }
+
+    // Ce qu'un scan ne sait pas produire se relit du document précédent plutôt
+    // que de disparaître : tolérances et leurs raisons, surcouche de flotte,
+    // propriétaire, description. Ce sont des décisions humaines, et D2-07 les
+    // désigne comme ce qu'il ne faut pas perdre.
+    //
+    // Un document illisible n'interrompt pas l'import — c'est justement le cas
+    // où l'on veut le réécrire —, mais il est **nommé**, faute de quoi la
+    // conservation échouerait en silence, ce qui serait pire que l'absence de
+    // conservation.
+    let mut ancien = None;
+    let mut ancien_illisible = None;
+    if destination.exists() {
+        match std::fs::read_to_string(destination)
+            .map_err(|e| e.to_string())
+            .and_then(|s| ks_cli::etat_desire::EtatDesire::lire(&s).map_err(|e| e.to_string()))
+        {
+            Ok(document) => ancien = Some(document),
+            Err(detail) => ancien_illisible = Some(detail),
+        }
+    }
+
+    let inv = Inventory::collect_all();
+    let machine = rapport::nom_machine(&inv.items);
+    let emission = emetteur::emettre_en_conservant(&inv.items, &machine, ancien.as_ref());
+    let conserves = ancien.as_ref().map_or(0, |a| a.accepted_drift.len());
+
     ecrire_atomiquement(destination, &emission.yaml)?;
 
     if json {
@@ -659,6 +755,19 @@ fn cmd_import(json: bool, destination: &std::path::Path, force: bool) -> Result<
         for (chemin, raison) in &emission.illisibles {
             println!("    {chemin:<44} {raison}");
         }
+    }
+    if conserves > 0 {
+        println!(
+            "  {conserves} tolérance(s) reconduite(s) depuis le fichier précédent, avec leur\n  \
+             raison et leur échéance. `ks diff` signale celles qui ne couvrent plus rien."
+        );
+    }
+    if let Some(detail) = &ancien_illisible {
+        println!(
+            "\nLe fichier précédent n'a pas pu être relu, donc rien n'en a été conservé :\n  \
+             ni tolérance, ni surcouche, ni propriétaire. S'il en portait, ils sont perdus.\n  \
+             Détail : {detail}"
+        );
     }
 
     // ADR-0017 : la commande est proposée, jamais exécutée. Un `git commit`
@@ -713,6 +822,208 @@ fn ecrire_atomiquement(destination: &std::path::Path, contenu: &str) -> Result<(
 /// Un écart n'est pas une erreur de la commande : le code de sortie dit si la
 /// comparaison a **eu lieu**, jamais ce qu'elle a trouvé. Un script qui veut
 /// agir sur les écarts lit la sortie `--json`.
+/// Tolère un écart : simule par défaut, écrit sur `--apply` (D2-06, D2-07).
+///
+/// # Pourquoi `--apply` plutôt qu'un bloc à recopier
+///
+/// L'ADR-0020 avait d'abord conclu que la commande imprimerait le bloc et
+/// laisserait l'utilisateur le coller, au motif que réémettre le document entier
+/// perdrait `inherits`, `owner`, `description` et les tolérances déjà présentes.
+/// Le motif est juste, et il condamne la **réémission**, pas l'écriture : une
+/// insertion qui ne touche que le bloc `acceptedDrift` ne perd rien, et
+/// [`acceptation::inserer`] le prouve par soustraction plutôt que de l'affirmer.
+///
+/// Deux faits ont emporté l'amendement. D'abord `ks import --force` réécrit déjà
+/// ce fichier **en entier** : refuser d'y insérer cinq lignes tout en acceptant
+/// de l'écraser n'était pas une position tenable. Ensuite le fichier est
+/// versionné en git, donc l'écriture est réversible par construction, ce que P3
+/// demande.
+///
+/// # Rien n'est consigné par omission
+///
+/// Sans `--apply`, la commande n'écrit **ni le fichier, ni le journal**. C'est la
+/// même règle que `ks scan --record` : une décision consignée alors que le
+/// fichier n'a pas bougé décrirait une tolérance qui n'existe nulle part.
+fn cmd_accept(config: &str, path: &str, reason: &str, until: &str, apply: bool) -> Result<()> {
+    let chemin = std::path::Path::new(config);
+    let aujourd_hui = aujourd_hui();
+
+    let echeance: chrono::NaiveDate = until.parse().with_context(|| {
+        format!(
+            "« {until} » n'est pas une date. L'échéance s'écrit AAAA-MM-JJ, par \
+             exemple {}.",
+            aujourd_hui + chrono::Duration::days(90)
+        )
+    })?;
+
+    // Les deux refus qui ne dépendent que de la demande se prononcent avant le
+    // scan : inutile de lire la machine pendant trois secondes pour découvrir
+    // que la raison est vide.
+    let decision = acceptation::Decision::nouvelle(
+        path,
+        reason,
+        echeance,
+        &nom_du_decideur(),
+        aujourd_hui,
+        Utc::now(),
+    )?;
+
+    let source = std::fs::read_to_string(chemin).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            anyhow::anyhow!(
+                "Aucun fichier d'état désiré à « {}», donc aucun écart à tolérer. \
+                 `ks import` écrit ce fichier depuis ce que Keystone lit de la machine.",
+                chemin.display()
+            )
+        } else {
+            anyhow::anyhow!("« {} » n'a pas pu être lu : {e}", chemin.display())
+        }
+    })?;
+    let document = ks_cli::etat_desire::EtatDesire::lire(&source)?;
+
+    // La tolérance en vigueur se cherche AVANT le scan, pour la même raison.
+    if let Some(deja) = document
+        .accepted_drift
+        .iter()
+        .find(|a| a.item == path && a.expires >= aujourd_hui)
+    {
+        return Err(acceptation::Refus::DejaTolere {
+            item: path.to_owned(),
+            echeance: deja.expires,
+            raison: deja.reason.texte().to_owned(),
+        }
+        .into());
+    }
+
+    // Il faut la machine pour savoir si l'item est en écart : une tolérance sur
+    // un item conforme ne couvrirait rien, et resterait dans le fichier sans
+    // que personne sache pourquoi.
+    let mut inv = Inventory::collect_all();
+    confrontation::confronter(&document, &mut inv.items, aujourd_hui)?;
+
+    let Some(item) = inv.items.iter().find(|i| i.path == path) else {
+        return Err(acceptation::Refus::ItemNonObserve {
+            item: path.to_owned(),
+        }
+        .into());
+    };
+    let verdict = confrontation::verdict_publie(item);
+    if verdict != Verdict::Ecart {
+        return Err(acceptation::Refus::RienATolerer {
+            item: path.to_owned(),
+            verdict: match &verdict {
+                Verdict::Conforme => "il est conforme à ce qui est déclaré".to_owned(),
+                Verdict::NonContraint => "rien ne le déclare dans le fichier d'état".to_owned(),
+                Verdict::Incomparable { raison } => format!("il est incomparable — {raison}"),
+                Verdict::Ecart => unreachable!("écarté par le test ci-dessus"),
+            },
+        }
+        .into());
+    }
+
+    let bloc = decision.bloc();
+    let jours = (echeance - aujourd_hui).num_days();
+
+    if !apply {
+        println!("Rien n'a été modifié.\n");
+        println!("« {path} » est en écart :");
+        println!(
+            "  déclaré   {}",
+            item.desired
+                .as_ref()
+                .map_or_else(|| "-".to_owned(), lisible::libelle)
+        );
+        println!("  constaté  {}", lisible::valeur(item));
+        println!("\nCe bloc serait ajouté à « {} » :\n", chemin.display());
+        for ligne in bloc.lines() {
+            println!("  {ligne}");
+        }
+        println!(
+            "\nLa tolérance vaudrait {} jour(s), jusqu'au {echeance} inclus. L'écart\n\
+             resterait publié en écart pendant tout ce temps, avec son échéance :\n\
+             tolérer n'est pas masquer. Au {}, il redeviendrait actif sans qu'aucune\n\
+             commande soit lancée.",
+            jours,
+            echeance + chrono::Duration::days(1)
+        );
+        println!("\nPour l'écrire : ajoutez --apply.");
+        return Ok(());
+    }
+
+    let sortie = acceptation::inserer(&source, &bloc);
+
+    // Le document réécrit est relu par le lecteur du produit AVANT d'atteindre
+    // le disque. Un fichier d'état que Keystone n'accepte plus est la source de
+    // vérité du poste qui disparaît, et il ne faut pas la remplacer par un
+    // document invalide au motif qu'on l'a bien formé.
+    let relu = ks_cli::etat_desire::EtatDesire::lire(&sortie).with_context(|| {
+        format!(
+            "Le document obtenu après insertion n'est plus relisible par Keystone. \
+             « {} » n'a PAS été modifié.",
+            chemin.display()
+        )
+    })?;
+    anyhow::ensure!(
+        relu.accepted_drift.iter().any(|a| a.item == path),
+        "La tolérance n'a pas été retrouvée après insertion. « {} » n'a PAS été modifié.",
+        chemin.display()
+    );
+
+    ecrire_atomiquement(chemin, &sortie)?;
+
+    let magasin = magasin::Magasin::ouvrir(&chemin_journal()?)?;
+    let entree = magasin.ajouter(ks_core::JournalEntry {
+        seq: 0,
+        at: decision.decide_le,
+        actor: ks_core::Actor::Human(decision.decideur.clone()),
+        verb: "accept".to_owned(),
+        target: path.to_owned(),
+        // Le diff entre dans l'empreinte : la trace de ce qui a été écrit ne se
+        // réécrit pas sans casser la chaîne.
+        diff: Some(bloc.trim_end().to_owned()),
+        outcome: ks_core::Outcome::Decided {
+            reason: decision.raison.clone(),
+            expires: echeance,
+        },
+        prev_digest: String::new(),
+    })?;
+
+    println!("Tolérance écrite dans « {} ».\n", chemin.display());
+    println!("  item      {path}");
+    println!("  raison    {}", decision.raison);
+    println!("  échéance  {echeance} — dans {jours} jour(s), incluse");
+    println!(
+        "\nL'écart reste publié en écart par `ks diff`, avec son échéance : tolérer\n\
+         n'est pas masquer. Au {}, il redevient actif sans qu'aucune commande soit\n\
+         lancée.",
+        echeance + chrono::Duration::days(1)
+    );
+    println!(
+        "\nDécision consignée au journal, entrée {} — {}",
+        entree.seq,
+        entree.digest()
+    );
+    println!("\nPour la versionner :");
+    println!("  git add {} && git commit", chemin.display());
+    Ok(())
+}
+
+/// Qui décide, tel que le journal et le fichier l'enregistrent.
+///
+/// Le nom de session, ou `inconnu` — jamais une chaîne vide, qui se relirait
+/// comme une décision sans auteur alors qu'il y en a un. Ce n'est **pas** une
+/// authentification : ce champ dit qui a lancé la commande, pas qui est
+/// autorisé. Windows Hello n'arrive qu'en Phase 2, sur les verbes coûteux
+/// (SEC-08), et prétendre le contraire ici serait la sorte de garantie annoncée
+/// non tenue que ce dépôt traque.
+fn nom_du_decideur() -> String {
+    std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .ok()
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| "inconnu".to_owned())
+}
+
 fn cmd_diff(json: bool, config: &str, domain: Option<&str>) -> Result<()> {
     let filtre = filtre_de_domaine(domain)?;
     let chemin = std::path::Path::new(config);
@@ -723,7 +1034,7 @@ fn cmd_diff(json: bool, config: &str, domain: Option<&str>) -> Result<()> {
     // filtrée : `--domain` est une commodité d'affichage, et laisser un filtre
     // décider de ce qui est comparé ferait passer un chemin déclaré pour
     // « non observé » alors qu'il l'a été.
-    let bilan = confrontation::confronter(&document, &mut inv.items)?;
+    let bilan = confrontation::confronter(&document, &mut inv.items, aujourd_hui())?;
 
     let items: Vec<&Item> = match filtre {
         Some(d) => inv.items.iter().filter(|i| i.domain == d).collect(),
@@ -766,6 +1077,27 @@ fn cmd_diff(json: bool, config: &str, domain: Option<&str>) -> Result<()> {
                     "reason": raison,
                 })).collect::<Vec<_>>(),
                 "declaredNotObserved": bilan.non_observes,
+                // Les tolérances voyagent avec leur qualification : un script qui
+                // lirait la liste sans elle croirait toutes les tolérances en
+                // vigueur, y compris celles qui sont échues.
+                "tolerated": bilan.tolerances.iter().map(|t| serde_json::json!({
+                    "path": t.item,
+                    "reason": t.raison,
+                    "expires": t.echeance,
+                    "status": match &t.qualification {
+                        confrontation::Qualification::EnVigueur { .. } => "in-force",
+                        confrontation::Qualification::Echue { .. } => "expired",
+                        confrontation::Qualification::SansObjet => "moot",
+                        confrontation::Qualification::NonObservee => "not-observed",
+                    },
+                    "daysLeft": match &t.qualification {
+                        confrontation::Qualification::EnVigueur { jours_restants } =>
+                            serde_json::json!(jours_restants),
+                        confrontation::Qualification::Echue { depuis_jours } =>
+                            serde_json::json!(-depuis_jours),
+                        _ => serde_json::Value::Null,
+                    },
+                })).collect::<Vec<_>>(),
             }))?
         );
         return Ok(());
@@ -796,11 +1128,70 @@ fn cmd_diff(json: bool, config: &str, domain: Option<&str>) -> Result<()> {
                 .desired
                 .as_ref()
                 .map_or_else(|| "-".to_owned(), lisible::libelle);
+            // La tolérance s'affiche **sur la ligne de l'écart**, et non dans une
+            // liste à part : l'écart reste un écart, et sa tolérance est une
+            // annotation, pas un rangement ailleurs. Le lecteur voit le fait et
+            // la politique du même coup d'œil.
+            let tolerance = bilan
+                .tolerances
+                .iter()
+                .find(|t| t.item == item.path)
+                .map_or_else(String::new, |t| match &t.qualification {
+                    confrontation::Qualification::EnVigueur { jours_restants } => {
+                        format!(
+                            "  [toléré {j} j, jusqu'au {e}]",
+                            j = jours_restants,
+                            e = t.echeance
+                        )
+                    }
+                    confrontation::Qualification::Echue { depuis_jours } => {
+                        format!("  [tolérance échue depuis {depuis_jours} j]")
+                    }
+                    confrontation::Qualification::SansObjet
+                    | confrontation::Qualification::NonObservee => String::new(),
+                });
             println!(
-                "    {:<44} déclaré {voulu}, constaté {}",
+                "    {:<44} déclaré {voulu}, constaté {}{tolerance}",
                 item.path,
                 lisible::valeur(item)
             );
+        }
+    }
+
+    // Les tolérances qui ne couvrent rien se disent à part, parce qu'elles ne
+    // décrivent pas la machine : elles décrivent le fichier. Une échéance
+    // dépassée, une tolérance devenue sans objet ou un chemin disparu sont trois
+    // manières dont un état désiré pourrit en silence, et le silence est
+    // précisément ce que D2-07 désigne comme la cause première.
+    let a_signaler: Vec<&confrontation::Tolerance> = bilan
+        .tolerances
+        .iter()
+        .filter(|t| {
+            !matches!(
+                t.qualification,
+                confrontation::Qualification::EnVigueur { .. }
+            )
+        })
+        .collect();
+    if !a_signaler.is_empty() {
+        println!("\n  Tolérances à revoir — elles ne couvrent plus rien :");
+        for t in a_signaler {
+            let pourquoi = match &t.qualification {
+                confrontation::Qualification::Echue { depuis_jours } => {
+                    format!("échue depuis {depuis_jours} j — l'écart est redevenu actif tout seul")
+                }
+                confrontation::Qualification::SansObjet => {
+                    "l'item n'est plus en écart — la ligne peut être retirée".to_owned()
+                }
+                confrontation::Qualification::NonObservee => {
+                    "aucun item observé ne porte ce chemin".to_owned()
+                }
+                confrontation::Qualification::EnVigueur { .. } => {
+                    unreachable!("écartée par le filtre ci-dessus")
+                }
+            };
+            println!("    {:<44} {pourquoi}", t.item);
+            println!("    {:<44} « {} »", "", t.raison);
         }
     }
 
@@ -839,7 +1230,7 @@ fn cmd_status(json: bool) -> Result<()> {
         .iter()
         .filter(|i| !i.observed.est_constat())
         .count();
-    let summary = DriftSummary::build(inv.len(), illisibles, &[], chrono::Utc::now());
+    let summary = DriftSummary::build(inv.len(), illisibles, &[], aujourd_hui());
 
     if json {
         println!("{}", serde_json::to_string_pretty(&summary)?);

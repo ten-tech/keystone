@@ -91,6 +91,10 @@ acceptedDrift:
     # fait un objet date, que le validateur JSON Schema refuse là où il attend
     # une chaîne. Keystone, lui, relit les deux — d'où l'intérêt d'avoir les
     # deux validations plutôt qu'une.
+    #
+    # L'échéance est INCLUSE : la tolérance vaut encore tout le 15 octobre, et
+    # cesse le 16. C'est la lecture qu'attend quiconque écrit cette ligne, et
+    # l'autre convention retirerait une journée sans le dire.
     expires: "2026-10-15"
     decidedBy: exemple
     decidedAt: "2026-07-18T09:12:00+02:00"
