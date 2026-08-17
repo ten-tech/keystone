@@ -43,17 +43,40 @@ confirme qu'aucun octet n'a été modifié.
 - [ ] **Usure NVMe / SMART**, santé et cycles de la batterie — `DeviceIoControl`, donc `unsafe`, donc une autre décision
 - [ ] **Cohérence de l'horloge** (D1-09) — une mesure contre une référence externe, pas une lecture
 
-> **Trois sujets quittent la Phase 0**, non par manque d'API mais faute de
-> privilège. Mesuré en session non élevée, c'est-à-dire dans le contexte où la
-> CLI s'exécute réellement (SEC-01) :
+> **Deux sujets quittent la Phase 0**, non par manque d'API mais faute de
+> privilège. Re-mesuré en session non élevée le 2026-08-17, c'est-à-dire dans le
+> contexte où la CLI s'exécute réellement (SEC-01) :
 >
 > - `Win32_Tpm` — **accès refusé** ;
-> - `Win32_EncryptableVolume`, donc BitLocker par volume — **accès refusé** ;
-> - `Schedule\TaskCache\Tree`, donc les tâches planifiées — **accès refusé**.
+> - `Win32_EncryptableVolume`, donc BitLocker par volume — **accès refusé**.
 >
-> Aucun choix de bibliothèque ne les rendra lisibles. Ils appartiennent au
-> broker, donc à la **Phase 2**. Les annoncer en Phase 0 aurait été une promesse
-> que la plateforme interdit de tenir.
+> Ces deux-là appartiennent au broker, donc à la **Phase 2**. Les annoncer en
+> Phase 0 aurait été une promesse que la plateforme interdit de tenir.
+>
+> **Il y en avait trois, et le troisième était une erreur de raisonnement.** Ce
+> paragraphe portait aussi les tâches planifiées, au motif que
+> `Schedule\TaskCache\Tree` renvoie « accès refusé », et concluait qu'« aucun
+> choix de bibliothèque ne les rendra lisibles ». La mesure était juste, la
+> conclusion fausse : elle généralisait le refus d'**un chemin d'accès** en une
+> impossibilité de plateforme. L'espace de noms WMI du planificateur, celui
+> qu'emploie `Get-ScheduledTask`, répond sans élévation.
+>
+> ```
+> cargo run -p ks-collectors --example mesurer-taches
+> LU : 194 tâches
+>   \OneDrive Standalone Update Task-…  état=Some(3) auteur="Microsoft Corporation"
+>   champs absents : chemin=0 auteur=71
+> ```
+>
+> Mesuré depuis Rust, avec le crate `wmi` déjà présent : aucune dépendance
+> ajoutée, aucun `unsafe`, aucun processus lancé. Les tâches planifiées
+> **reviennent donc dans le périmètre de la lecture seule**, et elles y sont
+> attendues : D2-03 les cite parmi les domaines couverts.
+>
+> Ce qui reste à décider avant de les collecter n'est pas un droit d'accès mais
+> un **modèle** : 194 tâches contre 120 items relevés aujourd'hui, il n'est pas
+> question de toutes les publier. Quels items, de quelle nature, et lesquels ont
+> un état désirable, sont des questions de conception, pas de privilège.
 
 ### 0.3 — Réconciliation d'inventaire logiciel *(le morceau à forte valeur)*
 
@@ -157,7 +180,7 @@ de fumée et annulée automatiquement en moins de 15 minutes, sans intervention 
 - [ ] **Ce que la Phase 0 n'a pas pu lire, faute de privilège** — mesuré en accès refusé sans élévation, donc reporté ici et non abandonné :
   - **TPM** : présence, version, état, propriétaire (`Win32_Tpm`)
   - **BitLocker par volume** : état, méthode, protecteurs, *présence de la clé de récupération* (`Win32_EncryptableVolume`)
-  - **Tâches planifiées** (`Schedule\TaskCache\Tree`)
+  - *Les **tâches planifiées** figuraient ici. Elles en sortent : mesurées lisibles sans élévation par l'espace de noms WMI du planificateur, elles n'ont jamais relevé du privilège mais du chemin d'accès choisi. Voir la Phase 0, et `cargo run -p ks-collectors --example mesurer-taches`.*
   - Ces lectures restent des **lectures** : elles n'ajoutent aucun verbe, et ne relèvent donc pas des quatre questions du §7
 - [ ] Moteur d'instantanés : point de restauration, checkpoint Hyper-V, `wsl --export`, export de registre
 - [ ] Convergence par item et par domaine, **simulation obligatoire d'abord**
