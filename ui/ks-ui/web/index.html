@@ -40,6 +40,10 @@
 <symbol id="ks-backup" viewBox="0 0 24 24"><title>Sauvegarde</title><path d="M4.75 4.5h14.5a1.5 1.5 0 0 1 1.5 1.5v2.25a1.5 1.5 0 0 1-1.5 1.5H4.75a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5M5.25 9.75v7.75a2 2 0 0 0 2 2h9.5a2 2 0 0 0 2-2V9.75M10 13.25h4"/></symbol>
 <symbol id="ks-journal" viewBox="0 0 24 24"><title>Journal</title><path d="M4.25 4.75v14.5M8 7.75h11.75M8 12h11.75M8 16.25h7.5"/></symbol>
 <symbol id="ks-first" viewBox="0 0 24 24"><title>Premier lancement</title><path d="M4 19.75V12A8 8 0 0 1 7.075 5.697M20 19.75V12A8 8 0 0 0 16.925 5.697M2.75 19.75h18.5"/></symbol>
+<symbol id="ks-tolere" viewBox="0 0 24 24"><title>Toléré</title><circle cx="12" cy="12" r="8.25"/><path d="M12 7.25V12l3.25 1.9"/></symbol>
+<symbol id="ks-echue" viewBox="0 0 24 24"><title>Tolérance échue</title><circle cx="12" cy="12" r="8.25"/><path d="M12 7.25V12l3.25 1.9M5.75 18.25 18.25 5.75"/></symbol>
+<symbol id="ks-sansobjet" viewBox="0 0 24 24"><title>Sans objet</title><circle cx="12" cy="12" r="8.25"/><path d="M8 12h8"/></symbol>
+<symbol id="ks-compare" viewBox="0 0 24 24"><title>Comparé</title><circle cx="12" cy="12" r="8.25"/><path d="M8.25 10.25h7.5M8.25 13.75h7.5"/></symbol>
     </svg>
 
     <!-- ══ Le poste de pilotage ══════════════════════════════════════════ -->
@@ -348,16 +352,16 @@
                 <article class="tile tile-none" id="tile-drift">
                   <div class="tile-h">
                     <span class="tile-l">Dérive de configuration</span>
+                    <!--
+                      L'ICÔNE SUIT LE LIBELLÉ. Cette pastille-là change d'état —
+                      « sans comparaison » tant qu'aucun fichier n'est confronté,
+                      « comparé » ensuite —, et une icône figée finirait par
+                      contredire le mot posé à côté d'elle. Elle vient donc du
+                      sprite, et app.js désigne le symbole qui va avec l'état.
+                    -->
                     <span class="badge badge-muet">
-                      <svg
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        aria-hidden="true"
-                      >
-                        <circle cx="12" cy="12" r="9" />
-                        <path d="M8 12h8" />
+                      <svg class="ic" aria-hidden="true">
+                        <use href="#ks-sansobjet" />
                       </svg>
                       <span>Sans comparaison</span>
                     </span>
@@ -412,6 +416,61 @@
               </div>
             </div>
 
+            <!--
+              FIGURE — CE QUI SE DÉCLARE, ET CE QUI NE SE DÉCLARE PAS.
+
+              Une part-à-tout sur un total connu : une barre empilée, jamais un
+              camembert. Elle répond à la seule question que le tableau des
+              domaines ne pose pas — pourquoi une fraction seulement des items
+              relevés peut finir dans `workstation.yaml`.
+
+              Le graphique est construit par app.js à partir des LISTES DE
+              CHEMINS que porte l'instantané : la longueur d'un segment est le
+              nombre d'items de la liste, et la ligne de tableau qui lui répond
+              vient de la même liste. Aucun nombre n'est écrit ici.
+            -->
+            <div class="card">
+              <div class="card-h">
+                <h2>Ce qui se déclare, et ce qui ne se déclare pas</h2>
+                <span class="spacer"></span>
+                <span class="kbd">ks import</span>
+              </div>
+              <div class="card-b">
+                <figure class="fig" id="fig-natures">
+                  <p class="fig-s">
+                    Seuls les réglages et les objectifs ont vocation à figurer
+                    dans le fichier d'état désiré. Les mesures évoluent d'elles-mêmes,
+                    les constats se subissent : les déclarer les mettrait en écart
+                    à la lecture suivante.
+                  </p>
+                  <div class="fig-plot"></div>
+                  <ul class="legende"></ul>
+                </figure>
+                <div
+                  class="cadre-table"
+                  role="group"
+                  aria-label="Répartition des items par nature"
+                  tabindex="0"
+                >
+                  <table>
+                    <caption>
+                      Équivalent textuel de la figure : aucune valeur n'est
+                      réservée au survol.
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Nature</th>
+                        <th scope="col">Se déclare</th>
+                        <th scope="col" class="num">Items</th>
+                        <th scope="col">Ce que c'est</th>
+                      </tr>
+                    </thead>
+                    <tbody id="natures-lignes"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
             <div class="card">
               <div class="card-h">
                 <h2>Ce que Keystone a lu</h2>
@@ -452,6 +511,29 @@
               item.
             </p>
 
+            <!--
+              LE FICHIER LU, TOUJOURS NOMMÉ.
+
+              Un écran qui annonce « aucune comparaison » sans dire quel fichier
+              il attendait, ni où il l'a cherché, n'explique rien — et ne laisse
+              aucun geste à faire (principe P6). Le chemin affiché est celui qui
+              a RÉELLEMENT été lu, jamais le premier de la liste ; quand rien n'a
+              été trouvé, ce sont tous les emplacements cherchés qui s'affichent,
+              dans l'ordre où ils l'ont été.
+            -->
+            <div class="card" id="drift-source">
+              <div class="card-h">
+                <h2>État désiré</h2>
+                <span class="spacer"></span>
+                <span class="kbd">ks import</span>
+              </div>
+              <div class="card-b">
+                <p class="source-l" id="drift-source-l"></p>
+                <div id="drift-source-chemins"></div>
+                <div id="drift-nonobserves"></div>
+              </div>
+            </div>
+
             <div class="card indispo" id="drift-indispo">
               <div class="card-h">
                 <h2>Pas de comparaison possible</h2>
@@ -467,8 +549,30 @@
             </div>
 
             <div class="card">
-              <div class="card-h"><h2>Les quatre verdicts</h2></div>
+              <div class="card-h">
+                <h2>Les quatre verdicts</h2>
+                <span class="spacer"></span>
+                <span class="kbd">ks diff</span>
+              </div>
               <div class="card-b">
+                <!--
+                  FIGURE — LES VERDICTS.
+
+                  « Écart » est un ÉTAT, pas une série : le segment porte donc
+                  une icône et un libellé, jamais la seule couleur. Et un
+                  verdict à zéro ne disparaît pas de la figure — il garde son
+                  repère sur la ligne de base, avec son libellé, parce qu'un
+                  segment absent se lit comme un verdict absent.
+
+                  Tant qu'aucun état désiré n'est chargé, la figure NE TRACE
+                  AUCUNE BARRE : il n'y a pas zéro écart, il n'y a pas de
+                  comparaison. Elle le dit à la place, dans la notation du
+                  dessin technique — hachure à 45°, « zone non levée ».
+                -->
+                <figure class="fig" id="fig-verdicts">
+                  <div class="fig-plot"></div>
+                  <ul class="legende"></ul>
+                </figure>
                 <div class="cadre-table" role="group" aria-label="Décompte par verdict" tabindex="0">
                   <table>
                     <caption>
@@ -485,6 +589,128 @@
                     <tbody id="verdicts"></tbody>
                   </table>
                 </div>
+              </div>
+            </div>
+
+            <!--
+              LES ÉCARTS, ET LA TOLÉRANCE SUR LA LIGNE DE L'ÉCART.
+
+              Un écart toléré RESTE publié en écart. Le verdict dit le fait
+              constaté, la tolérance dit la politique décidée, et la seconde
+              s'écrit dans une colonne de la première — jamais dans une liste à
+              part, qui ferait sortir de l'écran ce qu'on a justement choisi d'y
+              garder jusqu'à une date. C'est la présentation de `ks diff`, et
+              ce sont ses libellés : deux surfaces qui nomment différemment le
+              même état obligent à traduire de l'une à l'autre.
+
+              Aucun nombre n'est écrit ici : le décompte affiché est la longueur
+              de la liste que le processus Rust envoie, et la ligne du tableau
+              vient de cette même liste.
+            -->
+            <div class="card" id="drift-ecarts" hidden>
+              <div class="card-h">
+                <h2>Écarts</h2>
+                <span class="spacer"></span>
+                <span class="kbd">ks diff</span>
+              </div>
+              <div class="card-b">
+                <p class="source-l" id="drift-ecarts-l"></p>
+                <div
+                  class="cadre-table"
+                  id="drift-ecarts-cadre"
+                  role="group"
+                  aria-label="Écarts, item par item"
+                  tabindex="0"
+                  hidden
+                >
+                  <table>
+                    <caption>
+                      Tolérer n'est pas masquer : l'item reste ici jusqu'à son
+                      échéance, puis l'écart redevient actif sans qu'aucune
+                      commande soit lancée.
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Item</th>
+                        <th scope="col">Déclaré</th>
+                        <th scope="col">Constaté</th>
+                        <th scope="col">Tolérance</th>
+                      </tr>
+                    </thead>
+                    <tbody id="drift-ecarts-lignes"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!--
+              LES TOLÉRANCES QUI NE COUVRENT PLUS RIEN.
+
+              Elles se disent à part, parce qu'elles ne décrivent pas la machine :
+              elles décrivent le fichier. Une échéance dépassée, une tolérance
+              devenue sans objet et un chemin disparu sont trois manières dont un
+              état désiré pourrit en silence, et le silence est précisément ce que
+              l'exigence D2-07 désigne comme la cause première.
+            -->
+            <div class="card" id="drift-tolerances" hidden>
+              <div class="card-h">
+                <h2>Tolérances à revoir</h2>
+                <span class="spacer"></span>
+                <span class="kbd">ks diff</span>
+              </div>
+              <div class="card-b">
+                <p class="source-l">
+                  Elles ne couvrent plus rien. Chacune reste dans le fichier tant
+                  que personne ne l'en retire, et une ligne qu'on ne relit pas
+                  devient une exception que plus personne ne s'explique.
+                </p>
+                <div
+                  class="cadre-table"
+                  role="group"
+                  aria-label="Tolérances qui ne couvrent plus rien"
+                  tabindex="0"
+                >
+                  <table>
+                    <thead>
+                      <tr>
+                        <th scope="col">Item</th>
+                        <th scope="col">Ce qu'elle vaut</th>
+                        <th scope="col">Raison déclarée</th>
+                        <th scope="col">Échéance</th>
+                      </tr>
+                    </thead>
+                    <tbody id="drift-tolerances-lignes"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!--
+              FIGURE — LA FRISE DES INTERVALLES D'OBSERVATION.
+
+              C'est la figure que le tableau ne remplace pas : le magasin
+              n'enregistre pas des instants mais des INTERVALLES — « cette
+              valeur a tenu de telle date à telle date » — et seule une frise
+              horizontale montre ce que ce modèle porte.
+
+              Elle n'est pas tracée, et son absence est le livrable. Une
+              lecture donne une borne ; un intervalle en demande deux. Dessiner
+              la frise sur une seule borne produirait une figure vide qui
+              ressemble à une frise pleine, c'est-à-dire l'exact contraire de
+              ce qu'elle sert à montrer. Le bloc dit donc ce qui manque, la
+              raison, et le geste qui l'ouvrirait.
+            -->
+            <div class="card indispo">
+              <div class="card-h">
+                <h2>Frise des intervalles d'observation</h2>
+                <span class="spacer"></span>
+                <span class="kbd">ks scan --record</span>
+              </div>
+              <div class="card-b">
+                <p class="indispo-1" data-champ="observationSeries.happened"></p>
+                <p class="indispo-2" data-champ="observationSeries.implies"></p>
+                <p class="indispo-3" data-champ="observationSeries.unlockedBy"></p>
+                <p class="detail" data-champ="observationSeries.detail"></p>
               </div>
             </div>
           </section>
@@ -546,6 +772,57 @@
                   poser une.
                 </p>
                 <div id="illisibles-liste"></div>
+              </div>
+            </div>
+
+            <!--
+              FIGURE — LES ITEMS RELEVÉS PAR FAMILLE.
+
+              Des barres horizontales triées : les libellés de familles sont
+              longs, et une colonne verticale les coucherait ou les
+              tronquerait. Une seule série, donc une seule couleur — colorer
+              chaque barre selon sa longueur redirait en teinte ce que la
+              longueur dit déjà.
+
+              La part dont la lecture a été refusée n'est ni un manque ni un
+              zéro : elle porte la HACHURE À 45° du dessin technique, celle du
+              motif `ks-nonreleve` de la marque, qui veut dire « zone non
+              levée ». C'est la même notation que les blocs non calculables de
+              cette interface, et elle ne dépense aucune couleur d'état.
+            -->
+            <div class="card">
+              <div class="card-h">
+                <h2>Items relevés par famille</h2>
+                <span class="spacer"></span>
+                <span class="kbd">ks scan --domain security</span>
+              </div>
+              <div class="card-b">
+                <figure class="fig" id="fig-familles">
+                  <div class="fig-plot"></div>
+                  <ul class="legende"></ul>
+                </figure>
+                <div
+                  class="cadre-table"
+                  role="group"
+                  aria-label="Items par famille de la posture"
+                  tabindex="0"
+                >
+                  <table>
+                    <caption>
+                      Équivalent textuel de la figure : aucune valeur n'est
+                      réservée au survol.
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Famille</th>
+                        <th scope="col" class="num">Items</th>
+                        <th scope="col" class="num">Lus</th>
+                        <th scope="col" class="num">Lecture refusée</th>
+                      </tr>
+                    </thead>
+                    <tbody id="familles-compte"></tbody>
+                  </table>
+                </div>
               </div>
             </div>
 
@@ -852,6 +1129,19 @@
         </p>
       </div>
     </div>
+
+    <!-- ══ L'infobulle des figures ═══════════════════════════════════════
+      UNE SEULE POUR TOUTES LES FIGURES, et `aria-hidden` : elle ENRICHIT, elle
+      ne conditionne jamais l'accès à une valeur. Chaque marque porte déjà son
+      propre nom accessible, et chaque figure a son tableau équivalent, visible
+      sans survol — l'annoncer une seconde fois ne dirait rien de plus et
+      couvrirait le reste.
+
+      Elle est posée hors de `.app` : la zone de contenu défile, et une bulle
+      ancrée dans un conteneur qui défile se décale de son repère au premier
+      coup de molette.
+    -->
+    <div class="fig-bulle" id="fig-bulle" hidden aria-hidden="true"></div>
 
     <script src="app.js"></script>
   </body>

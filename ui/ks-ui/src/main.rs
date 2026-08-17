@@ -3,8 +3,9 @@
 //! ## Ce qu'elle affiche, et la règle qui gouverne tout le reste
 //!
 //! Elle affiche **l'état réel de cette machine** : les items que produit
-//! [`Inventory::collect_all`], réellement exécuté sur ce poste, mis en scène
-//! dans le poste de pilotage décrit par `docs/02-BRIEF-DESIGN.md`.
+//! [`Inventory::collect_all`], réellement exécuté sur ce poste, confrontés au
+//! fichier d'état désiré quand il en existe un, et mis en scène dans le poste de
+//! pilotage décrit par `docs/02-BRIEF-DESIGN.md`.
 //!
 //! **Aucun nombre affiché n'est inventé.** Chaque valeur de l'écran vient d'un
 //! item relevé, ou l'écran dit qu'elle n'est pas collectée — avec la raison, et
@@ -12,15 +13,21 @@
 //! qui ressemble à une mesure. Le module [`cockpit`] porte cette règle dans le
 //! typage, et non dans la vigilance ; ses tests l'éprouvent par falsification.
 //!
-//! Trois éléments du poste de pilotage ne sont pas calculables aujourd'hui, et
+//! Deux éléments du poste de pilotage ne sont pas calculables aujourd'hui, et
 //! l'écran le dit plutôt que de les remplir :
 //!
-//! * **l'anneau de posture** — une posture composite se calcule contre une
-//!   référence, et aucun état désiré n'est chargé (P6, D2-02) ;
-//! * **la dérive** — sans état désiré, il n'y a pas zéro écart, il n'y a pas de
-//!   comparaison ; c'est exactement ce que
-//!   [`ks_core::item::Verdict::Incomparable`] existe pour empêcher ;
+//! * **l'anneau de posture** — un indicateur composite pèse des items les uns
+//!   contre les autres, et ce barème n'existe pas ; le charger d'une référence
+//!   n'y change rien (P6, D2-02) ;
 //! * **les mises à jour** — le domaine D3 n'est pas collecté.
+//!
+//! **La dérive, elle, se calcule** dès qu'un fichier d'état désiré est trouvé :
+//! [`charger_etat_desire`] le lit et le confronte par
+//! [`ks_cli::confrontation`], le même code que `ks diff`, de sorte que les deux
+//! surfaces ne peuvent pas diverger sur le même document (principe P4). Tant
+//! qu'aucun fichier n'est trouvé, il n'y a pas zéro écart : il n'y a pas de
+//! comparaison, et c'est exactement ce que
+//! [`ks_core::item::Verdict::Incomparable`] existe pour empêcher.
 //!
 //! Ce qui est réel se remplit vraiment : la posture de sécurité et ses items
 //! illisibles comptés et nommés, l'espace par volume, les distributions WSL,
@@ -86,9 +93,12 @@
 
 mod cockpit;
 
+use std::path::PathBuf;
+
 use chrono::Utc;
-use cockpit::Cockpit;
-use ks_cli::rapport;
+use cockpit::{Cockpit, DesiredStateLoad};
+use ks_cli::confrontation::ErreurDeChargement;
+use ks_cli::{confrontation, rapport};
 use ks_collectors::Inventory;
 use serde::Serialize;
 
@@ -106,14 +116,147 @@ struct Failure {
     detail: String,
 }
 
+/// Le nom du fichier d'état désiré, le même que celui de la CLI.
+const ETAT_DESIRE: &str = "workstation.yaml";
+
+/// Les emplacements où la coque cherche `workstation.yaml`, **dans cet ordre**.
+///
+/// # Pourquoi la coque cherche là où la CLI ne cherche pas
+///
+/// `ks` prend `--config workstation.yaml`, c'est-à-dire un chemin relatif au
+/// répertoire courant : la CLI est lancée depuis un terminal, donc depuis un
+/// répertoire que l'utilisateur a choisi, et ce répertoire *est* l'intention.
+///
+/// **Une application de bureau n'a pas de répertoire courant utile.** Lancée
+/// depuis le menu Démarrer, un raccourci ou l'explorateur, elle hérite de ce que
+/// le lanceur lui donne — `C:\Windows\System32` n'est pas rare. Chercher
+/// uniquement là reviendrait à ne jamais rien trouver, et à afficher « sans
+/// objet » pour toujours sur une machine qui a pourtant son fichier.
+///
+/// D'où deux emplacements, du plus stable au plus explicite :
+///
+/// 1. **`%LOCALAPPDATA%\Keystone\workstation.yaml`** — l'emplacement par
+///    convention sous Windows pour une donnée propre à la machine et à
+///    l'utilisateur, qui ne se synchronise pas vers un profil itinérant. C'est
+///    celui qu'un poste installé emploiera.
+/// 2. **le répertoire courant du processus** — ce qui rend `ks-ui` lançable
+///    depuis le même terminal que `ks`, sur le même fichier, pendant qu'on
+///    travaille dessus. Sans lui, les deux surfaces ne liraient pas le même
+///    document au même moment.
+///
+/// La liste est renvoyée **en entier**, trouvée ou pas : quand rien n'existe,
+/// l'écran affiche les deux chemins cherchés. Un état qu'on ne peut pas
+/// expliquer n'est pas affichable (principe P6), et « fichier introuvable » sans
+/// dire où l'on a regardé n'explique rien.
+///
+/// Aucune variable d'environnement autre que `LOCALAPPDATA` n'est lue, et aucun
+/// chemin n'est écrit : la coque reste en lecture seule, comme tout ce que la
+/// Phase 0 livre.
+fn emplacements_etat_desire() -> Vec<PathBuf> {
+    emplacements_depuis(std::env::var_os("LOCALAPPDATA").map(PathBuf::from))
+}
+
+/// L'ordre de recherche, **l'environnement reçu en paramètre**.
+///
+/// Il ne se lit pas ici : une variable d'environnement modifiée par un test est
+/// modifiée pour tout le processus, donc pour les autres tests qui tournent en
+/// même temps. L'injecter rend cet ordre éprouvable sans toucher au processus,
+/// et sans dépendre de la machine qui exécute la suite — la CI n'a pas de
+/// `LOCALAPPDATA`, un poste Windows en a un.
+fn emplacements_depuis(donnees_locales: Option<PathBuf>) -> Vec<PathBuf> {
+    let mut cherches = Vec::new();
+    if let Some(local) = donnees_locales {
+        cherches.push(local.join("Keystone").join(ETAT_DESIRE));
+    }
+    cherches.push(PathBuf::from(ETAT_DESIRE));
+    cherches
+}
+
+/// Charge l'état désiré et le confronte au relevé, **exactement comme `ks diff`**.
+///
+/// L'horloge est lue **ici et nulle part ailleurs**, puis passée : une échéance
+/// de tolérance est une date de calendrier, celle de qui a pris la décision, et
+/// non un instant. C'est la même raison qui fait lire `Local` et non `Utc` dans
+/// la CLI — en temps universel, une tolérance tomberait pendant la nuit
+/// précédant le jour où l'utilisateur l'attend.
+fn charger_etat_desire(items: &mut [ks_core::Item]) -> DesiredStateLoad {
+    charger_depuis(
+        &emplacements_etat_desire(),
+        items,
+        chrono::Local::now().date_naive(),
+    )
+}
+
+/// Le premier des emplacements qui porte un fichier, lu puis confronté.
+///
+/// Le chargement et la confrontation viennent de [`ks_cli::confrontation`], et
+/// non d'une seconde écriture : deux lecteurs de `workstation.yaml` finiraient
+/// par ne plus refuser les mêmes fichiers, et l'écran et la CLI ne diraient plus
+/// la même chose du même document.
+///
+/// # Absent fait passer au suivant, refusé arrête tout
+///
+/// La distinction est la raison d'être de [`ErreurDeChargement::Absent`], qui
+/// est une variante à part et non un cas d'erreur d'entrée-sortie. Un
+/// emplacement vide n'est pas une panne : c'est l'état normal d'un poste qui
+/// range son fichier ailleurs, et on regarde donc l'emplacement suivant.
+///
+/// **Un fichier trouvé et refusé, lui, arrête la recherche.** Passer au suivant
+/// comparerait en silence contre un autre document que celui qu'on est en train
+/// de corriger, et l'écran afficherait des écarts qui ne viennent pas du fichier
+/// qu'il nomme. Mieux vaut ne rien comparer et dire pourquoi.
+///
+/// Aucun test d'existence préalable, non plus : entre un `is_file()` et la
+/// lecture qui suit, le fichier peut disparaître, et l'écran annoncerait alors
+/// « trouvé et refusé » sur un fichier qui n'était plus là. La lecture est le
+/// seul test qui ne ment pas.
+///
+/// # Un fichier illisible ne fait pas échouer la collecte
+///
+/// Un YAML invalide, une clé écrite deux fois, une raison vide : aucun de ces
+/// cas n'emporte le relevé de la machine, qui est juste et complet. Ils se
+/// **disent**, avec la phrase d'un côté et le détail technique de l'autre, et
+/// l'écran retombe sur « aucun état désiré chargé ». Perdre l'inventaire entier
+/// parce qu'un fichier de configuration a une tabulation de trop serait punir
+/// l'utilisateur de la faute d'un éditeur de texte.
+fn charger_depuis(
+    cherches: &[PathBuf],
+    items: &mut [ks_core::Item],
+    aujourd_hui: chrono::NaiveDate,
+) -> DesiredStateLoad {
+    for chemin in cherches {
+        let affiche = chemin.display().to_string();
+        let document = match confrontation::charger(chemin) {
+            Ok(document) => document,
+            Err(ErreurDeChargement::Absent { .. }) => continue,
+            Err(e) => return DesiredStateLoad::refuse(affiche, &e),
+        };
+        return match confrontation::confronter(&document, items, aujourd_hui) {
+            Ok(bilan) => DesiredStateLoad::Loaded {
+                path: affiche,
+                bilan,
+            },
+            Err(e) => DesiredStateLoad::refuse(affiche, &e),
+        };
+    }
+    DesiredStateLoad::Missing {
+        searched: cherches.iter().map(|c| c.display().to_string()).collect(),
+    }
+}
+
 /// Lit l'état de la machine. Bloquant, environ trois secondes.
 fn collect_blocking() -> Cockpit {
-    let inventory = Inventory::collect_all();
+    let mut inventory = Inventory::collect_all();
     let machine = rapport::nom_machine(&inventory.items);
     let collected_at = Utc::now().to_rfc3339();
+
+    // La confrontation pose les désirs sur les items AVANT que le rapport et le
+    // cockpit soient construits : les deux lisent alors le même inventaire, celui
+    // qui porte l'état désiré.
+    let charge = charger_etat_desire(&mut inventory.items);
     let html = rapport::construire(&inventory.items, &machine, &collected_at);
 
-    Cockpit::build(&inventory.items, &machine, &collected_at, html)
+    Cockpit::build(&inventory.items, &machine, &collected_at, html, &charge)
 }
 
 /// La seule commande exposée à la page.
@@ -340,6 +483,42 @@ mod tests {
             SCRIPT.matches("nommerLeRail();").count() >= 2,
             "le nom accessible du rail ne se recalcule plus quand le décompte change"
         );
+    }
+
+    /// La palette trouve « derive » quand l'écran s'appelle « Dérive ».
+    ///
+    /// **Mesuré à l'écran, pas déduit.** La palette comparait les chaînes telles
+    /// quelles : taper « derive » rendait « Aucun écran ni item relevé ne
+    /// correspond à cette recherche », sur un produit dont tout le vocabulaire
+    /// est accentué. C'est demander à l'utilisateur l'orthographe de ce qu'il
+    /// cherche avant de le lui laisser chercher.
+    ///
+    /// Le test porte sur le **chemin de comparaison**, pas sur une chaîne
+    /// d'exemple : il exige que le filtre replie ses deux côtés, et interdit la
+    /// comparaison directe qui a produit le défaut. Une liste de mots
+    /// accentués écrite à la main ne détecterait jamais celui qu'on a oublié
+    /// d'y mettre.
+    #[test]
+    fn la_palette_trouve_un_mot_ecrit_sans_son_accent() {
+        let debut = SCRIPT
+            .find("function filtrer(")
+            .expect("app.js ne porte plus de fonction de filtre");
+        let corps = &SCRIPT[debut..debut + 700];
+
+        assert!(
+            SCRIPT.contains("function replier(") && SCRIPT.contains("normalize(\"NFD\")"),
+            "app.js ne replie plus les accents avant de comparer"
+        );
+        for cote in ["replier(requete", "replier(e.libelle)", "replier(r.path)"] {
+            assert!(
+                corps.contains(cote),
+                "le filtre ne replie pas « {cote} » : un accent y redevient obligatoire"
+            );
+        }
+        assert!(
+            !corps.contains("e.libelle.toLowerCase()") && !corps.contains("r.path.toLowerCase()"),
+            "le filtre compare encore une chaîne accentuée telle quelle"
+        );
         assert!(
             INDEX.contains("data-unite=\""),
             "les décomptes du rail n'ont plus d'unité : un nombre nu n'apprend rien"
@@ -477,8 +656,9 @@ mod tests {
         // conteneur : sa piste est un blanc à 7 % qui ne survit à aucune des
         // deux palettes système. Sans contour, une jauge à faible taux devient
         // indiscernable d'une jauge absente.
+        // Même précaution qu'en cockpit.rs : la règle, jamais le nom seul.
         let bloc = STYLE
-            .split_once("forced-colors: active")
+            .split_once("@media (forced-colors: active) {")
             .expect("le bloc de contraste forcé a disparu")
             .1;
         let regle = bloc
@@ -884,11 +1064,125 @@ mod tests {
             "POSTE-DE-TEST",
             "2026-08-03T12:00:00Z",
             "<!doctype html>".to_owned(),
+            &DesiredStateLoad::Missing {
+                searched: Vec::new(),
+            },
         );
         let json = serde_json::to_string(&etat).expect("une structure sans type exotique");
         assert!(json.contains("\"itemCount\":0"));
         assert!(json.contains("\"collectedAt\""));
         assert!(json.contains("\"machine\":\"POSTE-DE-TEST\""));
+    }
+
+    #[test]
+    fn letat_desire_se_cherche_dans_les_donnees_locales_puis_le_repertoire_courant() {
+        // L'ORDRE EST LA DÉCISION, et il ne se lit nulle part ailleurs. Une
+        // application de bureau hérite du répertoire courant de son lanceur —
+        // `C:\Windows\System32` depuis le menu Démarrer —, de sorte que ne
+        // chercher que là reviendrait à ne jamais rien trouver et à afficher
+        // « sans objet » pour toujours sur un poste qui a pourtant son fichier.
+        //
+        // Le dossier de données locales passe donc EN PREMIER, et le répertoire
+        // courant reste, pour que `ks-ui` et `ks` lisent le même document quand
+        // on travaille dessus depuis un terminal.
+        let cherches = emplacements_depuis(Some(PathBuf::from("D:\\donnees\\Local")));
+        let lus: Vec<String> = cherches.iter().map(|c| c.display().to_string()).collect();
+        assert_eq!(
+            lus,
+            vec![
+                format!("D:\\donnees\\Local\\Keystone\\{ETAT_DESIRE}"),
+                ETAT_DESIRE.to_owned(),
+            ],
+            "l'ordre de recherche a changé : le répertoire courant l'emporterait \
+             sur le dossier de données locales"
+        );
+
+        // Et sans dossier de données locales — la CI Linux, un poste où la
+        // variable manque —, il reste le répertoire courant : la coque cherche
+        // toujours quelque part, elle ne rend jamais une liste vide, qui
+        // laisserait l'écran sans un seul chemin à afficher.
+        assert_eq!(
+            emplacements_depuis(None),
+            vec![PathBuf::from(ETAT_DESIRE)],
+            "sans données locales, plus aucun emplacement n'est cherché"
+        );
+    }
+
+    /// Un document minimal que le lecteur accepte, sans aucune déclaration.
+    const DOCUMENT: &str = "apiVersion: keystone/v1\n\
+                            kind: Workstation\n\
+                            metadata:\n  \
+                              name: POSTE-DE-TEST\n\
+                            desired: {}\n\
+                            acceptedDrift: []\n";
+
+    /// Un dossier de travail vide, propre à ce test.
+    fn dossier(nom: &str) -> std::path::PathBuf {
+        let chemin = std::env::temp_dir().join(format!("ks-ui-{nom}"));
+        let _ = std::fs::remove_dir_all(&chemin);
+        std::fs::create_dir_all(&chemin).expect("un dossier temporaire");
+        chemin
+    }
+
+    #[test]
+    fn un_emplacement_vide_fait_passer_au_suivant_un_fichier_refuse_arrete_tout() {
+        // DEUX RÈGLES OPPOSÉES, ET C'EST LEUR OPPOSITION QUI COMPTE.
+        //
+        // Un emplacement vide n'est pas une panne : c'est l'état normal d'un
+        // poste qui range son fichier ailleurs, et on regarde le suivant.
+        //
+        // Un fichier TROUVÉ ET REFUSÉ, lui, arrête la recherche. Passer au
+        // suivant comparerait en silence contre un autre document que celui
+        // qu'on est en train de corriger, et l'écran publierait des écarts qui
+        // ne viennent pas du fichier qu'il nomme — soit la pire des sorties
+        // possibles, puisqu'elle est crédible.
+        //
+        // Éprouvée par falsification : remplacer le `return` du cas refusé par
+        // un `continue` fait échouer ce test, en chargeant le second fichier.
+        let base = dossier("chaine");
+        let premier = base.join("premier.yaml");
+        let second = base.join("second.yaml");
+        let jour = "2026-08-17".parse().expect("date littérale valide");
+
+        // 1. Premier absent, second présent : c'est le SECOND qui est lu, et
+        //    c'est son chemin qui s'affiche — jamais celui qu'on a cherché
+        //    d'abord.
+        std::fs::write(&second, DOCUMENT).expect("écriture du document");
+        let cherches = vec![premier.clone(), second.clone()];
+        let charge = charger_depuis(&cherches, &mut [], jour);
+        let DesiredStateLoad::Loaded { path, .. } = &charge else {
+            panic!("un emplacement vide doit faire passer au suivant : {charge:?}")
+        };
+        assert_eq!(path, &second.display().to_string());
+
+        // 2. Premier présent mais refusé : la recherche s'arrête là, et c'est
+        //    LE PREMIER qui est nommé. Le second existe pourtant, et il est bon.
+        std::fs::write(
+            &premier,
+            "apiVersion: keystone/v1\nkind: Workstation\n\tname: x\n",
+        )
+        .expect("écriture du document fautif");
+        let charge = charger_depuis(&cherches, &mut [], jour);
+        let DesiredStateLoad::Unusable { path, detail, .. } = &charge else {
+            panic!("un fichier refusé ne doit pas se remplacer en silence : {charge:?}")
+        };
+        assert_eq!(path, &premier.display().to_string());
+        assert!(!detail.is_empty(), "le détail technique est vide");
+
+        // 3. Les deux absents : les DEUX chemins cherchés s'affichent, dans
+        //    l'ordre où ils l'ont été.
+        std::fs::remove_file(&premier).expect("retrait");
+        std::fs::remove_file(&second).expect("retrait");
+        let charge = charger_depuis(&cherches, &mut [], jour);
+        let DesiredStateLoad::Missing { searched } = &charge else {
+            panic!("deux emplacements vides ne donnent aucun fichier : {charge:?}")
+        };
+        assert_eq!(
+            searched,
+            &vec![premier.display().to_string(), second.display().to_string()]
+        );
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

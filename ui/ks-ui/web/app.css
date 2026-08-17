@@ -43,10 +43,26 @@
   --vital: #4fd1c5;
   --attention: #e8a33d;
 
-  /* Séries de données — ordre fixe. La jauge d'occupation est la seule à en
-     employer une ; « autre » garde son gris neutre. */
+  /* Séries de données — ORDRE FIXE, et il ne se permute pas sans revalider.
+     C'est cet ordre qui porte la séparation en vision déficiente : les paires
+     adjacentes ont été mesurées dans cette suite-là, et dans aucune autre
+     (design/palette-validation.md §2).
+
+     Les six teintes ne sont pas toutes employées : les figures en consomment
+     quatre en série, plus le vert pour « conforme » et le gris neutre pour
+     « non contraint », qui n'est pas une catégorie d'intérêt. La jauge
+     d'occupation garde le slot 1. */
   --s1: #2baaa0;
+  --s2: #c98500;
+  --s3: #3987e5;
+  --s4: #d55181;
+  --s5: #008300;
   --s-other: #607184;
+
+  /* L'écart de surface entre deux remplissages. Il manquait à cette copie, et
+     c'est lui qui sépare deux segments d'une barre empilée : jamais une
+     bordure dessinée autour d'une marque. */
+  --gap-fill: 2px;
 
   /* Typographie — piles identiques à celles des tokens, polices du système en
      repli. Aucune police n'est téléchargée. */
@@ -966,6 +982,288 @@ h2 {
   background: var(--s1);
 }
 
+/* ── Figures ─────────────────────────────────────────────────────────────────
+   Du SVG écrit à la main, sans aucune bibliothèque. La géométrie est calculée
+   en pixels réels par app.js à partir de la largeur mesurée du conteneur, et
+   non par une boîte `viewBox` mise à l'échelle : une `viewBox` étirée
+   redimensionnerait AUSSI le texte, qui sortirait alors de l'échelle
+   typographique à chaque largeur de fenêtre.
+
+   Trois règles gouvernent ce bloc, et aucune n'est négociable :
+
+   · AUCUN SENS N'EST PORTÉ PAR LA COULEUR SEULE. Chaque part figure dans la
+     légende avec son libellé ET sa valeur, et chaque figure a son tableau
+     équivalent, visible sans survol.
+   · LE TEXTE NE PORTE JAMAIS LA COULEUR DE LA DONNÉE. Les libellés et les
+     valeurs restent en encre ; c'est la marque colorée d'à côté qui porte
+     l'identité. Une teinte de série est illisible en texte sur la surface.
+   · AUCUN REMPLISSAGE N'EST BORDÉ POUR ÊTRE SÉPARÉ. Deux segments qui se
+     touchent sont séparés par un écart de `--gap-fill` dans la couleur de la
+     surface — la séparation est du vide, pas du trait.                        */
+
+/* LA FIGURE GARDE UNE MESURE, comme un paragraphe. Sans borne, la barre de
+   répartition traversait mille quatre cents pixels sur un écran large : elle y
+   prenait l'allure d'une barre de progression plutôt que d'un graphique, et la
+   phrase qui la commente s'étirait à cent quatre-vingts caractères par ligne,
+   soit deux fois et demie ce qu'un œil suit. La borne est celle qu'emploient
+   déjà les proses de cette interface. Mesuré au rendu, à trois largeurs. */
+.fig {
+  max-width: 78ch;
+  margin: 0 0 var(--sp-4);
+}
+
+/* Ce que la figure dit avant de la lire. Elle ne porte aucun chiffre : les
+   nombres arrivent du relevé, jamais du balisage. */
+.fig-s {
+  margin: 0 0 var(--sp-4);
+  max-width: 78ch;
+  color: var(--ink-2);
+  font-size: var(--fs-mono);
+  line-height: 1.6;
+}
+
+.fig-svg {
+  display: block;
+  width: 100%;
+}
+
+/* Les marques se prennent au clavier comme à la souris : ce que le survol
+   montre, le focus le montre aussi, et le tableau le porte de toute façon. */
+.fig-groupe {
+  cursor: default;
+}
+
+.fig-groupe:focus-visible {
+  outline: 2px solid var(--vital);
+  outline-offset: 2px;
+}
+
+/* LA CIBLE EST PLUS GRANDE QUE LA MARQUE. Un segment de deux pixels de large
+   est un point qu'on n'atteint pas au premier essai ; la cible, elle, ne
+   descend jamais sous la largeur minimale d'un contrôle. Elle est invisible et
+   ne porte aucun trait — sans quoi elle dessinerait un cadre autour de chaque
+   segment, y compris en contraste forcé. */
+.fig-cible {
+  fill: transparent;
+  stroke: none;
+}
+
+/* Les remplissages de série. La couleur suit L'ENTITÉ — la nature de l'item,
+   le verdict — jamais son rang dans la liste : un écran qui perdrait un
+   segment ne repeindrait pas les survivants. */
+.fig-s1 {
+  fill: var(--s1);
+}
+.fig-s2 {
+  fill: var(--s2);
+}
+.fig-s3 {
+  fill: var(--s3);
+}
+.fig-s4 {
+  fill: var(--s4);
+}
+.fig-s5 {
+  fill: var(--s5);
+}
+
+/* Le reste, et lui seul : un gris neutre, désaturé. Ce n'est pas une catégorie
+   d'intérêt, et en teinte de série il dominerait la figure sans rien dire. */
+.fig-other {
+  fill: var(--s-other);
+}
+
+/* La zone non levée : la hachure à 45° du dessin technique, pas de 7 px, trait
+   de 1,15 px — les valeurs exactes du motif `ks-nonreleve` de la marque. Elle
+   veut dire « on n'a pas pu lire ici », ce qui n'est ni un manque ni un zéro.
+   Le trait est en encre atténuée et non en `--hairline` : sur une barre posée
+   à côté d'un aplat de série, un blanc à sept pour cent ne se voit plus. */
+.fig-hachure-fond {
+  fill: var(--surface-0);
+}
+
+.fig-hachure-trait {
+  stroke: var(--ink-3);
+  stroke-width: 1.15px;
+}
+
+.fig-nonlevee {
+  stroke: var(--hairline-strong);
+  stroke-width: 1px;
+}
+
+/* Le repère d'un compte à zéro. Un segment de longueur nulle est invisible, et
+   un verdict invisible se lit comme un verdict absent — or zéro écart est un
+   résultat, pas une absence. Le repère lui rend sa place sur la ligne. */
+.fig-zero {
+  fill: var(--ink-2);
+}
+
+/* Filets et axes : solides, jamais pointillés, et récessifs. */
+.fig-filet {
+  stroke: var(--grid);
+  stroke-width: 1px;
+}
+
+/* L'accolade des déclarables, qui n'est PAS un filet de grille. Elle porte le
+   propos de la figure — la couleur dit l'identité, l'accolade dit l'enjeu — et
+   se lit donc à la même encre que la phrase qu'elle coiffe. Tracée en `--grid`,
+   récessif par conception à 1,2:1, elle était invisible à l'écran : mesuré au
+   rendu, pas déduit de la déclaration. */
+.fig-accolade {
+  fill: none;
+  stroke: var(--ink-3);
+  stroke-width: 1px;
+}
+
+.fig-etiq {
+  fill: var(--ink-2);
+  font: var(--fs-mono) var(--font-sans);
+}
+
+.fig-valeur {
+  fill: var(--ink-1);
+  font: var(--fs-sm) var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.fig-note {
+  fill: var(--ink-3);
+  font: var(--fs-label) var(--font-sans);
+}
+
+/* ── Légende ─────────────────────────────────────────────────────────────────
+   PRÉSENTE DÈS DEUX SÉRIES, et elle porte la valeur autant que le nom : c'est
+   le libellé direct de ces figures. Les segments intérieurs d'une barre
+   empilée n'ont pas d'extrémité libre où poser un nombre, et un nombre glissé
+   dedans se ferait rogner à la première fenêtre étroite.                       */
+
+.legende {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-5);
+  margin: var(--sp-4) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-mono);
+  color: var(--ink-2);
+}
+
+.legende li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.legende b {
+  color: var(--ink-1);
+  font: 500 var(--fs-sm) var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* La pastille reprend la forme de la marque : un rectangle pour un
+   remplissage. Elle est la SEULE chose colorée de la légende. */
+.puce {
+  flex: none;
+  width: var(--sp-3);
+  height: var(--sp-3);
+  border-radius: 2px;
+}
+
+.puce-s1 {
+  background: var(--s1);
+}
+.puce-s2 {
+  background: var(--s2);
+}
+.puce-s3 {
+  background: var(--s3);
+}
+.puce-s4 {
+  background: var(--s4);
+}
+.puce-s5 {
+  background: var(--s5);
+}
+.puce-other {
+  background: var(--s-other);
+}
+
+.puce-nonlevee {
+  border: 1px solid var(--hairline-strong);
+  background-color: var(--surface-0);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--ink-3) 0 1.15px,
+    transparent 1.15px 7px
+  );
+}
+
+/* ── La figure qui ne se trace pas ───────────────────────────────────────────
+   Même notation que les blocs non calculables : récessée et hachurée, avec un
+   trait tireté qui la marque en contraste forcé, où le remplissage disparaît.
+   Une figure absente doit se voir comme absente, jamais se confondre avec une
+   figure vide.                                                                */
+
+.fig-vide {
+  margin: 0;
+  padding: var(--sp-4);
+  border-radius: var(--r-ctl);
+  background-color: var(--surface-0);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hairline) 0 1.15px,
+    transparent 1.15px 7px
+  );
+  color: var(--ink-2);
+  font-size: var(--fs-mono);
+  line-height: 1.6;
+}
+
+.fig-vide b {
+  display: block;
+  margin-bottom: var(--sp-2);
+  color: var(--ink-1);
+  font: 500 var(--fs-h2) / 1.45 var(--font-tight);
+}
+
+/* ── L'infobulle ─────────────────────────────────────────────────────────────
+   Elle ENRICHIT. Toute valeur qu'elle montre est aussi dans la légende et dans
+   le tableau — jamais une donnée qui n'existe qu'au survol. La valeur y passe
+   devant le libellé : à ce moment-là le lecteur tient déjà la série, c'est le
+   nombre qu'il vient chercher.                                                */
+
+.fig-bulle {
+  position: fixed;
+  z-index: 60;
+  max-width: 40ch;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
+  color: var(--ink-1);
+  font-size: var(--fs-mono);
+  line-height: 1.5;
+  pointer-events: none;
+  box-shadow: var(--elev-1);
+}
+
+/* La règle de classe ci-dessus ne pose volontairement AUCUN `display` : le
+   `[hidden] { display: none }` de la feuille de l'agent utilisateur suffit
+   donc à replier la bulle. Cette ligne le redit explicitement, parce que le
+   jour où quelqu'un ajoutera un `display: flex` à `.fig-bulle` — pour aligner
+   une pastille, par exemple — la bulle deviendrait indépliable sans que rien
+   ne le signale ailleurs que sur l'écran. C'est le défaut déjà rencontré sur
+   `.why`. */
+.fig-bulle[hidden] {
+  display: none;
+}
+
+.fig-bulle b {
+  font: 500 var(--fs-sm) var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Ce qui n'est pas calculable ─────────────────────────────────────────── */
 
 /* ── Blocs annotés : pourquoi il n'y a plus de filet coloré à gauche ──────
@@ -1048,6 +1346,71 @@ h2 {
 
 .detail:empty {
   display: none;
+}
+
+/* Plusieurs chemins d'affilée — les emplacements cherchés, les déclarations non
+   observées — se lisent comme une liste, pas comme un bloc compact. */
+.detail + .detail {
+  margin-top: var(--sp-2);
+}
+
+/* La phrase qui introduit un bloc de l'écran Dérive : ce qui a été lu, combien
+   d'items sont en écart. Une ligne de prose, pas un titre. */
+.source-l {
+  margin: 0 0 var(--sp-3);
+  max-width: 78ch;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+/* ── Tolérances ──────────────────────────────────────────────────────────────
+   UN ÉCART TOLÉRÉ RESTE UN ÉCART. La pastille vit donc dans une colonne de la
+   ligne de l'écart, et jamais à la place de cette ligne : le verdict dit le fait
+   constaté, la tolérance dit la politique décidée.
+
+   AUCUNE DES TROIS N'EST VERTE, et « en vigueur » moins que les autres. Une
+   tolérance n'est pas un état sain : c'est un écart qu'on a choisi de garder
+   sous les yeux jusqu'à une date. Elle prend l'encre du texte, sans accent.
+
+   LE CONTRASTE FORCÉ EST TRAITÉ PAR CONSTRUCTION, et non par une règle de plus
+   en bas de ce fichier. Ces pastilles n'ont ni fond, ni ombre, ni hachure,
+   c'est-à-dire rien de ce que le mode de contraste imposé par le système calcule
+   à `none`. Il leur reste ce qui survit avec certitude : la FORME de l'icône,
+   dont le trait est forcé mais pas supprimé, et le LIBELLÉ, qui dit l'état en
+   toutes lettres. Les trois teintes se confondent alors en une seule, et aucun
+   sens ne se perd, parce qu'aucun sens ne reposait sur elles. Le test
+   `chaque_etat_de_tolerance_porte_une_icone_et_un_libelle` en fait une barrière
+   plutôt qu'une intention.
+
+   (Le nom exact de la requête de média ne s'écrit pas dans ce commentaire : deux
+   barrières localisent le bloc de contraste forcé par sa PREMIÈRE occurrence
+   dans le fichier, et l'écrire ici les ferait examiner ce commentaire.)       */
+.tol {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tol .ic {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+/* En vigueur : l'encre du texte, aucune couleur d'état. */
+.tol-vigueur {
+  color: var(--ink-1);
+}
+
+/* Échue : l'écart est redevenu actif tout seul, et c'est la seule des trois qui
+   appelle un geste. Même accent que « illisible », pour la même raison. */
+.tol-echue {
+  color: var(--attention);
+}
+
+/* Sans objet, ou chemin disparu : la ligne décrit le fichier, pas la machine. */
+.tol-nulle {
+  color: var(--ink-3);
 }
 
 /* ── Tableaux ────────────────────────────────────────────────────────────── */
@@ -1468,6 +1831,63 @@ body[data-state='failed'] #failure {
 
   .meter > * {
     background: Highlight;
+  }
+
+  /* LES FIGURES PERDENT LEURS COULEURS ICI, et il faut qu'elles restent
+     lisibles quand même. `fill` et `stroke` d'un SVG sont forcés au même titre
+     que `color` et `background-color` : les six teintes de série deviennent
+     une seule, et un motif appelé par `fill: url(#…)` ne survit pas davantage
+     qu'un `background-image`.
+
+     Ce qui survit, ce sont les FORMES et le TRAIT — le spec force la couleur
+     d'une bordure, il ne la supprime pas. Les segments gardent donc leur
+     longueur, leur écart de séparation et un contour ; la légende et le
+     tableau, eux, portaient déjà chaque valeur en toutes lettres, de sorte
+     qu'aucun sens ne reposait sur la teinte au départ.
+
+     La zone non levée, elle, ne peut pas devenir un aplat comme les autres :
+     elle dirait alors qu'on a lu ce qu'on n'a pas lu. Elle est vidée sur le
+     fond de la page et cerclée d'un trait TIRETÉ — la même notation que les
+     blocs non calculables plus haut, et celle du dessin technique pour
+     « provisoire, non levé ». */
+  .fig-marque {
+    stroke: CanvasText;
+    stroke-width: 1px;
+  }
+
+  .fig-nonlevee {
+    fill: Canvas;
+    stroke: CanvasText;
+    stroke-dasharray: 3 2;
+  }
+
+  .fig-zero {
+    fill: CanvasText;
+  }
+
+  /* La cible de préhension reste invisible, et c'est la seule exception de ce
+     bloc. Le système peint tout remplissage d'un SVG ; sans cette levée, la
+     zone transparente qui rend un segment étroit attrapable deviendrait un
+     aplat, et couvrirait la barre qu'elle sert à attraper. */
+  .fig-cible {
+    forced-color-adjust: none;
+    fill: transparent;
+  }
+
+  .puce {
+    border: 1px solid CanvasText;
+  }
+
+  .puce-nonlevee {
+    border-style: dashed;
+  }
+
+  .fig-vide {
+    border: 1px dashed CanvasText;
+  }
+
+  .fig-bulle {
+    border: 1px solid CanvasText;
   }
 
   #failure .glyph,

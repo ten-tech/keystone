@@ -109,7 +109,7 @@ mécanismes répondent à cela, et aucun ne dépend de l'intégrité de la machi
 | `ks-agent-linux` | agent satellite | Linux musl | aucun | 🔨 scan local, 4 tests unitaires |
 | `ks-ui` | coque de bureau (ADR-0012) | Windows + WebView2 | aucun | ✅ affiche le **poste de pilotage** branché sur l'état réel, jamais les chiffres de la maquette · workspace **séparé**, 30 tests |
 
-**250 tests au total** dans le workspace principal — `ks-ui` vit dans un workspace séparé et porte les siens (30), tous portables et tous exécutés — `cargo test --workspace`,
+**250 tests au total** dans le workspace principal — `ks-ui` vit dans un workspace séparé et porte les siens (42), tous portables et tous exécutés — `cargo test --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings` et `cargo fmt --all --check`
 passent. Ce n'était pas le cas au premier commit : rien n'avait alors jamais été
 compilé, et les comptes annoncés étaient des déclarations.
