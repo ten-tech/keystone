@@ -840,21 +840,52 @@ mod tests {
     /// énumération rend l'état illégal **inconstructible**, un type validé le
     /// rend **refusé à la porte**. Le second est plus faible et suffit quand
     /// l'ensemble des valeurs légitimes est infini — un chemin, une date.
-    const TYPES_VALIDES_ADMIS: &[(&str, &str)] = &[
+    ///
+    /// # Indexée par couple, pour la raison écrite juste au-dessus
+    ///
+    /// Cette liste était indexée par **type seul**, quand sa voisine
+    /// [`Self::CHAMPS_TEXTE_ADMIS`] l'est par couple `(variante, champ)` et
+    /// explique pourquoi : « une liste indexée sur le seul nom de champ
+    /// transforme une dette localisée en exemption générale ». Le raisonnement
+    /// valait mot pour mot ici, et il n'y avait pas été appliqué : l'exemption
+    /// accordée au chemin d'exclusion Defender bénissait **tout futur verbe**
+    /// acceptant un `ExclusionPath`.
+    ///
+    /// **Mesuré, pas supposé.** `ApplyProfile { path: ExclusionPath }` — le
+    /// `RunScript { path }` de l'angle mort, sous un autre nom — passait les
+    /// treize tests, `fmt` et `clippy` compris, une fois faits les trois gestes
+    /// mécaniques que les barrières exigent : la variante, le bras de
+    /// [`nom_du_verbe`], l'échantillon. Aucun de ces trois gestes n'oblige à
+    /// penser à ce que le verbe *fait*.
+    ///
+    /// Une revue adverse avait déjà fait ce constat pour la liste voisine, et le
+    /// correctif n'avait couvert qu'une moitié du domaine. Une barrière peut
+    /// appliquer un raisonnement juste à une moitié de son domaine et l'oublier
+    /// sur l'autre ; c'est ce qui est corrigé ici.
+    const TYPES_VALIDES_ADMIS: &[(&str, &str, &str, &str)] = &[
         (
+            "RestoreSnapshot",
+            "snapshot_id",
             "SnapshotId",
             "jeu de caractères clos et longueur bornée : ne peut désigner aucun \
              chemin, et n'est jamais concaténé à un",
         ),
         (
+            "AddDefenderExclusion",
+            "expires",
             "Expiry",
             "date RFC 3339, future, et bornée à un horizon d'un an : une \
              dérogation sans plafond est un angle mort permanent (D11-02)",
         ),
         (
+            "AddDefenderExclusion",
+            "path",
             "ExclusionPath",
             "absolu, sans joker, sans variable d'environnement, ni racine de \
-             volume ni répertoire système entier",
+             volume ni répertoire système entier. Le chemin est ici le SUJET de \
+             l'opération — ce que Defender doit cesser d'inspecter — et non un \
+             ordre à exécuter. Un chemin qui désignerait quoi faire, et non sur \
+             quoi le faire, n'a rien à voir avec cette exemption.",
         ),
     ];
 
@@ -1117,6 +1148,20 @@ mod tests {
         }
     }
 
+    /// Les types de [`TYPES_VALIDES_ADMIS`], sans doublon et dans l'ordre.
+    ///
+    /// La liste est indexée par couple `(variante, champ)` : un même type y
+    /// figure donc plusieurs fois dès que deux verbes l'emploient. Les contrôles
+    /// de **forme** — newtype, champ privé, `serde(try_from)` — portent sur le
+    /// type, pas sur le couple, et n'ont aucune raison de se répéter.
+    fn types_valides_distincts() -> Vec<&'static str> {
+        let mut types: Vec<&'static str> =
+            TYPES_VALIDES_ADMIS.iter().map(|(_, _, t, _)| *t).collect();
+        types.sort_unstable();
+        types.dedup();
+        types
+    }
+
     /// **Un type validé ne se contourne ni par construction ni par le réseau.**
     ///
     /// « Type validé » serait une affirmation creuse sans ces trois contrôles.
@@ -1134,7 +1179,10 @@ mod tests {
     fn un_type_valide_ne_se_contourne_pas() {
         let epure = sans_commentaires_ni_chaines(SOURCE);
 
-        for (nom, _) in TYPES_VALIDES_ADMIS {
+        // Le même type peut légitimement figurer sous plusieurs couples ; on
+        // vérifie sa forme une fois, ce qui rend le message d'échec lisible
+        // plutôt que répété.
+        for nom in types_valides_distincts() {
             let declaration = format!("pub struct {nom}(");
             assert!(
                 epure.contains(&declaration),
@@ -1228,9 +1276,34 @@ mod tests {
 
             // Un type validé à la construction est admis, à trois conditions
             // vérifiées ci-dessous par `un_type_valide_ne_se_contourne_pas`.
-            if TYPES_VALIDES_ADMIS.iter().any(|(t, _)| *t == type_champ) {
+            // **Le couple, jamais le type seul.** Un type validé admis pour un
+            // verbe ne l'est pas pour tous : l'exemption du chemin d'exclusion
+            // Defender bénissait sinon `ApplyProfile { path: ExclusionPath }`,
+            // mesuré vert sur les treize tests avant ce resserrement.
+            if TYPES_VALIDES_ADMIS
+                .iter()
+                .any(|(v, c, t, _)| *v == variante && *c == nom && *t == type_champ)
+            {
                 continue;
             }
+
+            // Le cas qui compte, et qui doit se dire clairement : le type est
+            // admis AILLEURS. Sans ce message, la barrière tombait plus bas en
+            // annonçant « déclaration `pub enum ExclusionPath` introuvable »,
+            // c'est-à-dire en envoyant le contributeur déclarer une énumération
+            // quand le geste attendu est de justifier une exemption. Un
+            // garde-fou dont on ne lit pas le message finit neutralisé plutôt
+            // que compris.
+            assert!(
+                !types_valides_distincts().contains(&type_champ.as_str()),
+                "SEC-02 / ADR-0006 : « {variante}.{nom}: {type_champ} » emprunte un type \
+                 validé admis pour un AUTRE verbe. Une exemption vaut pour le couple qui \
+                 la porte, jamais pour le type : sans quoi l'exception accordée au chemin \
+                 d'exclusion Defender bénirait tout futur verbe acceptant un chemin, \
+                 c'est-à-dire le « RunScript {{ path }} » que ce fichier documente comme \
+                 son angle mort. Inscrivez le couple dans TYPES_VALIDES_ADMIS avec sa \
+                 justification, et ouvrez l'ADR que docs/08-CONVENTIONS.md exige."
+            );
 
             // Sinon, le type doit être une énumération déclarée ICI. Si elle vit
             // ailleurs, l'extraction panique en le disant : c'est le seul
