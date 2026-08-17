@@ -56,12 +56,19 @@ cargo run -p ks-cli -- status
 # 4. Adopter l'état lu comme référence, puis mesurer l'écart (Phase 1)
 cargo run -p ks-cli -- import -o workstation.yaml
 cargo run -p ks-cli -- diff --config workstation.yaml
+cargo run -p ks-cli -- accept <item> --reason "..." --until 2026-11-30   # simule ; --apply pour écrire
 ```
 
-> **Rien n'est écrit sur la machine.** Tu peux faire tourner tout cela sur ton poste principal
-> sans risque : aucun collecteur n'a le droit d'écrire, et le broker n'est pas encore dans la boucle.
-> Les seuls fichiers que Keystone dépose sont ceux qu'on lui demande — `ks report` et `ks import` —
-> jamais par-dessus un existant sans `--force`, et il n'exécute jamais git (ADR-0017).
+> **Rien n'est écrit sur l'état de la machine** : ni registre, ni service, ni politique, ni fichier
+> d'un autre programme. Tu peux faire tourner tout cela sur ton poste principal sans risque :
+> aucun collecteur n'a le droit d'écrire, et le broker n'est pas encore dans la boucle.
+> *La formule « rien du tout » figurait ici, et elle était fausse depuis la Phase 0.5 — une règle
+> fausse ne protège plus rien. Les trois cercles sont énoncés par l'ADR-0020.*
+> Les fichiers que Keystone dépose sont ceux qu'on lui demande — `ks report` et `ks import` —
+> jamais par-dessus un existant sans `--force`. `ks accept --apply` est la seule commande qui
+> **modifie** un fichier existant : elle insère une tolérance dans `workstation.yaml` et laisse
+> tout le reste octet pour octet, ce qu'un test vérifie par soustraction. Sans `--apply`, elle
+> n'écrit rien du tout. Et Keystone n'exécute jamais git (ADR-0017).
 > À partir de la Phase 2 (convergence), tout se teste dans la VM de labo — voir
 > [`docs/06-VM-DE-LABO.md`](docs/06-VM-DE-LABO.md).
 
@@ -109,7 +116,7 @@ Le raisonnement complet est dans [`docs/05-ENVIRONNEMENT-DE-DEV.md`](docs/05-ENV
 | Phase | Objet | État |
 |---|---|---|
 | **0 — Observer** | collecteurs en lecture seule, inventaire, journal, CLI | ✅ critère de sortie atteint |
-| 1 — Décrire | schéma yaml, import de l'existant, moteur de diff | ◐ `ks import` et `ks diff` livrés (ADR-0016, ADR-0017) : le yaml s'écrit depuis l'état lu, l'écart se mesure. Schéma généré, héritage de flotte et journal des décisions restent à faire |
+| 1 — Décrire | schéma yaml, import de l'existant, moteur de diff, dérive acceptée | ◐ tout est livré — `ks import`, `ks diff`, `ks accept` avec raison et échéance obligatoires, journal des décisions, schéma généré depuis les types. **Reste le critère de sortie**, qui ne se code pas : la dérive suivie sept jours sans faux positif inexpliqué. L'héritage de flotte est parti en Phase 6 avec D13, faute d'une seconde machine |
 | 2 — Converger | instantanés, rollback, mises à jour orchestrées, sauvegarde | ○ à faire |
 | 3 — Tenir | espace, posture de sécurité, ancres externes, isolement | ○ à faire |
 | 4 — Vivre | profils, WSL/VM, réseau, docteur de dev, coexistence MDM | ○ à faire |
