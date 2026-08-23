@@ -665,65 +665,141 @@ function entreCrochets(chemin) {
   return debut === -1 || fin === -1 ? chemin : chemin.slice(debut + 1, fin);
 }
 
+/* ── L'ÉCRAN ESPACE ────────────────────────────────────────────────────────
+ *
+ * LE CHIFFRE PASSE AVANT LE RATIO. « 627,0 Gio · 65 % de 952,8 Gio », jamais
+ * « 65 % » seul : un taux ne dit pas combien d'octets sont en jeu, et c'est le
+ * nombre d'octets qui permet d'agir.
+ *
+ * AUCUN NOMBRE N'EST CALCULÉ ICI. Le pourcentage, la somme attribuée et le
+ * reste viennent du processus Rust, qui les tire des items `total_bytes`,
+ * `used_bytes` et `disk_bytes` (ADR-0022). La page choisit la mise en scène,
+ * jamais les valeurs — et les jauges, les lignes du tableau et le détail par
+ * distribution lisent tous le même `VolumeView`, donc ne peuvent pas se
+ * contredire. */
+
 /* La jauge encode la MÊME mesure que le chiffre à côté d'elle : sa longueur
- * vient de `number`, la valeur entière relevée, jamais d'une relecture de la
- * chaîne affichée. Un item sans entier n'a pas de jauge — plutôt aucune barre
- * qu'une barre arbitraire. */
-function jauge(nom, releve) {
+ * vient de `percent`, calculé par le noyau depuis les deux items d'octets, et
+ * jamais d'une relecture de la chaîne affichée. Un volume dont l'occupation
+ * n'est pas relevée n'a pas de barre — plutôt aucune barre qu'une barre
+ * arbitraire. */
+function jauge(volume) {
   const bloc = el("div", "jauge");
   const entete = el("div", "jauge-h");
-  entete.append(el("b", null, nom));
-  entete.append(el("span", "v", releve === null ? REPLI : `${releve.value} %`));
+  const occ = volume.occupancy;
+  entete.append(el("b", null, volume.name));
+  entete.append(
+    el("span", "v", occ ? `${occ.used} · ${occ.percent} % de ${occ.total}` : REPLI)
+  );
   bloc.append(entete);
 
-  if (releve !== null && typeof releve.number === "number") {
+  if (occ) {
     const barre = el("div", "meter");
     const remplissage = document.createElement("i");
-    const borne = Math.max(0, Math.min(100, releve.number));
-    remplissage.style.width = `${borne}%`;
+    remplissage.style.width = `${Math.max(0, Math.min(100, occ.percent))}%`;
     barre.append(remplissage);
     barre.setAttribute("role", "img");
-    barre.setAttribute("aria-label", `${nom} : ${releve.value} pour cent occupés`);
+    barre.setAttribute(
+      "aria-label",
+      `${volume.name} : ${occ.used} occupés sur ${occ.total}, soit ${occ.percent} pour cent`
+    );
     bloc.append(barre);
   }
   return bloc;
 }
 
-/** Le chemin du taux d'occupation d'un volume, parmi ceux qu'il porte. */
-function cheminOccupation(volume) {
-  return volume.paths.find((p) => p.endsWith("used_percent")) || volume.paths[0];
+/* Ce que le volume laisse sans nom, ou l'aveu que les deux mesures ne se
+ * rapprochent pas. Le noyau publie l'un OU l'autre : un reste négatif n'est pas
+ * représentable dans ce qu'il envoie, donc pas affichable ici. */
+function nonAttribue(occ) {
+  return occ.unattributed.kind === "measured"
+    ? occ.unattributed.value
+    : `${occ.unattributed.excess} de plus que l'occupation relevée`;
+}
+
+/** Une ligne du détail d'attribution. */
+function lignePart(volume, quoi, taille, chemin) {
+  const tr = document.createElement("tr");
+  const th = el("th", null, volume);
+  th.setAttribute("scope", "row");
+  tr.append(th, cellule(quoi, "valeur"), cellule(taille, "num"), cellule(chemin, "chemin"));
+  return tr;
 }
 
 function rendreEspace() {
   const tuile = document.getElementById("tile-volumes");
   const jauges = document.getElementById("volumes-jauges");
   const lignes = document.getElementById("volumes-lignes");
+  const parts = document.getElementById("volumes-parts");
+  const commentaire = document.getElementById("volumes-parts-c");
   tuile.replaceChildren();
   jauges.replaceChildren();
   lignes.replaceChildren();
+  parts.replaceChildren();
 
   if (etat.volumes.length === 0) {
     tuile.append(el("p", "tile-c v-absent", "Aucun volume relevé."));
     jauges.append(el("p", "indispo-2", "Aucun volume relevé."));
-    return;
   }
 
+  let attributions = 0;
   for (const volume of etat.volumes) {
-    const chemin = cheminOccupation(volume);
-    const releve = releveDe(chemin);
-    tuile.append(jauge(volume.name, releve));
-    jauges.append(jauge(volume.name, releve));
+    const occ = volume.occupancy;
+    tuile.append(jauge(volume));
+    jauges.append(jauge(volume));
 
     const tr = document.createElement("tr");
     const th = el("th", null, volume.name);
     th.setAttribute("scope", "row");
-    tr.append(
-      th,
-      cellule(releve === null ? REPLI : `${releve.value} %`, releve === null ? "v-absent" : "num"),
-      cellule(chemin, "chemin")
-    );
+    tr.append(th);
+    if (occ) {
+      tr.append(
+        cellule(occ.used, "num"),
+        cellule(occ.total, "num"),
+        cellule(`${occ.percent} %`, "num"),
+        cellule(volume.attributed, "num"),
+        cellule(nonAttribue(occ), "num")
+      );
+    } else {
+      /* La taille ou l'occupation manque : sans dénominateur il n'y a pas de
+       * taux, et sans occupation il n'y a rien dont retrancher la part
+       * attribuée. Ce qui reste vrai — la somme des disques rapprochés — se
+       * dit quand même. */
+      tr.append(
+        cellule(REPLI, "v-absent"),
+        cellule(REPLI, "v-absent"),
+        cellule(REPLI, "v-absent"),
+        cellule(volume.attributed, "num"),
+        cellule(REPLI, "v-absent")
+      );
+    }
     lignes.append(tr);
+
+    for (const part of volume.attributions) {
+      attributions += 1;
+      parts.append(lignePart(volume.name, `${part.name} (disque WSL)`, part.value, part.path));
+    }
+    if (volume.attributions.length === 0) {
+      parts.append(
+        lignePart(volume.name, "Aucun disque virtuel rapproché de ce volume", "—", "—")
+      );
+    }
+    if (occ) {
+      parts.append(lignePart(volume.name, "Non attribué", nonAttribue(occ), "—"));
+    }
   }
+
+  /* Un disque mesuré dont on n'a pas su dériver le volume ne disparaît pas de
+   * l'écran : le taire serait le défaut symétrique de celui qu'on répare —
+   * une taille connue, et tue. */
+  for (const part of etat.unplacedDisks) {
+    parts.append(lignePart("Volume non dérivé", `${part.name} (disque WSL)`, part.value, part.path));
+  }
+
+  commentaire.textContent =
+    attributions === 0
+      ? "Aucun disque virtuel n'a été rapproché d'un volume relevé."
+      : `${attributions} disque(s) virtuel(s) rapproché(s) d'un volume par la lettre relevée dans virtualization.wsl[…].volume.`;
 }
 
 function rendreDistros() {

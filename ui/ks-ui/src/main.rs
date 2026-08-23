@@ -359,6 +359,70 @@ mod tests {
         }
     }
 
+    /// Le source, débarrassé de ses commentaires.
+    ///
+    /// # Pourquoi la barrière ne doit pas lire les commentaires
+    ///
+    /// Elle interdit qu'une mesure atteigne l'écran depuis un littéral. **Un
+    /// commentaire n'atteint jamais l'écran** : l'y chercher ne barre rien, et
+    /// fait échouer le texte qui explique la règle. C'est arrivé sur la phrase
+    /// « le chiffre passe avant le ratio », qui donnait justement l'exemple du
+    /// format attendu.
+    ///
+    /// Ce défaut a maintenant cinq occurrences sur ce dépôt : filtre de
+    /// vocabulaire, barrière winget, barrière du contraste forcé, barrière
+    /// d'attribution, celle-ci. Un garde-fou qui trébuche sur sa propre
+    /// explication finit neutralisé plutôt que corrigé, et c'est le pire des
+    /// deux, parce que la neutralisation ne se voit pas.
+    ///
+    /// # Ce qui est retiré, et ce qui ne l'est pas
+    ///
+    /// Les blocs `/* … */` et `<!-- … -->`, et les lignes dont le premier
+    /// caractère non blanc est `//`. Un `//` en milieu de ligne est **conservé** :
+    /// il peut vivre dans une chaîne, et retirer la fin de la ligne affaiblirait
+    /// la barrière au lieu de la corriger. Le compromis va toujours dans le sens
+    /// du refus.
+    fn sans_commentaires(source: &str) -> String {
+        let mut sortie = String::with_capacity(source.len());
+        let mut reste = source;
+        loop {
+            let bloc = reste.find("/*");
+            let html = reste.find("<!--");
+            let (debut, fermeture) = match (bloc, html) {
+                (Some(b), Some(h)) if b < h => (b, "*/"),
+                (Some(_), Some(h)) => (h, "-->"),
+                (Some(b), None) => (b, "*/"),
+                (None, Some(h)) => (h, "-->"),
+                (None, None) => break,
+            };
+            sortie.push_str(&reste[..debut]);
+            let apres = &reste[debut..];
+            match apres.find(fermeture) {
+                Some(fin) => reste = &apres[fin + fermeture.len()..],
+                // Un commentaire non fermé emporterait tout le reste du fichier,
+                // donc désarmerait la barrière en silence. On garde le texte.
+                None => {
+                    sortie.push_str(apres);
+                    reste = "";
+                    break;
+                }
+            }
+        }
+        sortie.push_str(reste);
+        sortie
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            // `fold` plutot qu'un `join` : l'echappement d'un saut de ligne se
+            // perd en traversant les outils qui ecrivent ce fichier, et un
+            // separateur devenu vide souderait les lignes deux a deux, ce qui
+            // DESARMERAIT le filtre des commentaires de ligne.
+            .fold(String::new(), |mut acc, ligne| {
+                acc.push_str(ligne);
+                acc.push('\n');
+                acc
+            })
+    }
+
     #[test]
     fn aucun_chiffre_de_mesure_nest_ecrit_dans_le_balisage() {
         // La barrière centrale de cet écran, et celle qu'il fallait poser avant
@@ -393,11 +457,16 @@ mod tests {
         // Et le second visage du même défaut : une valeur écrite en dur dans
         // une phrase, avec son unité. C'est la forme sous laquelle la maquette
         // porte ses chiffres (« 72 % », « 47,2 Go », « 312 items »).
-        for (nom, source) in [("index.html", INDEX), ("app.js", SCRIPT)] {
+        // La lecture porte sur le CODE, jamais sur les commentaires : voir
+        // `sans_commentaires`, et la raison qui y est écrite.
+        for (nom, source) in [
+            ("index.html", sans_commentaires(INDEX)),
+            ("app.js", sans_commentaires(SCRIPT)),
+        ] {
             for unite in [
                 "%", "Go", "To", "Gio", "Tio", "Mio", "Kio", "items", "item(s)", "écarts", "écart",
             ] {
-                let mut reste = source;
+                let mut reste = source.as_str();
                 while let Some(pos) = reste.find(unite) {
                     let avant = reste[..pos].trim_end_matches([' ', '\u{a0}']);
                     assert!(

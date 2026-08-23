@@ -557,6 +557,125 @@ pub struct Named {
     pub paths: Vec<String>,
 }
 
+/// Ce qu'un disque virtuel pèse sur un volume : une part attribuée, et nommée.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Attribution {
+    /// Ce qui occupe — le nom de la distribution WSL.
+    pub name: String,
+    /// Le chemin de l'item qui porte la taille. Sans lui, la part serait un
+    /// nombre sans origine, ce que le principe P6 refuse.
+    pub path: String,
+    /// La taille, mise en forme par le même code que la CLI.
+    pub value: String,
+    /// La taille, en octets. C'est elle qui s'additionne ; la chaîne ci-dessus
+    /// ne sert qu'à l'affichage.
+    pub bytes: u64,
+}
+
+/// Ce que devient l'occupation d'un volume une fois la part nommée retirée.
+///
+/// # La barrière, et pourquoi elle est un type plutôt qu'un contrôle
+///
+/// **Le reste n'existe que dans la première variante.** Une somme attribuée
+/// supérieure à l'occupation relevée ne produit donc ni un reste négatif, ni un
+/// reste écrêté à zéro : le premier serait absurde, le second se lirait « tout
+/// est attribué », soit l'inverse exact de ce qui a été mesuré. Elle produit
+/// l'aveu que les deux mesures ne se rapprochent pas.
+///
+/// Le cas est atteignable, et pas théorique : un `ext4.vhdx` stocké épars ou
+/// compressé par NTFS pèse moins sur le volume que sa taille apparente, et
+/// `available_space` répond sous quota là où `total_space` ne l'est pas.
+///
+/// [`Unattributed::rapprocher`] en est le **seul** constructeur, et il passe par
+/// `u64` : un reste négatif n'y est littéralement pas représentable.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Unattributed {
+    /// Ce qui reste sans nom, une fois la part attribuée retirée.
+    Measured {
+        /// Le reste, mis en forme.
+        value: String,
+        /// Le reste, en octets.
+        bytes: u64,
+    },
+    /// La somme des parts nommées dépasse l'occupation relevée.
+    Unreconciled {
+        /// De combien elle la dépasse, mis en forme. Le chiffre passe avant le
+        /// constat, comme partout ailleurs.
+        excess: String,
+    },
+}
+
+impl Unattributed {
+    /// Confronte la part nommée à l'occupation relevée.
+    fn rapprocher(used_bytes: u64, attributed_bytes: u64) -> Self {
+        match used_bytes.checked_sub(attributed_bytes) {
+            Some(reste) => Self::Measured {
+                value: lisible::octets(reste),
+                bytes: reste,
+            },
+            // `checked_sub` sur `u64` échoue **exactement** quand la part
+            // attribuée dépasse l'occupation. C'est la soustraction elle-même
+            // qui refuse, pas une comparaison qu'on aurait pensé à écrire.
+            None => Self::Unreconciled {
+                excess: lisible::octets(attributed_bytes.saturating_sub(used_bytes)),
+            },
+        }
+    }
+}
+
+/// L'occupation d'un volume, calculée à partir des deux items d'octets.
+///
+/// Le taux **ne se relève pas** : il se calcule ici, comme un jeton se traduit
+/// en phrase française dans [`ks_cli::lisible`] plutôt que d'être stocké
+/// (ADR-0015, ADR-0022). Un item de plus l'aurait rendu dérivable de deux
+/// façons, donc divergent un jour.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Occupancy {
+    /// Le chemin des octets occupés.
+    pub used_path: String,
+    /// Le chemin de la taille du volume.
+    pub total_path: String,
+    /// Les octets occupés, mis en forme — le chiffre qui passe avant le ratio.
+    pub used: String,
+    /// La taille du volume, mise en forme.
+    pub total: String,
+    /// Les octets occupés. Ils bornent la part attribuable.
+    pub used_bytes: u64,
+    /// La part occupée, en pour cent, arrondie à l'entier inférieur.
+    pub percent: u64,
+    /// Ce qui reste sans nom, ou l'aveu que les deux mesures ne se rapprochent
+    /// pas.
+    pub unattributed: Unattributed,
+}
+
+/// Un volume relevé, tel que l'écran « Espace » doit le rendre.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VolumeView {
+    /// Ce qui figure entre crochets dans le chemin — `C:\`.
+    pub name: String,
+    /// Les chemins des items relevés sur ce volume.
+    pub paths: Vec<String>,
+    /// Ce que Keystone sait nommer sur ce volume, disque par disque.
+    ///
+    /// Vide n'est pas un aveu d'ignorance : c'est le constat qu'aucun disque
+    /// virtuel relevé ne vit ici. Ce que Keystone ne mesure pas du tout se dit
+    /// ailleurs, dans [`Cockpit::space_attribution`].
+    pub attributions: Vec<Attribution>,
+    /// La somme des parts nommées, mise en forme.
+    pub attributed: String,
+    /// La somme des parts nommées, en octets.
+    pub attributed_bytes: u64,
+    /// L'occupation, quand la taille **et** les octets occupés ont été relevés.
+    ///
+    /// `None` dès qu'il en manque un : un taux sur un dénominateur absent est
+    /// très exactement ce que ce module refuse de publier.
+    pub occupancy: Option<Occupancy>,
+}
+
 /// Une ligne attendue à l'écran, qu'elle ait été relevée ou non.
 ///
 /// La liste est **fixe**, et c'est le point : quand un chemin manque à l'appel,
@@ -606,8 +725,13 @@ pub struct Cockpit {
     pub security: SecurityView,
     /// L'écran « Inventaire logiciel ».
     pub software: SoftwareView,
-    /// Les volumes relevés.
-    pub volumes: Vec<Named>,
+    /// Les volumes relevés, avec la part de leur occupation que Keystone nomme.
+    pub volumes: Vec<VolumeView>,
+    /// Les disques virtuels qu'aucun volume relevé ne réclame.
+    ///
+    /// Ils sont mesurés, et c'est bien pour cela qu'ils voyagent : une taille
+    /// connue qu'on tait est le défaut symétrique d'une attribution inventée.
+    pub unplaced_disks: Vec<Attribution>,
     /// Les distributions WSL relevées.
     pub distros: Vec<Named>,
     /// L'anneau : une posture composite ne se calcule pas sans référence.
@@ -737,7 +861,7 @@ const ORDRE: &[Domain] = &[
     Domain::DevEnv,
 ];
 
-/// Ce que porte un chemin entre crochets : `space.volume[C:\].used_percent`
+/// Ce que porte un chemin entre crochets : `space.volume[C:\].used_bytes`
 /// donne `C:\`.
 fn entre_crochets(path: &str) -> Option<&str> {
     let debut = path.find('[')?;
@@ -767,6 +891,156 @@ fn grouper_nommes<'a>(items: impl Iterator<Item = &'a Item>) -> Vec<Named> {
         }
     }
     sortie
+}
+
+/// La valeur entière d'un item, quand il existe et qu'il en porte une.
+///
+/// Le `match` est **exhaustif sans bras `_`** : ajouter une variante à
+/// [`ItemValue`] casse la compilation ici, donc oblige à décider si elle porte
+/// un nombre. Un `_` la rangerait en silence parmi les absences.
+fn entier(items: &[Item], chemin: &str) -> Option<u64> {
+    let item = items.iter().find(|i| i.path == chemin)?;
+    match &item.observed {
+        ItemValue::Int(n) => u64::try_from(*n).ok(),
+        ItemValue::Absent
+        | ItemValue::Bool(_)
+        | ItemValue::Text(_)
+        | ItemValue::List(_)
+        | ItemValue::Illisible { .. } => None,
+    }
+}
+
+/// Le texte d'un item, quand il existe et qu'il en porte un.
+fn texte<'a>(items: &'a [Item], chemin: &str) -> Option<&'a str> {
+    let item = items.iter().find(|i| i.path == chemin)?;
+    match &item.observed {
+        ItemValue::Text(t) => Some(t.as_str()),
+        ItemValue::Absent
+        | ItemValue::Bool(_)
+        | ItemValue::Int(_)
+        | ItemValue::List(_)
+        | ItemValue::Illisible { .. } => None,
+    }
+}
+
+/// Les disques virtuels relevés, chacun avec la lettre du volume qui le porte.
+///
+/// La lettre est normalisée par [`ks_collectors::lettre_de_volume`], le même
+/// code que celui qui la dérive du registre : `C:\` du point de montage et `C:`
+/// de la clé WSL désignent alors le même volume, et deux normalisations écrites
+/// séparément ne peuvent pas cesser de rapprocher les mêmes choses.
+///
+/// Un disque dont le volume n'est pas relevé, ou pas dérivable, sort d'ici avec
+/// `None`. Il n'est **jamais** rattaché « par défaut » au volume système : ce
+/// presque-toujours-vrai compterait des gibioctets sur un volume qui ne les
+/// porte pas, sans que rien ne le signale.
+fn disques_virtuels(items: &[Item]) -> Vec<(Option<String>, Attribution)> {
+    items
+        .iter()
+        .filter(|i| i.path.starts_with("virtualization.wsl[") && i.path.ends_with(".disk_bytes"))
+        .filter_map(|i| {
+            let nom = entre_crochets(&i.path)?;
+            let octets = entier(items, &i.path)?;
+            let volume = texte(items, &format!("virtualization.wsl[{nom}].volume"))
+                .and_then(ks_collectors::lettre_de_volume);
+            Some((
+                volume,
+                Attribution {
+                    name: nom.to_owned(),
+                    path: i.path.clone(),
+                    value: lisible::octets(octets),
+                    bytes: octets,
+                },
+            ))
+        })
+        .collect()
+}
+
+/// Construit l'écran « Espace » : chaque volume, son occupation, et la part que
+/// Keystone sait en nommer.
+///
+/// Renvoie aussi les disques virtuels qu'**aucun** volume ne réclame — volume
+/// non dérivable, ou lettre qui ne correspond à aucun volume relevé. Ils sont
+/// mesurés : les taire les ferait disparaître de l'écran alors que leur taille
+/// est connue, ce qui est le défaut symétrique de celui qu'on répare ici.
+fn construire_volumes(items: &[Item]) -> (Vec<VolumeView>, Vec<Attribution>) {
+    let disques = disques_virtuels(items);
+    let mut reclames: Vec<String> = Vec::new();
+
+    let volumes: Vec<VolumeView> =
+        grouper_nommes(items.iter().filter(|i| i.path.starts_with("space.volume[")))
+            .into_iter()
+            .map(|nomme| {
+                let lettre = ks_collectors::lettre_de_volume(&nomme.name);
+                // **Les deux lettres doivent exister ET être égales.** Deux `None` ne
+                // se valent pas : un volume qu'on n'a pas su nommer et un disque qu'on
+                // n'a pas su placer ne se rapprochent de rien, surtout pas l'un de
+                // l'autre.
+                let attributions: Vec<Attribution> = disques
+                    .iter()
+                    .filter(|(volume, _)| match (volume, &lettre) {
+                        (Some(v), Some(l)) => v == l,
+                        (None, _) | (_, None) => false,
+                    })
+                    .map(|(_, part)| part.clone())
+                    .collect();
+                reclames.extend(attributions.iter().map(|a| a.path.clone()));
+
+                // Une somme qui déborderait `u64` n'est pas une somme : elle se dit
+                // absente plutôt que repliée. Aucun poste ne l'atteindra, et c'est
+                // justement pourquoi personne ne verrait le repli.
+                let attributed_bytes = attributions
+                    .iter()
+                    .try_fold(0_u64, |somme, a| somme.checked_add(a.bytes))
+                    .unwrap_or(0);
+
+                let total_path = format!("space.volume[{}].total_bytes", nomme.name);
+                let used_path = format!("space.volume[{}].used_bytes", nomme.name);
+                let occupancy = occupation(items, &total_path, &used_path, attributed_bytes);
+
+                VolumeView {
+                    name: nomme.name,
+                    paths: nomme.paths,
+                    attributed: lisible::octets(attributed_bytes),
+                    attributed_bytes,
+                    attributions,
+                    occupancy,
+                }
+            })
+            .collect();
+
+    let orphelins = disques
+        .into_iter()
+        .filter(|(_, part)| !reclames.contains(&part.path))
+        .map(|(_, part)| part)
+        .collect();
+
+    (volumes, orphelins)
+}
+
+/// L'occupation d'un volume, quand ses deux items d'octets ont été relevés.
+///
+/// `None` dès qu'il en manque un, ou que la taille vaut zéro : un taux sur un
+/// dénominateur absent ou nul est ce que le collecteur refuse déjà d'émettre, et
+/// ce que l'écran refuse d'inventer.
+fn occupation(
+    items: &[Item],
+    total_path: &str,
+    used_path: &str,
+    attributed_bytes: u64,
+) -> Option<Occupancy> {
+    let total_bytes = entier(items, total_path)?;
+    let used_bytes = entier(items, used_path)?;
+    let percent = used_bytes.checked_mul(100)?.checked_div(total_bytes)?;
+    Some(Occupancy {
+        used_path: used_path.to_owned(),
+        total_path: total_path.to_owned(),
+        used: lisible::octets(used_bytes),
+        total: lisible::octets(total_bytes),
+        used_bytes,
+        percent,
+        unattributed: Unattributed::rapprocher(used_bytes, attributed_bytes),
+    })
 }
 
 /// Regroupe les items par nature, dans l'ordre d'affichage.
@@ -1048,6 +1322,8 @@ impl Cockpit {
                 .collect(),
         };
 
+        let (volumes, unplaced_disks) = construire_volumes(items);
+
         Self {
             natures: construire_natures(items),
             html,
@@ -1065,7 +1341,8 @@ impl Cockpit {
                 .collect(),
             security: construire_securite(items),
             software,
-            volumes: grouper_nommes(items.iter().filter(|i| i.path.starts_with("space.volume["))),
+            volumes,
+            unplaced_disks,
             distros: grouper_nommes(
                 items
                     .iter()
@@ -1084,12 +1361,17 @@ impl Cockpit {
                 "D3 · aucun collecteur enregistré pour ce domaine",
             ),
             space_attribution: NotComputable::new(
-                "Le relevé porte le taux d'occupation de chaque volume, pas ce qui l'occupe.",
-                "L'écran ne peut donc pas dire quelle part revient aux disques virtuels, aux \
-                 caches ou aux données de travail, et il n'avance aucune quantité récupérable.",
+                "Le relevé porte l'occupation de chaque volume en octets, et n'en attribue que \
+                 les disques virtuels WSL — pas le reste de ce qui l'occupe.",
+                "La part non attribuée reste donc sans nom : ni les caches de chaînes d'outils, \
+                 ni les instantanés, ni les données de travail ne sont mesurés, et aucune \
+                 quantité récupérable n'est avancée. Ce qui est attribué se lit par volume, avec \
+                 le détail par distribution, et ce qui ne l'est pas est nommé comme tel plutôt \
+                 que fondu dans le total.",
                 "L'attribution par consommateur, avec la quarantaine qui la rend réversible, \
-                 arrive au domaine de l'espace.",
-                "D4 · attribution par consommateur non collectée",
+                 arrive au domaine de l'espace. Elle nommera ce que la part non attribuée \
+                 recouvre aujourd'hui.",
+                "D4 · seuls les disques WSL sont rapprochés d'un volume",
             ),
             virtual_machines: NotComputable::new(
                 "Les machines virtuelles Hyper-V ne sont pas relevées.",
@@ -1719,12 +2001,12 @@ mod tests {
     fn les_volumes_et_les_distros_se_nomment_depuis_leur_chemin() {
         let c = construire(&[
             item(
-                "space.volume[C:\\].used_percent",
+                "space.volume[C:\\].used_bytes",
                 Domain::Space,
                 ItemValue::Int(59),
             ),
             item(
-                "space.volume[D:\\].used_percent",
+                "space.volume[D:\\].used_bytes",
                 Domain::Space,
                 ItemValue::Int(29),
             ),

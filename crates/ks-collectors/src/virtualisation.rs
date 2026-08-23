@@ -20,6 +20,19 @@
 //! occuper. Les deux diffèrent, souvent d'un facteur deux, et c'est l'écart qui
 //! porte l'information.
 //!
+//! ## Et le volume qui la porte, parce qu'une taille seule ne se rapproche de rien
+//!
+//! Le `BasePath` dit aussi **où** vit le fichier. Sans cette moitié, Keystone
+//! mesurait 101 Go de disques WSL et 627 Go d'occupation sur `C:` dans le même
+//! scan sans jamais les rapprocher : un sixième de ce qui remplit le disque,
+//! mesuré et tu (ADR-0022).
+//!
+//! Seule la **lettre** est publiée, jamais le chemin : un `BasePath` porte le
+//! nom de l'utilisateur et celui du paquet, c'est-à-dire plus de surface que
+//! n'en demande la question posée. La dérivation vit dans
+//! [`crate::lettre_de_volume`], partagée avec la coque pour que les deux côtés
+//! du rapprochement normalisent pareil.
+//!
 //! ## Ce qui n'est pas là
 //!
 //! L'âge des points de contrôle Hyper-V et les chaînes de disques différentiels
@@ -49,6 +62,12 @@ pub struct Distribution {
     pub version: Option<u32>,
     /// Taille réelle du disque virtuel, en octets.
     pub disque_octets: Option<u64>,
+    /// Lettre du volume qui porte ce disque — `C:`, et jamais le chemin.
+    ///
+    /// `None` quand elle n'est pas dérivable du `BasePath` : chemin UNC, forme
+    /// inattendue. Une lettre supposée rattacherait des gibioctets au mauvais
+    /// volume sans que rien ne le signale.
+    pub volume: Option<String>,
     /// L'intégration avec Windows est-elle activée ?
     pub interop: Option<bool>,
     /// Les lecteurs Windows sont-ils montés dans la distribution ?
@@ -205,6 +224,21 @@ fn items_depuis(lecture: &Lecture<Vec<Distribution>>) -> Vec<Item> {
             );
 
             item(
+                format!("virtualization.wsl[{clef}].volume"),
+                // Constat : le disque est là où WSL l'a créé. Le déplacer est
+                // une opération de WSL, pas un réglage qu'on écrit — et aucun
+                // verbe ne le portera sans une ADR à lui.
+                Nature::Constat,
+                d.volume.clone().map_or(ItemValue::Absent, ItemValue::Text),
+                "Volume qui porte le disque virtuel — la lettre seule, jamais le \
+                 chemin. C'est elle qui permet de retrancher cette taille de \
+                 l'occupation du volume, et donc de nommer une part de ce qui le \
+                 remplit. Une lettre qu'on n'a pas su dériver se dit « absent » : \
+                 rattacher au hasard vaudrait moins que ne rien rattacher.",
+                "Aucun — cet item est un constat.",
+            );
+
+            item(
                 format!("virtualization.wsl[{clef}].interop"),
                 // **Réglage, sous un chemin `virtualization.`** : le pendant de
                 // `security.firmware.version`. Un drapeau du registre, un état
@@ -292,13 +326,16 @@ mod windows_impl {
             };
 
             let drapeaux = clef.get_u32("Flags").ok();
+            // `BasePath` est lu **une fois**, et il ne sort pas d'ici. Deux
+            // réponses en sont tirées : combien pèse le disque, et sur quel
+            // volume il pèse. Le chemin lui-même, qui porte le nom de
+            // l'utilisateur et celui du paquet, n'est jamais publié.
+            let base = clef.get_string("BasePath").ok();
             trouvees.push(Distribution {
                 nom,
                 version: clef.get_u32("Version").ok(),
-                disque_octets: clef
-                    .get_string("BasePath")
-                    .ok()
-                    .and_then(|b| taille_disque(&b)),
+                disque_octets: base.as_deref().and_then(taille_disque),
+                volume: base.as_deref().and_then(crate::lettre_de_volume),
                 interop: drapeaux.map(|f| f & DRAPEAU_INTEROP != 0),
                 montage_lecteurs: drapeaux.map(|f| f & DRAPEAU_MONTAGE_LECTEURS != 0),
             });
@@ -312,10 +349,16 @@ mod tests {
     use super::*;
 
     fn distro(nom: &str, octets: Option<u64>) -> Distribution {
+        sur_volume(nom, octets, Some("C:"))
+    }
+
+    /// La même, quand c'est le volume qui porte le disque qui est en jeu.
+    fn sur_volume(nom: &str, octets: Option<u64>, volume: Option<&str>) -> Distribution {
         Distribution {
             nom: nom.to_owned(),
             version: Some(2),
             disque_octets: octets,
+            volume: volume.map(str::to_owned),
             interop: Some(true),
             montage_lecteurs: Some(true),
         }
@@ -375,13 +418,13 @@ mod tests {
         );
         assert!(item.verdict().est_concluant());
 
-        // Une distribution lue produit ses quatre items, et le décompte suit.
+        // Une distribution lue produit ses cinq items, et le décompte suit.
         let peuple = Lecture::Trouvee(vec![distro("Debian", Some(56_043_241_472))]);
         assert_eq!(decompte(&peuple).observed, ItemValue::Int(1));
         assert_eq!(
             items_depuis(&peuple).len(),
-            5,
-            "le décompte plus quatre items"
+            6,
+            "le décompte plus cinq items"
         );
     }
 
@@ -458,14 +501,85 @@ mod tests {
         assert_eq!(nature(".drive_mounting"), Nature::Reglage);
         assert_eq!(nature(".disk_bytes"), Nature::Mesure);
         assert_eq!(nature(".version"), Nature::Constat);
+        // Le volume est un constat, et **pas** une mesure : le disque ne change
+        // pas de lettre tout seul. Le classer parmi les mesures ne changerait
+        // rien à l'affichage, et beaucoup à ce que la Phase 1 en attend.
+        assert_eq!(nature(".volume"), Nature::Constat);
 
         // Et seuls les deux réglages ont vocation à être déclarés : sur les
-        // cinq items d'une distribution, trois n'ont jamais prétendu être
+        // six items d'une distribution, quatre n'ont jamais prétendu être
         // stables.
         assert_eq!(
             items.iter().filter(|i| i.nature.est_declarable()).count(),
             2
         );
+    }
+
+    #[test]
+    fn le_volume_publie_la_lettre_seule_et_jamais_le_chemin() {
+        // **LA BARRIÈRE DE SURFACE.** Un `BasePath` vaut
+        // `C:\Users\tenenan\AppData\Local\Packages\TheDebianProject.…\LocalState` :
+        // il porte le nom de l'utilisateur ET celui du paquet. La question posée
+        // est « sur quel volume ce fichier pèse-t-il ? », et la lettre y répond
+        // en entier. Publier le chemin répondrait à des questions qu'on n'a pas
+        // posées, dans un rapport qu'on transmet.
+        let items = items_depuis(&Lecture::Trouvee(vec![sur_volume(
+            "Debian",
+            Some(56_043_241_472),
+            crate::lettre_de_volume(
+                r"C:\Users\tenenan\AppData\Local\Packages\TheDebianProject.Debian\LocalState",
+            )
+            .as_deref(),
+        )]));
+
+        let volume = items
+            .iter()
+            .find(|i| i.path.ends_with(".volume"))
+            .expect("le volume se dit");
+        assert_eq!(volume.observed, ItemValue::Text("C:".to_owned()));
+
+        // Et rien du chemin ne fuit par une autre porte : ni la valeur, ni la
+        // finalité, ni le risque d'aucun des six items.
+        for item in &items {
+            let expose = format!("{} {} {}", item.observed, item.purpose, item.risk);
+            for fragment in ["tenenan", "AppData", "Packages", "LocalState", r"C:\"] {
+                assert!(
+                    !expose.contains(fragment),
+                    "« {} » laisse passer « {fragment} » : {expose}",
+                    item.path
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn un_volume_non_derivable_se_dit_absent_et_jamais_devine() {
+        // Un disque posé sur un partage réseau, ou sous une forme qu'on ne sait
+        // pas lire. La tentation serait de rattacher au volume système « parce
+        // que c'est presque toujours vrai » : ce presque compte des gibioctets
+        // sur un volume qui ne les porte pas, et personne ne le verrait.
+        let items = items_depuis(&Lecture::Trouvee(vec![sur_volume(
+            "Debian",
+            Some(56_043_241_472),
+            crate::lettre_de_volume(r"\\serveur\partage\wsl").as_deref(),
+        )]));
+
+        let volume = items
+            .iter()
+            .find(|i| i.path.ends_with(".volume"))
+            .expect("le volume se dit même quand on ne l'a pas trouvé");
+        assert_eq!(volume.observed, ItemValue::Absent, "aucune lettre devinée");
+
+        // L'absence ne se confond pas avec un refus : on a lu le chemin, on n'a
+        // simplement pas su en tirer une lettre.
+        assert!(volume.observed.est_constat());
+        // Et la taille, elle, reste publiée : ne pas savoir où le disque pèse
+        // n'empêche pas de dire combien il pèse.
+        let taille = items
+            .iter()
+            .find(|i| i.path.ends_with(".disk_bytes"))
+            .expect("la taille se dit");
+        assert_eq!(taille.observed, ItemValue::Int(56_043_241_472));
     }
 
     #[test]

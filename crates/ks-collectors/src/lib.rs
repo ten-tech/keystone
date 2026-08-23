@@ -267,6 +267,46 @@ fn observed(
     }
 }
 
+/// La lettre d'un volume Windows, sous la forme qui permet de comparer deux
+/// écritures du même volume.
+///
+/// `C:\`, `c:` et `C:\Users\keystone\AppData\Local` donnent tous `C:`, et rien
+/// d'autre n'en sort. C'est **volontairement moins** que le chemin reçu : un
+/// `BasePath` de distribution WSL porte le nom de l'utilisateur et celui du
+/// paquet, soit beaucoup plus de surface que n'en demande la seule question
+/// posée — sur quel volume ce fichier pèse-t-il ?
+///
+/// Renvoie `None` quand la chaîne n'est pas une lettre de volume : chemin UNC
+/// (`\\serveur\partage`), point de montage nommé, forme inattendue. **Aucune
+/// lettre n'est devinée.** L'appelant publie alors une absence, seul aveu
+/// honnête quand on ne sait pas rapprocher — une lettre supposée attribuerait
+/// des gibioctets au mauvais volume, en silence.
+///
+/// Elle vit ici, et une seule fois, parce que deux surfaces la lisent : le
+/// collecteur de virtualisation, qui la dérive du registre, et la coque, qui
+/// rapproche un disque virtuel du volume qui le porte. Deux normalisations
+/// écrites séparément finissent par ne plus rapprocher les mêmes choses.
+#[must_use]
+pub fn lettre_de_volume(chemin: &str) -> Option<String> {
+    // Le préfixe long de Windows ne fait pas partie du chemin : il dit comment
+    // l'interpréter. `\\?\UNC\serveur\partage` ne devient pas pour autant une
+    // lettre — il tombe sur le contrôle suivant, comme il le doit.
+    let nettoye = chemin.strip_prefix(r"\\?\").unwrap_or(chemin);
+    let mut caracteres = nettoye.chars();
+    let lettre = caracteres.next()?;
+    if !lettre.is_ascii_alphabetic() || caracteres.next()? != ':' {
+        return None;
+    }
+    // Après les deux points, seule une séparation de chemin est acceptée. Un
+    // `C:relatif` désigne le répertoire courant DU volume C, pas sa racine :
+    // le prendre pour un chemin de volume serait exactement la lettre devinée
+    // que le paragraphe ci-dessus interdit.
+    match caracteres.next() {
+        None | Some('\\') | Some('/') => Some(format!("{}:", lettre.to_ascii_uppercase())),
+        Some(_) => None,
+    }
+}
+
 /// Collecteur matériel portable — CPU, mémoire, stockage, temps de fonctionnement.
 ///
 /// Volontairement portable : il tourne sur l'hôte Windows, dans une distro WSL2 et
@@ -348,30 +388,55 @@ impl Collector for HardwareCollector {
         ];
 
         // Occupation par volume : le socle du domaine D4 (attribution de l'espace).
-        // Ici on ne fait que constater. L'attribution par consommateur — qui mange
-        // réellement le disque — arrive en Phase 3.
+        //
+        // **Deux items d'octets, et aucun pourcentage** (ADR-0022). La taille du
+        // volume est un `Constat` — elle ne dérive pas, elle change quand on
+        // repartitionne. Les octets occupés sont une `Mesure` — ils bougent à
+        // chaque scan. Le taux se calcule à l'affichage, exactement comme un
+        // jeton s'y traduit en phrase française (ADR-0015) et comme un octet s'y
+        // écrit en gibioctets. Le publier ici EN PLUS donnerait deux sources
+        // pour un même fait, et deux sources pour un même fait divergent.
+        //
+        // Ce que ces deux items ouvrent, et que le pourcentage fermait :
+        // l'attribution. Un disque virtuel pèse des octets, et des octets se
+        // retranchent d'autres octets ; d'un ratio, rien ne se retranche.
         for disk in Disks::new_with_refreshed_list().list() {
             let mount = disk.mount_point().to_string_lossy().to_string();
             let total = disk.total_space();
             let used = total.saturating_sub(disk.available_space());
-            // Un volume de taille nulle (lecteur amovible absent) ne donne pas 0 % :
+            // Un volume de taille nulle (lecteur amovible absent) ne donne pas 0 :
             // il ne donne rien. Un inventaire qui invente est pire qu'un inventaire
-            // incomplet — d'où la chaîne de `checked_*` plutôt qu'une valeur par défaut.
-            let pct = used
-                .checked_mul(100)
-                .and_then(|v| v.checked_div(total))
-                .and_then(|v| i64::try_from(v).ok());
-            let Some(pct) = pct else { continue };
+            // incomplet. La raison n'a pas changé en passant du pourcentage aux
+            // octets — elle a seulement cessé de passer par une division.
+            if total == 0 {
+                continue;
+            }
+            let (Ok(total), Ok(used)) = (i64::try_from(total), i64::try_from(used)) else {
+                continue;
+            };
             items.push(observed(
-                &format!("space.volume[{mount}].used_percent"),
+                &format!("space.volume[{mount}].total_bytes"),
+                Domain::Space,
+                // La taille d'un volume ne dérive pas d'elle-même : c'est un fait
+                // qu'on subit, au même titre que le nombre de cœurs.
+                Nature::Constat,
+                ItemValue::Int(total),
+                "Taille du volume. C'est le dénominateur du taux d'occupation, que \
+                 l'affichage calcule à partir des deux items plutôt que de le lire \
+                 dans un troisième.",
+                "Aucun — lecture seule.",
+            ));
+            items.push(observed(
+                &format!("space.volume[{mount}].used_bytes"),
                 Domain::Space,
                 // Le seul cas d'usage réel d'une mesure contrainte (« au plus
-                // 85 »). Un seul ne suffit pas à écrire le vocabulaire qui
+                // 85 % »). Un seul ne suffit pas à écrire le vocabulaire qui
                 // permettrait de la déclarer : c'est la dette prise par
                 // l'ADR-0009, et sa condition de remboursement.
                 Nature::Mesure,
-                ItemValue::Int(pct),
-                "Taux d'occupation du volume, base de la projection de saturation.",
+                ItemValue::Int(used),
+                "Octets occupés sur le volume, base de la projection de saturation \
+                 et du rapprochement avec les disques virtuels qui les occupent.",
                 "Aucun — lecture seule.",
             ));
         }
@@ -391,6 +456,114 @@ mod tests {
             !items.is_empty(),
             "un scan doit toujours produire quelque chose"
         );
+    }
+
+    #[test]
+    fn lespace_se_dit_en_octets_et_jamais_en_pourcentage() {
+        // **LA BARRIÈRE DE LA SOURCE UNIQUE** (ADR-0022). Un taux d'occupation
+        // se déduit de deux items d'octets ; publié en plus d'eux, il serait une
+        // seconde source pour un même fait — et deux sources pour un même fait
+        // divergent, ce que ce dépôt écrit partout ailleurs.
+        //
+        // Éprouvée par falsification : republier `used_percent` à côté des deux
+        // items d'octets fait échouer ce test en le nommant.
+        let items = HardwareCollector.collect();
+        let espace: Vec<&Item> = items
+            .iter()
+            .filter(|i| i.path.starts_with("space.volume["))
+            .collect();
+
+        for item in &espace {
+            assert!(
+                item.path.ends_with(".total_bytes") || item.path.ends_with(".used_bytes"),
+                "« {} » : le domaine de l'espace ne publie que des octets — un \
+                 ratio dérivable de deux items est une seconde source pour un \
+                 même fait, et il se calcule à l'affichage",
+                item.path
+            );
+            // Une valeur d'octets qui serait un pourcentage déguisé passerait le
+            // contrôle de nom. Elle ne passe pas celui de nature : le taux
+            // n'aurait ni la taille pour constat, ni les octets pour mesure.
+            let attendue = if item.path.ends_with(".total_bytes") {
+                Nature::Constat
+            } else {
+                Nature::Mesure
+            };
+            assert_eq!(item.nature, attendue, "« {} » mal classé", item.path);
+        }
+
+        // Un contrôle qui ne contrôle rien passerait tout aussi vert. Sur
+        // Windows, il y a toujours au moins le volume système.
+        #[cfg(windows)]
+        assert!(
+            espace.len() >= 2,
+            "aucun volume relevé — la barrière ne barre plus rien"
+        );
+
+        // Et les deux vont par paire : une taille sans occupation ne donnerait
+        // aucun taux, une occupation sans taille non plus. Sur une machine sans
+        // volume mesurable, la liste est vide et le compte tient encore.
+        assert_eq!(
+            espace
+                .iter()
+                .filter(|i| i.path.ends_with(".total_bytes"))
+                .count(),
+            espace
+                .iter()
+                .filter(|i| i.path.ends_with(".used_bytes"))
+                .count(),
+            "un volume publie ses deux items, ou aucun"
+        );
+
+        // Un volume relevé porte des octets, pas un nombre à deux chiffres :
+        // sans ce contrôle, `Int(61)` passerait pour une taille.
+        for item in &espace {
+            let ItemValue::Int(n) = item.observed else {
+                panic!("« {} » ne porte pas d'entier", item.path);
+            };
+            assert!(n >= 0, "« {} » vaut {n}", item.path);
+        }
+    }
+
+    #[test]
+    fn une_lettre_de_volume_se_derive_ou_ne_se_devine_pas() {
+        // Les deux formes que le dépôt écrit réellement — le point de montage de
+        // `sysinfo` et la clé de la machine de référence — désignent le même
+        // volume et doivent donc se normaliser pareil. Sans cela, le
+        // rapprochement de l'écran Espace échouerait sur l'une des deux, en
+        // silence, en n'attribuant rien.
+        for forme in [
+            r"C:\",
+            "C:",
+            "c:",
+            r"c:\Users\essai",
+            r"\\?\C:\Program Files",
+        ] {
+            assert_eq!(
+                lettre_de_volume(forme).as_deref(),
+                Some("C:"),
+                "« {forme} » ne se normalise pas"
+            );
+        }
+
+        // Et rien ne se devine. Chacune de ces formes rattacherait des
+        // gibioctets à un volume qui ne les porte pas.
+        for forme in [
+            r"\\serveur\partage\wsl",
+            r"\\?\UNC\serveur\partage",
+            r"\\?\Volume{b75e2c83-0000-0000-0000-602f00000000}\",
+            "Crelatif",
+            "C:relatif",
+            "/mnt/wsl",
+            "1:\\",
+            "",
+        ] {
+            assert_eq!(
+                lettre_de_volume(forme),
+                None,
+                "« {forme} » a produit une lettre qu'on ne pouvait pas dériver"
+            );
+        }
     }
 
     #[test]

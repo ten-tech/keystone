@@ -410,7 +410,9 @@
                   </div>
                   <div id="tile-volumes"></div>
                   <p class="tile-c">
-                    Le relevé porte le taux d'occupation, pas ce qui l'occupe.
+                    Le relevé porte l'occupation en octets ; il n'attribue que
+                    les disques WSL, pas tout ce qui l'occupe. L'écran Espace
+                    dit la part nommée et celle qui ne l'est pas.
                   </p>
                 </article>
               </div>
@@ -931,9 +933,20 @@
           <section class="view" id="view-space" aria-labelledby="t-space">
             <h1 id="t-space">Espace</h1>
             <p class="sub">
-              Le taux d'occupation de chaque volume, tel qu'il a été relevé.
+              L'occupation de chaque volume en octets, et la part que Keystone
+              sait nommer.
             </p>
 
+            <!--
+              LE TAUX N'EST PAS UN RELEVÉ. Le collecteur publie deux items
+              d'octets par volume — `total_bytes` et `used_bytes` — et le
+              pourcentage se calcule au rendu (ADR-0022). Un troisième item le
+              porterait aussi, donc le contredirait un jour.
+
+              Aucun nombre n'est écrit dans ce balisage : les jauges, les lignes
+              du tableau et le détail par distribution viennent tous du même
+              `VolumeView`, et ne peuvent donc pas se contredire.
+            -->
             <div class="card">
               <div class="card-h">
                 <h2>Volumes</h2>
@@ -946,13 +959,17 @@
                   <table>
                     <caption>
                       Équivalent textuel des jauges ci-dessus : aucune valeur
-                      n'est réservée au survol.
+                      n'est réservée au survol. Le chiffre passe avant le ratio,
+                      parce que c'est lui qui permet d'agir.
                     </caption>
                     <thead>
                       <tr>
                         <th scope="col">Volume</th>
-                        <th scope="col" class="num">Occupation</th>
-                        <th scope="col">Chemin de l'item</th>
+                        <th scope="col" class="num">Occupé</th>
+                        <th scope="col" class="num">Taille</th>
+                        <th scope="col" class="num">Part occupée</th>
+                        <th scope="col" class="num">Attribué</th>
+                        <th scope="col" class="num">Non attribué</th>
                       </tr>
                     </thead>
                     <tbody id="volumes-lignes"></tbody>
@@ -961,8 +978,37 @@
               </div>
             </div>
 
+            <div class="card">
+              <div class="card-h">
+                <h2>Ce que Keystone attribue</h2>
+                <span class="spacer"></span>
+                <span class="kbd">virtualization.wsl[…].volume</span>
+              </div>
+              <div class="card-b">
+                <p class="tile-c" id="volumes-parts-c"></p>
+                <div class="cadre-table" role="group" aria-label="Attribution par volume" tabindex="0">
+                  <table>
+                    <caption>
+                      Chaque part vient d'un item relevé, et la ligne « non
+                      attribué » referme le compte du volume : les deux font
+                      l'occupation, jamais plus.
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Volume</th>
+                        <th scope="col">Ce qui occupe</th>
+                        <th scope="col" class="num">Taille</th>
+                        <th scope="col">Chemin de l'item</th>
+                      </tr>
+                    </thead>
+                    <tbody id="volumes-parts"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
             <div class="card indispo">
-              <div class="card-h"><h2>Qui consomme le disque</h2></div>
+              <div class="card-h"><h2>Qui consomme le reste du disque</h2></div>
               <div class="card-b">
                 <p class="indispo-1" data-champ="spaceAttribution.happened"></p>
                 <p class="indispo-2" data-champ="spaceAttribution.implies"></p>

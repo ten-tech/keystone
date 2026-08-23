@@ -1138,8 +1138,8 @@ mod tests {
         for minute in 0..4 {
             m.ajouter(entree("scan")).expect("ajout");
             m.enregistrer_observation(
-                "space.volume[c].used_percent",
-                &ItemValue::Int(61),
+                "space.volume[c].used_bytes",
+                &ItemValue::Int(623_998_566_400),
                 scan_a(minute),
             )
             .expect("observation");
@@ -1162,9 +1162,7 @@ mod tests {
             None
         );
         assert_eq!(
-            m.serie("space.volume[c].used_percent")
-                .expect("série")
-                .len(),
+            m.serie("space.volume[c].used_bytes").expect("série").len(),
             1
         );
         assert_eq!(lectures_refusees(&m, "security.defender.exclusions"), 4);

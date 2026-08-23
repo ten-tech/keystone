@@ -94,7 +94,24 @@ pub(crate) fn items() -> Vec<Item> {
         ),
         ("inventory.cpu.cores", Inventory, Constat, Int(16)),
         ("inventory.uptime_seconds", Inventory, Mesure, Int(48_213)),
-        ("space.volume[C:].used_percent", Space, Mesure, Int(61)),
+        // Le volume système, en DEUX items depuis l'ADR-0022 : la taille est un
+        // constat, les octets occupés une mesure, et le taux se calcule à
+        // l'affichage. La paire garde ici son rôle de fixture — prouver qu'une
+        // mesure reste hors du fichier d'état désiré —, et lui en ajoute un :
+        // un constat et une mesure sous le même préfixe, ce que l'ADR-0009
+        // interdit de déduire du chemin.
+        (
+            "space.volume[C:].total_bytes",
+            Space,
+            Constat,
+            Int(1_022_536_876_032),
+        ),
+        (
+            "space.volume[C:].used_bytes",
+            Space,
+            Mesure,
+            Int(623_998_566_400),
+        ),
         (
             "security.firmware.microcode_revision",
             Security,
