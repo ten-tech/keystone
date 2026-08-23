@@ -1,6 +1,6 @@
 # ADR-0002 — gRPC sur named pipe, et aucun port réseau
 
-- **Statut** : Accepté
+- **Statut** : **Remplacé par [ADR-0023](0023-la-surface-du-broker.md)** le 2026-08-24. Ce document reste : un ADR ne se supprime pas, et l'historique des décisions est un actif. Ce qu'il décidait du transport est renversé ; ce qu'il disait de l'absence de port réseau tient toujours.
 - **Date** : 2026-07-30
 - **Exigences concernées** : SEC-01, SEC-02, SEC-12, D16-05
 
