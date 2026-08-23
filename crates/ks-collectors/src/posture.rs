@@ -425,6 +425,47 @@ impl PostureCollector {
     }
 }
 
+/// La date du dernier passage de l'outil de suppression, lue dans son journal.
+///
+/// **Portable et pure**, alors que la lecture du fichier ne l'est pas : c'est
+/// ici que vit la seule logique susceptible de se tromper, donc ici qu'un test
+/// doit pouvoir mordre. Le module Windows ne fait que lui apporter du texte.
+///
+/// Trois refus, et aucun n'invente une date :
+///
+/// * pas de ligne « Started On » : l'outil n'a jamais tourné, donc [`ItemValue::Absent`] ;
+/// * une date que le format ne rend pas : illisible ;
+/// * une heure locale ambiguë ou inexistante, au changement d'heure : illisible.
+///
+/// Le format est relu **en anglais**, parce que l'outil journalise en anglais y
+/// compris sur un Windows français. C'est une mesure faite sur la machine de
+/// référence, pas une supposition, et le test la garde.
+#[must_use]
+pub fn date_du_dernier_passage(journal: &str) -> ItemValue {
+    use chrono::TimeZone as _;
+
+    // Le DERNIER passage, pas le premier : le journal s'accumule.
+    let Some(date) = journal
+        .lines()
+        .rev()
+        .find_map(|l| l.trim().strip_prefix("Started On "))
+    else {
+        return ItemValue::Absent;
+    };
+
+    let Ok(naive) = chrono::NaiveDateTime::parse_from_str(date.trim(), "%a %b %d %H:%M:%S %Y")
+    else {
+        return ItemValue::illisible("format de date inattendu");
+    };
+    chrono::Local
+        .from_local_datetime(&naive)
+        .single()
+        .map_or_else(
+            || ItemValue::illisible("heure locale ambiguë"),
+            |d| ItemValue::Text(d.with_timezone(&Utc).to_rfc3339()),
+        )
+}
+
 /// Fabrique un item de posture, avec sa vocation, sa finalité et son risque.
 ///
 /// `nature` est un paramètre **obligatoire**, au même titre que `but` et
@@ -504,13 +545,104 @@ fn horodatage_vers_filetime(d: DateTime<Utc>) -> u64 {
 #[cfg(windows)]
 mod windows_impl {
     use super::{
-        application_integrite_code, classer, date_firmware_certaine, demarrage_service, drapeau,
-        est_autorisation_entrante_active, etat_protection_lsa, etat_vbs, filetime_vers_horodatage,
-        item_posture, liste, mode_asr, protection_verrouillable, service_vbs, service_vbs_present,
-        texte, verrou_uefi_protection_lsa, Lecture, Nature, ACCES_REFUSE, SERVICES_SURVEILLES,
+        application_integrite_code, classer, date_du_dernier_passage, date_firmware_certaine,
+        demarrage_service, drapeau, est_autorisation_entrante_active, etat_protection_lsa,
+        etat_vbs, filetime_vers_horodatage, item_posture, liste, mode_asr,
+        protection_verrouillable, service_vbs, service_vbs_present, texte,
+        verrou_uefi_protection_lsa, Lecture, Nature, ACCES_REFUSE, SERVICES_SURVEILLES,
     };
     use ks_core::{Item, ItemValue};
     use windows_registry::{Type, LOCAL_MACHINE};
+
+    /// Quand l'outil de suppression de logiciels malveillants a tourné pour la
+    /// dernière fois.
+    ///
+    /// # Ce que cet item est, et surtout ce qu'il n'est pas
+    ///
+    /// Ce n'est **pas** un résultat d'analyse, et Keystone n'en produira jamais :
+    /// l'antivirus et l'analyse de logiciels malveillants figurent nommément parmi
+    /// ce que le projet refuse. C'est un fait de **maintenance** : l'outil que
+    /// Microsoft livre par Windows Update est-il réellement passé, et quand.
+    ///
+    /// La question mérite d'être posée parce que personne n'en connaît la réponse.
+    /// L'outil s'exécute en silence, n'affiche rien quand il ne trouve rien, et son
+    /// absence prolongée ne produit aucun signal.
+    ///
+    /// # Pourquoi le journal plutôt que le registre
+    ///
+    /// `RemovalTools\MRT\Version` porte un GUID de version **déployée**, donc ce
+    /// que Windows Update a livré, jamais ce qui a été exécuté. Mesuré, les deux
+    /// diffèrent. Le journal, lui, n'est écrit que par une exécution réelle.
+    ///
+    /// # Les deux prudences
+    ///
+    /// La lecture est **bornée** : un journal s'accumule, et rien ne garantit sa
+    /// taille. Et la date est relue en **anglais**, parce que l'outil journalise en
+    /// anglais y compris sur un Windows français : c'est une mesure, pas une
+    /// supposition. Si le format change, l'item devient illisible plutôt que de
+    /// rendre une date inventée.
+    fn derniere_execution_de_loutil_de_suppression() -> ItemValue {
+        use std::io::{Read as _, Seek as _, SeekFrom};
+
+        // Un journal qui s'accumule ne se lit pas par le DÉBUT. La borne y
+        // ferait remonter un vieux passage comme s'il était le dernier, ce qui
+        // est inventer — le défaut que ce dépôt paie le plus cher. On lit donc
+        // la QUEUE, et la borne ne coûte alors qu'un journal tronqué en tête,
+        // dont on n'a que faire.
+        const BORNE: u64 = 1_000_000;
+
+        let Ok(windir) = std::env::var("windir") else {
+            return ItemValue::Absent;
+        };
+        let chemin = std::path::Path::new(&windir).join("debug").join("mrt.log");
+        let Ok(mut fichier) = std::fs::File::open(&chemin) else {
+            // Absent, et non illisible : sur une machine où l'outil n'a jamais
+            // tourné, le fichier n'existe pas. C'est un fait, pas un échec.
+            return ItemValue::Absent;
+        };
+
+        // L'outil journalise en UTF-16LE, ce que `read_to_string` refuse à juste
+        // titre. Mesuré : les deux premiers octets valent FF FE.
+        let mut bom = [0_u8; 2];
+        let utf16 = fichier.read_exact(&mut bom).is_ok() && bom == [0xFF, 0xFE];
+
+        let Ok(taille) = fichier.metadata().map(|m| m.len()) else {
+            return ItemValue::illisible("taille du journal illisible");
+        };
+        // Le départ s'aligne sur une frontière paire : une unité UTF-16 coupée
+        // en deux décalerait tout le reste du texte.
+        let mut depart = taille.saturating_sub(BORNE).max(2);
+        depart -= depart % 2;
+        if fichier.seek(SeekFrom::Start(depart)).is_err() {
+            return ItemValue::illisible("journal impossible à parcourir");
+        }
+
+        let mut octets = Vec::new();
+        if fichier.take(BORNE).read_to_end(&mut octets).is_err() {
+            return ItemValue::illisible("journal illisible");
+        }
+
+        let texte = if utf16 {
+            let unites: Vec<u16> = octets
+                .chunks_exact(2)
+                .map(|paire| u16::from_le_bytes([paire[0], paire[1]]))
+                .collect();
+            // `collect` vers un `Result` plutôt que `from_utf16_lossy` : une
+            // paire de substitution cassée doit rendre l'item illisible, jamais
+            // un texte parsemé de caractères de remplacement dans lequel on
+            // chercherait ensuite une date.
+            match char::decode_utf16(unites).collect::<Result<String, _>>() {
+                Ok(t) => t,
+                Err(_) => return ItemValue::illisible("journal mal encodé"),
+            }
+        } else {
+            match String::from_utf8(octets) {
+                Ok(t) => t,
+                Err(_) => return ItemValue::illisible("journal mal encodé"),
+            }
+        };
+        date_du_dernier_passage(&texte)
+    }
 
     /// Lit un entier. Le refus d'accès ne se confond pas avec l'absence.
     fn u32_registre(chemin: &str, nom: &str) -> Lecture<u32> {
@@ -764,6 +896,23 @@ mod windows_impl {
             None,
         ));
 
+        items.push(item_posture(
+            "security.defender.removal_tool.last_run_at",
+            // Elle bouge d'elle-même, une fois par mois : une mesure, comme la
+            // date des signatures juste au-dessus. Ce qu'on voudra contraindre
+            // un jour est son ÂGE, et le vocabulaire pour l'écrire n'existe pas
+            // encore (ADR-0009).
+            Nature::Mesure,
+            derniere_execution_de_loutil_de_suppression(),
+            "Dernier passage de l'outil de suppression de logiciels malveillants livré \
+             par Windows Update. C'est un fait de maintenance, jamais un résultat \
+             d'analyse : Keystone ne cherche aucun logiciel malveillant, et n'en \
+             cherchera pas.",
+            "L'outil s'exécute en silence et n'affiche rien quand il ne trouve rien : \
+             son absence prolongée ne produit donc aucun signal, et c'est ce silence \
+             que cet item rompt.",
+            None,
+        ));
         // Les exclusions sont des VALEURS sous la clé, une par chemin exclu.
         // Chacune est un trou volontaire dans la couverture : les compter, c'est
         // mesurer la surface qu'on a soi-même ouverte (D11-02).
@@ -1172,6 +1321,55 @@ mod tests {
     // items — et vérifient au passage qu'elle reste vide sur ces plateformes.
     use ks_core::Provenance;
 
+    #[test]
+    fn un_journal_sans_passage_ne_fabrique_aucune_date() {
+        // Sur une machine ou l'outil n'a jamais tourne, il n'y a pas de date.
+        // Absent, jamais une date par defaut.
+        for journal in ["", "Removal Tool v5.144", "Started On"] {
+            assert_eq!(
+                date_du_dernier_passage(journal),
+                ItemValue::Absent,
+                "« {journal} » a produit une date"
+            );
+        }
+    }
+
+    #[test]
+    fn cest_le_dernier_passage_qui_compte_pas_le_premier() {
+        // **La barriere qui compte.** Le journal s'accumule : prendre la
+        // premiere ligne ferait remonter un vieux passage comme s'il etait le
+        // dernier, donc afficher une machine entretenue alors qu'elle ne l'est
+        // plus depuis des annees. C'est inventer.
+        let journal = concat!(
+            "Started On Mon Jan 06 04:00:00 2020",
+            "\n",
+            "Started On Sun Aug 23 23:57:09 2026",
+            "\n"
+        );
+        let ItemValue::Text(rendu) = date_du_dernier_passage(journal) else {
+            panic!("aucune date rendue");
+        };
+        assert!(rendu.starts_with("2026-08-23"), "rendu = {rendu}");
+    }
+
+    #[test]
+    fn une_date_que_le_format_ne_rend_pas_est_illisible_jamais_inventee() {
+        // Le format est relu en ANGLAIS, mesure sur la machine de reference :
+        // l'outil journalise en anglais y compris sur un Windows francais. Si
+        // cela changeait, l'item doit se taire plutot que de rendre une date
+        // plausible.
+        for fautif in [
+            "Started On dim. aout 23 23:57:09 2026",
+            "Started On 2026-08-23 23:57:09",
+            "Started On Sun Aug 23 2026",
+        ] {
+            let rendu = date_du_dernier_passage(fautif);
+            assert!(
+                matches!(rendu, ItemValue::Illisible { .. }),
+                "« {fautif} » a rendu {rendu:?} au lieu d'un illisible"
+            );
+        }
+    }
     #[test]
     fn le_type_de_demarrage_sort_en_jeton_et_non_en_chiffre() {
         // Principe P6 : « 4 » ne veut rien dire. Mais la phrase française ne se
@@ -1595,12 +1793,15 @@ mod tests {
 
         assert_eq!(
             (reglages, objectifs, mesures, constats),
+            // Une mesure de plus : le dernier passage de l'outil de
+            // suppression. Elle bouge d'elle-meme, une fois par mois, comme la
+            // date des signatures a cote de laquelle elle est publiee.
             // Six objectifs de plus : l'exécution effective des six services
             // surveillés. Aucun verbe ne démarre un service, donc on peut la
             // vouloir sans savoir la produire — la définition même d'`Objectif`.
             // Le verrou UEFI de la protection LSA, déplié par l'ADR-0015, est le
             // septième.
-            (24, 13, 4, 4),
+            (24, 13, 5, 4),
             "répartition des natures de posture : {} items",
             items.len()
         );
