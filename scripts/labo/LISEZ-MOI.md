@@ -173,6 +173,29 @@ Corollaire, appris le même jour : une capture d'écran montre un bureau, elle n
 prouve pas qu'une session s'est ouverte. La preuve est l'horodatage de
 `Users/<nom>/NTUSER.DAT`, qui se lit disque démonté.
 
+## Figée, ou occupée ? La seule mesure qui tranche
+
+Un écran noir ne dit rien, une touche qui ne réveille pas ne dit rien de plus, et
+une machine qui ignore l'arrêt ACPI pendant vingt minutes ressemble exactement à
+une machine morte. Elle ne l'est pas forcément.
+
+La question se tranche **depuis l'hôte**, sans rien demander à l'invité :
+
+```bash
+p=$(pgrep -f qemu-system-x86_64 | head -1)
+a=$(awk '{print $14+$15}' "/proc/$p/stat"); sleep 30
+b=$(awk '{print $14+$15}' "/proc/$p/stat")
+echo "$((b-a)) ticks en 30 s"      # 3000 ticks = un cœur à fond
+```
+
+Relevé sur une VM qu'on croyait bloquée : **6 640 ticks**, soit 2,2 cœurs
+saturés. Elle finissait une ouverture de session, écran éteint, et refusait
+l'arrêt parce qu'elle était occupée. La couper aurait recommencé le cycle, comme
+les quatre fois précédentes.
+
+C'est l'instrument qui manquait depuis le début : ni la capture, ni la frappe, ni
+la patience ne distinguent « figée » de « occupée ». La consommation, si.
+
 ## Le mot de passe
 
 `lab` / `Keystone!Lab1`, en clair dans le fichier de réponses. C'est **voulu** :
