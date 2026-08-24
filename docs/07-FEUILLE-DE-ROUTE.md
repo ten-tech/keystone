@@ -73,10 +73,13 @@ confirme qu'aucun octet n'a été modifié.
 > **reviennent donc dans le périmètre de la lecture seule**, et elles y sont
 > attendues : D2-03 les cite parmi les domaines couverts.
 >
-> Ce qui reste à décider avant de les collecter n'est pas un droit d'accès mais
-> un **modèle** : 194 tâches contre 120 items relevés aujourd'hui, il n'est pas
-> question de toutes les publier. Quels items, de quelle nature, et lesquels ont
-> un état désirable, sont des questions de conception, pas de privilège.
+> Ce modèle est **tranché et livré** ([ADR-0024](adr/0024-lecture-des-taches-planifiees.md)) :
+> 194 tâches deviennent **six items**, dont aucun déclarable. Un total, un
+> décompte des tâches qui ne lancent aucun binaire, et quatre listes
+> d'identités — hors racine `\Microsoft`, à l'arrêt parmi celles-là, binaire
+> hors du répertoire système, binaire nommé sans répertoire. Aucun n'a d'état
+> désirable, et ce n'est pas une limite de phase : écrire une tâche demanderait
+> `RegisterByXml`, que la doctrine refuse définitivement.
 
 ### 0.3 — Réconciliation d'inventaire logiciel *(le morceau à forte valeur)*
 
@@ -120,6 +123,7 @@ confirme qu'aucun octet n'a été modifié.
 - [ ] Noyau et `systemd` de chaque distro — exige d'y exécuter quelque chose, donc pas un collecteur
 - [ ] Inventaire Hyper-V : état, **âge des points de contrôle**, chaînes de disques différentiels
 - [ ] Déploiement et exécution de `ks-agent` dans une distro, remontée vers l'hôte
+- [x] **Tâches planifiées** par WMI (D2-03, D5-02) — six items, aucun déclarable, voir [ADR-0024](adr/0024-lecture-des-taches-planifiees.md)
 
 > **Mesuré :** deux distributions, dont un `ext4.vhdx` de **52,2 Gio**. Ce fichier
 > grossit et ne se réduit jamais seul : supprimer des données dans la distribution
@@ -180,9 +184,11 @@ de fumée et annulée automatiquement en moins de 15 minutes, sans intervention 
 - [ ] **Ce que la Phase 0 n'a pas pu lire, faute de privilège** — mesuré en accès refusé sans élévation, donc reporté ici et non abandonné :
   - **TPM** : présence, version, état, propriétaire (`Win32_Tpm`)
   - **BitLocker par volume** : état, méthode, protecteurs, *présence de la clé de récupération* (`Win32_EncryptableVolume`)
-  - *Les **tâches planifiées** figuraient ici. Elles en sortent : mesurées lisibles sans élévation par l'espace de noms WMI du planificateur, elles n'ont jamais relevé du privilège mais du chemin d'accès choisi. Voir la Phase 0, et `cargo run -p ks-collectors --example mesurer-taches`.*
+  - *Les **tâches planifiées** figuraient ici. Elles en sont sorties, puis livrées en Phase 0.4 : mesurées lisibles sans élévation par l'espace de noms WMI du planificateur, elles n'ont jamais relevé du privilège mais du chemin d'accès choisi. Voir [ADR-0024](adr/0024-lecture-des-taches-planifiees.md), et `cargo run -p ks-collectors --example mesurer-taches`.*
   - Ces lectures restent des **lectures** : elles n'ajoutent aucun verbe, et ne relèvent donc pas des quatre questions du §7
-- [ ] Moteur d'instantanés : point de restauration, checkpoint Hyper-V, `wsl --export`, export de registre
+- [ ] Moteur d'instantanés : annulation ciblée par item (export de branche de registre, copie de fichier), et filet de plateforme en dernier recours (point de restauration système, `wsl --export`). Le point de contrôle Hyper-V est hors d'atteinte du poste de référence, en édition Famille, et non éprouvé dans le labo : il revient quand une machine sait le produire. Voir [ADR-0021](adr/0021-ce-quun-instantane-sait-defaire.md)
+  - Un instantané n'est réputé pris qu'après **relecture ciblée** de l'artefact : le code de retour de l'outil ne prouve rien — `reg export HKLM\SAM` rend 0 pour un fichier de 138 octets vide, mesuré le 2026-08-17
+  - La disponibilité de chaque mécanisme est **déjà relevée au scan** par `ks-collectors` (`InstantanesCollector`, D3-07) : l'absence de filet est un écart affiché, jamais une exception d'exécution
 - [ ] Convergence par item et par domaine, **simulation obligatoire d'abord**
 - [ ] Tests d'idempotence automatisés (D2-09, critère A2)
 - [ ] Plan de mise à jour multi-OS, anneaux, vagues ordonnées, dépendances
@@ -277,9 +283,10 @@ Si tu ouvres le projet demain matin.
 4. **Créer la VM de labo** — même si la Phase 2 est loin. La créer maintenant
    évite de se retrouver bloqué trois heures le jour où on en a besoin. C'est
    aussi la seule façon d'éprouver un jour le broker sans risquer l'hôte.
-5. **Le TPM, BitLocker et les tâches planifiées** ne sont pas des tâches de
-   Phase 0 : ils sont refusés sans élévation, donc ils appartiennent au
-   broker. Ils figurent ici pour qu'on cesse de les y chercher.
+5. **Le TPM et BitLocker** ne sont pas des tâches de Phase 0 : ils sont refusés
+   sans élévation, donc ils appartiennent au broker. Ils figurent ici pour
+   qu'on cesse de les y chercher. Les tâches planifiées y figuraient avec eux,
+   à tort : elles sont lues depuis la Phase 0.4.
 
 ## Ce qui est explicitement refusé
 

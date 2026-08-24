@@ -172,6 +172,35 @@ pub fn horodatage_lisible(rfc3339: &str) -> String {
     )
 }
 
+/// Déplie une valeur composite sous son résumé, ou rend une chaîne vide.
+///
+/// **Le principe P6 l'exige** : « un indicateur composite est toujours dépliable
+/// en ses composantes exactes ». « 14 élément(s) » nomme un décompte et jamais
+/// ses composantes, et le rapport affichait donc des items qu'il ne savait pas
+/// expliquer.
+///
+/// `<details>` plutôt qu'une liste toujours ouverte : quatorze identités de
+/// tâches dans une cellule de tableau noieraient les items voisins. L'élément
+/// est natif, donc utilisable au clavier sans une ligne de script — et le
+/// rapport n'en porte aucune (principe P5, aucune ressource réseau).
+///
+/// Une liste **vide** se déplie quand même, en un dépliage vide : « lue et
+/// vide » est un constat, et le taire le ferait ressembler à une absence.
+fn deplier(valeur: &ItemValue) -> String {
+    let Some(composantes) = crate::lisible::composantes(valeur) else {
+        return String::new();
+    };
+    let mut sortie =
+        String::from("<details class=\"deplie\"><summary>voir le détail</summary><ul>");
+    for composante in composantes {
+        // Les identités viennent du planificateur de Windows, les exclusions du
+        // registre : un input non fiable, échappé comme tout le reste.
+        sortie.push_str(&format!("<li><code>{}</code></li>", echapper(composante)));
+    }
+    sortie.push_str("</ul></details>");
+    sortie
+}
+
 /// Construit le rapport complet.
 ///
 /// `horodatage` est passé en paramètre plutôt que lu ici : une fonction qui
@@ -205,7 +234,7 @@ pub fn construire(items: &[Item], machine: &str, horodatage: &str) -> String {
         for item in du_domaine {
             corps.push_str(&format!(
                 "<tr><th scope=\"row\"><code>{}</code></th>\
-                 <td class=\"{}\">{}</td><td class=\"but\">{}</td></tr>\n",
+                 <td class=\"{}\">{}{}</td><td class=\"but\">{}</td></tr>\n",
                 echapper(&item.path),
                 classe_valeur(&item.observed),
                 // Le libellé, pas le jeton : le relevé porte
@@ -214,6 +243,7 @@ pub fn construire(items: &[Item], machine: &str, horodatage: &str) -> String {
                 // s'applique pas ici — le rapport a toujours publié la valeur
                 // machine pour les tailles.
                 echapper(&crate::lisible::libelle(&item.observed)),
+                deplier(&item.observed),
                 echapper(&item.purpose)
             ));
         }
@@ -342,6 +372,13 @@ tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover { background: var(--surface-2); }
 code { font: 12.5px/1.6 var(--font-mono); color: var(--ink-2); }
 .but { color: var(--ink-3); max-width: 46ch; }
+/* Le depliage exige par P6. Ferme par defaut : quatorze identites de taches
+   dans une cellule noieraient les items voisins. `details` est natif, donc
+   utilisable au clavier sans une ligne de script. */
+.deplie { margin-top: var(--sp-2); }
+.deplie summary { color: var(--ink-3); font-size: 13px; cursor: pointer; }
+.deplie ul { margin: var(--sp-2) 0 0; padding-left: var(--sp-4); }
+.deplie li { margin: 0 0 2px; font-size: 12px; word-break: break-all; }
 .v-normale { color: var(--ink-1); }
 .v-vital { color: var(--vital); }
 .v-absent { color: var(--ink-3); }
@@ -388,7 +425,7 @@ footer { margin-top: var(--sp-7); padding-top: var(--sp-4);
   body { background: #fff; color: #111; }
   .bandeau, .cadre-table, .note { background: transparent; }
   .v-normale, .v-vital, .v-illisible, .v-absent { color: #111; }
-  .but, .compte, code, .sous, thead th, footer { color: #333; }
+  .but, .compte, code, .sous, thead th, footer, .deplie summary { color: #333; }
   table, tbody th, tbody td, thead th, h2, footer, .note {
     border-color: #ccc;
   }
@@ -446,6 +483,55 @@ mod tests {
                 "le rapport contient « {interdit} », donc une dépendance externe"
             );
         }
+    }
+
+    /// **Une liste se déplie, et son dépliage est échappé** (P6).
+    ///
+    /// Le rapport affichait « 2 élément(s) » sans jamais montrer lesquels : un
+    /// item composite non dépliable n'est pas explicable, donc pas affichable.
+    ///
+    /// Éprouvée par falsification : retirer l'appel à `deplier` de la cellule
+    /// fait échouer ce test sur l'absence de l'identité.
+    #[test]
+    fn une_liste_se_deplie_sous_son_resume_et_reste_echappee() {
+        let html = construire(
+            &[
+                item(
+                    "configuration.tasks.outside_microsoft_root",
+                    Domain::Configuration,
+                    ItemValue::List(vec![
+                        r"\PowerToys\Autorun".to_owned(),
+                        // Le planificateur est un input non fiable au même titre
+                        // que le registre : un nom de tâche hostile est possible.
+                        "<script>alert('x')</script>".to_owned(),
+                    ]),
+                ),
+                item(
+                    "configuration.tasks.total",
+                    Domain::Configuration,
+                    ItemValue::Int(194),
+                ),
+            ],
+            "poste",
+            "2026-08-24T12:00:00Z",
+        );
+
+        // Le résumé reste : les deux répondent à deux questions.
+        assert!(html.contains("2 élément(s)"));
+        // Et le détail existe désormais.
+        assert!(
+            html.contains(r"\PowerToys\Autorun"),
+            "la liste ne se déplie pas : P6 exige les composantes exactes"
+        );
+        assert!(html.contains("<summary>voir le détail</summary>"));
+        // Échappé comme tout le reste.
+        assert!(!html.contains("<script>alert"));
+        assert!(html.contains("&lt;script&gt;"));
+
+        // Un scalaire ne se déplie pas : un dépliage vide sous chaque entier
+        // serait du bruit, et un `Some(&[])` rendu pour un `Int` en produirait.
+        let scalaires = html.matches("<summary>voir le détail</summary>").count();
+        assert_eq!(scalaires, 1, "seule la liste porte un dépliage");
     }
 
     #[test]

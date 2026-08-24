@@ -1317,6 +1317,13 @@ fn cmd_explain(path: &str) -> Result<()> {
             // appliquée — `explain` a toujours montré la valeur machine, et
             // c'est aussi elle qu'on écrira dans `workstation.yaml`.
             println!("  valeur constatée   {}", lisible::libelle(&item.observed));
+            // **Le dépliage exigé par P6.** « 14 élément(s) » nomme un
+            // décompte, jamais ses composantes : un item qu'on ne peut pas
+            // déplier n'est pas explicable, donc pas affichable. Le résumé
+            // reste au-dessus — les deux répondent à deux questions.
+            for composante in lisible::composantes(&item.observed).unwrap_or_default() {
+                println!("                     · {composante}");
+            }
             println!("  observée le        {}", item.observed_at.to_rfc3339());
             println!("  source             {:?}", item.provenance);
             println!("\n  À quoi ça sert     {}", item.purpose);

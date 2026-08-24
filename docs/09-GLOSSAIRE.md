@@ -12,11 +12,17 @@ conception, pas seulement des malentendus.
 | Protège | la **machine** | le **travail** |
 | Sert à | revenir à l'état d'avant une opération | retrouver des données perdues |
 | Durée de vie | heures ou jours | mois ou années |
-| Exemple | point de contrôle Hyper-V, `wsl --export` | Restic vers un dépôt hors site |
+| Exemple | export de la branche de registre d'un item, `wsl --export` | Restic vers un dépôt hors site |
 
 Les confondre était l'angle mort de la première conception du produit : des instantanés
 de rollback ne protègent **rien** du travail. D'où le domaine D6, et deux types
 distincts dans le code. L'interface ne les mélange jamais dans la même liste.
+
+L'exemple a longtemps cité le **point de contrôle Hyper-V**. Il ne le cite plus :
+ni le poste de référence, en édition Famille, ni le labo ne savent le produire, et
+NF-07 répute inexistant un chemin de retour arrière non testé. Il reviendra le jour
+où une machine saura le produire et le labo l'éprouver — voir
+[ADR-0021](adr/0021-ce-quun-instantane-sait-defaire.md).
 
 ### Dérive ≠ Conflit
 

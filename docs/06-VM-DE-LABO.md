@@ -250,10 +250,18 @@ Reste **un** point, et c'est celui qui décide de la suite : **Hyper-V dans
 l'invité.** `vmx` est exposé, contre-épreuve comprise, donc le prérequis
 matériel est là ; démarrer réellement Hyper-V tranche entre le **labo dégradé**
 (registre, services, Defender, politiques : l'essentiel des verbes du broker) et
-le **labo complet** (collecteurs WSL et Hyper-V, instantanés par point de
-contrôle). Tant qu'il n'est pas mesuré, ce document décrit sur ce point-là une
-voie crédible et non une voie éprouvée. La distinction est le sujet de tout ce
-dépôt.
+le **labo complet** (collecteurs WSL et Hyper-V). Tant qu'il n'est pas mesuré, ce
+document décrit sur ce point-là une voie crédible et non une voie éprouvée. La
+distinction est le sujet de tout ce dépôt.
+
+**Et ce point ne décide plus seulement du confort de développement : il décide de
+la réintroduction d'un mécanisme d'instantané.** L'[ADR-0021](adr/0021-ce-quun-instantane-sait-defaire.md)
+a retiré le point de contrôle Hyper-V de la liste des filets, faute d'une machine
+qui sache le produire — le poste de référence est en édition Famille, où le rôle
+ne s'installe pas — et faute d'une épreuve de restauration, que NF-07 exige avant
+de se fier à un chemin de retour arrière. Ce sont ces deux manques que la mesure
+lèverait, et c'est là son enjeu : sans elle, ni le filet ni l'automatisation qu'il
+autorise ne reviennent.
 
 La consommation **sous charge**, par ailleurs, n'a toujours pas été relevée : les
 chiffres connus sont ceux du démarrage.

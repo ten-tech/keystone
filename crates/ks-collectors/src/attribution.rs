@@ -258,7 +258,9 @@ mod windows_impl {
     /// pourquoi cette source est retenue quand le journal `Security`, lui, est
     /// refusé.
     pub(super) fn correctifs() -> Lecture<Vec<Correctif>> {
-        crate::etat_effectif::sur_un_fil_dedie(interroger, || Lecture::Refusee)
+        crate::etat_effectif::sur_un_fil_dedie(crate::etat_effectif::DELAI_WMI, interroger, || {
+            Lecture::Refusee
+        })
     }
 
     fn interroger() -> Lecture<Vec<Correctif>> {

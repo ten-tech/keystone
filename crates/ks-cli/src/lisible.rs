@@ -62,6 +62,10 @@ const LIBELLES: &[(&str, &str)] = &[
     // Complétude de l'attribution de l'inventaire logiciel.
     ("complete", "complète"),
     ("partielle", "partielle"),
+    // Disponibilité d'un mécanisme d'instantané (ADR-0021). Le libellé nomme la
+    // portée de la réponse : elle vaut pour CETTE machine, et pour elle seule.
+    ("filet-disponible", "disponible sur cette machine"),
+    ("filet-indisponible", "indisponible sur cette machine"),
 ];
 
 /// Préfixe des jetons de code hors table.
@@ -101,6 +105,30 @@ pub fn libelle(valeur: &ItemValue) -> String {
         | ItemValue::Int(_)
         | ItemValue::List(_)
         | ItemValue::Illisible { .. } => valeur.to_string(),
+    }
+}
+
+/// Les composantes exactes d'une valeur composite, ou `None` si elle n'en a pas.
+///
+/// # Pourquoi cette fonction existe
+///
+/// Le principe P6 exige qu'« un indicateur composite soit toujours dépliable en
+/// ses composantes exactes ». Une [`ItemValue::List`] s'affichait « 14
+/// élément(s) » partout — dans `ks explain` comme dans le rapport — et **nulle
+/// part** on ne pouvait voir lesquels. L'item était donc affiché sans être
+/// explicable, ce que P6 interdit.
+///
+/// Le résumé n'est pas remplacé pour autant : une cellule de tableau porte le
+/// décompte, et le dépliage vit à côté. Les deux répondent à deux questions.
+#[must_use]
+pub fn composantes(valeur: &ItemValue) -> Option<&[String]> {
+    match valeur {
+        ItemValue::List(entrees) => Some(entrees),
+        ItemValue::Absent
+        | ItemValue::Bool(_)
+        | ItemValue::Int(_)
+        | ItemValue::Text(_)
+        | ItemValue::Illisible { .. } => None,
     }
 }
 
@@ -281,5 +309,41 @@ mod tests {
             libelle(&ItemValue::illisible("accès refusé sans élévation")),
             "illisible — accès refusé sans élévation"
         );
+    }
+
+    /// Une liste se déplie ; une valeur qui n'en est pas une ne se déplie pas.
+    ///
+    /// Le second contrôle importe autant que le premier : rendre `Some(&[])`
+    /// pour un entier ferait afficher un dépliage vide sous chaque item scalaire.
+    ///
+    /// Le `match` de [`composantes`] est exhaustif **sans bras `_`** : ajouter
+    /// une variante à `ItemValue` casse la compilation, donc la CI, avant qu'un
+    /// test s'exécute — le contributeur doit venir décider si sa nouvelle forme
+    /// se déplie.
+    #[test]
+    fn une_liste_se_deplie_en_ses_composantes_exactes() {
+        let liste = ItemValue::List(vec!["b".into(), "a".into()]);
+        assert_eq!(
+            composantes(&liste),
+            Some(["b".to_owned(), "a".to_owned()].as_slice()),
+            "les composantes sont rendues telles quelles, sans tri ni troncature"
+        );
+        // Une liste vide se déplie en rien, et ce n'est pas une absence de
+        // dépliage : « lue et vide » n'est pas « pas une liste ».
+        assert_eq!(composantes(&ItemValue::List(vec![])), Some([].as_slice()));
+
+        for scalaire in [
+            ItemValue::Absent,
+            ItemValue::Bool(true),
+            ItemValue::Int(42),
+            ItemValue::Text("jeton".into()),
+            ItemValue::illisible("accès refusé sans élévation"),
+        ] {
+            assert_eq!(
+                composantes(&scalaire),
+                None,
+                "« {scalaire} » n'est pas composite"
+            );
+        }
     }
 }

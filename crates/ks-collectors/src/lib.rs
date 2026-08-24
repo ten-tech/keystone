@@ -47,9 +47,27 @@
 //! [`VirtualisationCollector`] — distributions WSL par le registre : version,
 //! taille réelle du disque virtuel, intégration et montage des lecteurs.
 //!
-//! Restent à écrire : TPM, BitLocker par volume, tâches planifiées — tous trois
-//! refusés sans élévation, donc reportés au broker (Phase 2) —, la protection
-//! DMA effective et l'usure NVMe/SMART.
+//! [`InstantanesCollector`] — disponibilité du filet de sécurité
+//! ([`instantanes`], D3-07, ADR-0021). Un item par mécanisme d'instantané,
+//! disant s'il répond **sur cette machine** : la protection système désactivée
+//! cesse d'être une exception découverte au moment d'appliquer pour devenir un
+//! fait relevé au scan. La capacité s'y interroge, jamais le nom de l'édition —
+//! et ce que la CLI ne peut pas mesurer sans élévation s'y dit « illisible »,
+//! jamais « indisponible ».
+//!
+//! [`TachesCollector`] — tâches planifiées par WMI ([`taches`], D2-03 et D5-02).
+//! Le registre du planificateur et son dossier sur disque sont l'un comme
+//! l'autre refusés à une session non élevée ; `MSFT_ScheduledTask` répond. Six
+//! items, dont aucun déclarable : écrire une tâche demanderait `RegisterByXml`,
+//! que la doctrine du projet refuse définitivement.
+//!
+//! Restent à écrire : TPM et BitLocker par volume — refusés sans élévation, donc
+//! reportés au broker (Phase 2) —, la protection DMA effective et l'usure
+//! NVMe/SMART.
+//!
+//! La ligne ci-dessus a rangé les tâches planifiées parmi les refusés sans
+//! élévation pendant plusieurs commits. C'était vrai des deux portes qu'on avait
+//! essayées, et faux de la troisième.
 //!
 //! La cohérence de l'horloge figurait ici comme restant à écrire, quinze lignes
 //! sous les items `security.clock.*` qui la produisent depuis plusieurs commits.
@@ -83,18 +101,54 @@
 
 pub mod attribution;
 pub mod etat_effectif;
+pub mod instantanes;
 pub mod jetons;
 pub mod politique;
 pub mod posture;
 pub mod software;
+pub mod taches;
 pub mod virtualisation;
 pub mod winget;
 
 use chrono::Utc;
+pub use instantanes::{Disponibilite, InstantanesCollector, Mecanisme};
 use ks_core::{Domain, Item, ItemValue, Nature, Provenance};
 pub use posture::PostureCollector;
 pub use software::{Application, Gestionnaire, Inventaire, SoftwareCollector};
+pub use taches::{ActionRelevee, TacheRelevee, TachesCollector};
 pub use virtualisation::{Distribution, VirtualisationCollector};
+
+impl Collector for InstantanesCollector {
+    fn id(&self) -> &'static str {
+        Self::nom()
+    }
+
+    fn domain(&self) -> Domain {
+        // D3 — l'instantané est ce qu'une mise à jour orchestrée exige avant
+        // d'écrire (D3-07). Il ne relève pas de D6 : le glossaire sépare
+        // l'instantané, qui protège la machine, de la sauvegarde, qui protège
+        // le travail.
+        Domain::Updates
+    }
+
+    fn collect(&self) -> Vec<Item> {
+        Self::items()
+    }
+}
+
+impl Collector for TachesCollector {
+    fn id(&self) -> &'static str {
+        Self::nom()
+    }
+
+    fn domain(&self) -> Domain {
+        Domain::Configuration
+    }
+
+    fn collect(&self) -> Vec<Item> {
+        Self::items()
+    }
+}
 
 impl Collector for VirtualisationCollector {
     fn id(&self) -> &'static str {
@@ -184,6 +238,8 @@ impl Inventory {
             Box::new(SoftwareCollector),
             Box::new(PostureCollector),
             Box::new(VirtualisationCollector),
+            Box::new(TachesCollector),
+            Box::new(InstantanesCollector),
         ];
 
         let mut items = Vec::new();
@@ -901,9 +957,83 @@ mod tests {
         );
         assert_eq!(
             implementes, cites,
-            "le commentaire de tête et les implémentations divergent : 
+            "le commentaire de tête et les implémentations divergent :
                implémentés {implementes:?}
   cités        {cites:?}"
+        );
+    }
+
+    /// **Aucun collecteur ne lance de processus** (ADR-0017).
+    ///
+    /// La barrière existait pour `ks-cli` et s'arrêtait à son dossier `src`.
+    /// Elle ne gardait donc pas la surface où la tentation est la plus forte :
+    /// ici, plusieurs faits se lisent en une ligne de PowerShell et coûtent
+    /// beaucoup plus cher par le registre ou par WMI. Le mécanisme d'export
+    /// d'une distribution WSL, que [`instantanes`] recense, s'appelle
+    /// littéralement `wsl --export` — c'est un nom d'exécutable au milieu d'un
+    /// module de collecte, et il n'a rien à y lancer.
+    ///
+    /// Lancer un processus serait doublement fautif : c'est un effet de bord,
+    /// que la règle du crate interdit, et c'est l'exécution d'un fichier du
+    /// disque, que la doctrine du projet refuse sous le nom `RunScript { path }`.
+    ///
+    /// La barrière lit **tout** `src/`, fichiers ajoutés après elle compris. Les
+    /// motifs sont assemblés par `concat!` pour que ce fichier-ci ne contienne
+    /// pas lui-même ce qu'il interdit.
+    ///
+    /// **Sa limite est assumée**, comme celle de la barrière SEC-02 : un
+    /// lancement écrit autrement — un alias de type, une macro — passerait. Un
+    /// test grossier ne remplace ni la revue ni l'ADR. Éprouvée par
+    /// falsification.
+    #[test]
+    fn aucun_collecteur_ne_lance_de_processus() {
+        let interdits = [
+            concat!("Command", "::new"),
+            concat!("process", "::Command"),
+            concat!(".spawn", "("),
+        ];
+
+        let racine = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        // **La marche est RÉCURSIVE, et ce n'est pas du zèle.** Un `read_dir`
+        // simple ne descend pas : le jour où un collecteur est rangé dans un
+        // sous-dossier, il échappe entièrement à cette barrière, en silence, et
+        // rien ne le signale. Le dossier est plat aujourd'hui, ce qui rend le
+        // trou invisible — donc d'autant plus sûr de s'ouvrir un jour.
+        //
+        // Documenter la limite plutôt que la fermer aurait été le mauvais
+        // arbitrage : une barrière que l'on contourne en créant un sous-dossier
+        // n'en est pas une, et la descente coûte dix lignes de bibliothèque
+        // standard, sans dépendance.
+        let mut a_visiter = vec![racine.clone()];
+        let mut fichiers = Vec::new();
+        while let Some(dossier) = a_visiter.pop() {
+            for entree in std::fs::read_dir(&dossier).expect("le dossier src doit être lisible") {
+                let chemin = entree.expect("entrée de dossier").path();
+                if chemin.is_dir() {
+                    a_visiter.push(chemin);
+                } else if chemin.extension().is_some_and(|e| e == "rs") {
+                    fichiers.push(chemin);
+                }
+            }
+        }
+
+        let mut lus = 0;
+        for chemin in fichiers {
+            let source = std::fs::read_to_string(&chemin).expect("source lisible");
+            lus += 1;
+            for motif in interdits {
+                assert!(
+                    !source.contains(motif),
+                    "« {} » lance un processus ({motif}) : un collecteur lit par le \
+                     registre ou par WMI, jamais en appelant un exécutable",
+                    chemin.display()
+                );
+            }
+        }
+        assert!(
+            lus >= 9,
+            "seuls {lus} fichiers lus dans {} — la barrière ne garde plus rien",
+            racine.display()
         );
     }
 }

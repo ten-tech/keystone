@@ -838,10 +838,13 @@ posture = 0.40 × sécurité(96)<br>
 
             <div class="safety">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--s1)" stroke-width="1.8" style="flex:none;margin-top:2px"><path d="M12 3l7 3v6c0 4.2-2.9 7.7-7 9-4.1-1.3-7-4.8-7-9V6l7-3z"/></svg>
-              <div><b>Filet de sécurité avant la vague 1.</b> Point de restauration système,
-              <code style="font-family:var(--font-mono);font-size:12px">wsl --export ubuntu-dev</code> (2,1 Go),
-              point de contrôle Hyper-V sur <code style="font-family:var(--font-mono);font-size:12px">win11-test</code>.
-              Retour arrière estimé à 3 min 20 s.</div>
+              <div><b>Filet de sécurité avant la vague 1.</b> Annulation ciblée par item :
+              export de la branche de registre que chaque item occupe, relu avant d'écrire.
+              Ordre de grandeur relevé sur une branche réelle : 2 590 octets, 66 ms.
+              En dernier recours seulement, deux filets de plateforme :
+              <code style="font-family:var(--font-mono);font-size:12px">wsl --export ubuntu-dev</code> (2,1 Go)
+              et le point de restauration système, dont le retour emporterait aussi ce que Keystone n'a pas touché.
+              Coût de leur retour arrière : non mesuré.</div>
             </div>
           </div>
         </div>
@@ -1204,7 +1207,7 @@ function runDry(btn){
       clearInterval(iv);
       btn.disabled=false;btn.textContent='Simuler à nouveau';
       apply.disabled=false;
-      hint.innerHTML='<span style="color:var(--good)">Simulation conforme</span><br>14 items · 1 redémarrage · retour arrière 3 min 20 s';
+      hint.innerHTML='<span style="color:var(--good)">Simulation conforme</span><br>14 items · 1 redémarrage · retour arrière ciblé, coût non mesuré au-delà';
     }
   },520);
 }

@@ -19,9 +19,15 @@
 //! cargo run -p ks-collectors --example mesurer-taches
 //! ```
 //!
-//! Il ne collecte rien : quels items publier, de quelle nature, et lesquels ont
-//! un état désirable, sont des questions de conception que cette mesure ouvre
-//! sans les trancher.
+//! Il ne collecte rien, et il ne publie aucun item. Les questions de conception
+//! que cette mesure ouvrait — quels items, de quelle nature, lesquels ont un
+//! état désirable — sont tranchées depuis, par l'ADR-0024 et par le module
+//! `ks_collectors::taches` : six items, aucun déclarable. Ce fichier reste la
+//! mesure brute, celle qu'on rejoue quand on doute du collecteur.
+//!
+//! Il lit d'ailleurs **autrement** que lui, et c'est volontaire : il demande des
+//! champs scalaires, là où le collecteur doit traverser un tableau d'actions de
+//! deux classes. La difficulté que l'ADR-0024 résout ne se voit pas ici.
 
 #[cfg(windows)]
 fn main() {

@@ -211,9 +211,19 @@ pub(crate) const DELAI_WMI: std::time::Duration = std::time::Duration::from_secs
 /// survit donc à la requête. En la confinant à un fil qu'on abandonne
 /// ensuite, le processus hôte ressort exactement comme il est entré.
 ///
-/// Le fil n'est **pas** attendu par `join` : au-delà de [`DELAI_WMI`] on
+/// Le fil n'est **pas** attendu par `join` : au-delà de `delai` on
 /// l'abandonne et l'on rend `repli`. Un fil abandonné ne retient pas le
 /// processus, et le repli dit la vérité — on n'a pas lu.
+///
+/// # Pourquoi le délai est un paramètre
+///
+/// Il valait [`DELAI_WMI`] pour tout le monde, et ce n'est plus tenable :
+/// l'énumération des tâches planifiées coûte 1,9 s là où les deux classes de
+/// posture coûtent 15 à 190 ms, soit deux ordres de grandeur d'écart. Un seul
+/// budget aurait alors le choix entre être trop court pour la lente et trop
+/// long pour les rapides. Chaque appelant nomme donc le sien, avec sa mesure à
+/// côté — voir `taches::DELAI_TACHES`, cité sans lien pour que cette page se
+/// construise aussi hors de Windows.
 ///
 /// # Ce que ce repli ne couvre pas
 ///
@@ -234,6 +244,7 @@ pub(crate) const DELAI_WMI: std::time::Duration = std::time::Duration::from_secs
 /// fil dédié sans que rien ne le signale.
 #[cfg(windows)]
 pub(crate) fn sur_un_fil_dedie<T: Send + 'static>(
+    delai: std::time::Duration,
     interroger: impl FnOnce() -> T + Send + 'static,
     repli: impl FnOnce() -> T,
 ) -> T {
@@ -243,9 +254,7 @@ pub(crate) fn sur_un_fil_dedie<T: Send + 'static>(
         // C'est le cas normal, pas une erreur : le fil n'a plus de lecteur.
         let _ = envoi.send(interroger());
     });
-    reception
-        .recv_timeout(DELAI_WMI)
-        .unwrap_or_else(|_| repli())
+    reception.recv_timeout(delai).unwrap_or_else(|_| repli())
 }
 
 #[cfg(windows)]
@@ -306,7 +315,9 @@ mod windows_impl {
     /// qui porte le raisonnement sur COM, sur le délai, et sur ce que le repli
     /// ne couvre pas.
     pub(super) fn lire() -> (EtatPlateforme, EtatDefender) {
-        super::sur_un_fil_dedie(interroger, || (refus_plateforme(), refus_defender()))
+        super::sur_un_fil_dedie(super::DELAI_WMI, interroger, || {
+            (refus_plateforme(), refus_defender())
+        })
     }
 
     fn interroger() -> (EtatPlateforme, EtatDefender) {
@@ -357,7 +368,7 @@ mod windows_impl {
     /// qui porte le raisonnement sur COM, sur le délai, et sur ce que le repli
     /// ne couvre pas.
     pub(super) fn lire_services() -> Lecture<super::ServicesObserves> {
-        super::sur_un_fil_dedie(interroger_services, || Lecture::Refusee)
+        super::sur_un_fil_dedie(super::DELAI_WMI, interroger_services, || Lecture::Refusee)
     }
 
     fn interroger_services() -> Lecture<super::ServicesObserves> {

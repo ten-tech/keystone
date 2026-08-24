@@ -237,7 +237,7 @@ Priorités : **P0** = indispensable au premier usage réel · **P1** = valeur fo
 | D3-04 | Plan de mise à jour unifié, tous systèmes confondus, présenté avant toute action : diff, journal des modifications récupéré, indication de vulnérabilité, redémarrage requis. |
 | D3-05 | **Regroupement des redémarrages** : un seul redémarrage pour l'ensemble d'un plan. |
 | D3-06 | Fenêtre d'application respectant le contexte réel : pas de build en cours, pas de réunion à l'agenda, pas de présentation active, pas sur batterie sous 40 %, pas sur réseau facturé au volume. |
-| D3-07 | **Instantané avant application** : point de contrôle Hyper-V, `wsl --export`, ou point de restauration selon la cible. Une cible sans instantané possible n'est pas éligible à l'application automatique (P3). |
+| D3-07 | **Instantané avant application**, ciblé sur ce que l'action touche quand Keystone sait le fabriquer — export de la branche de registre de l'item, copie du fichier visé — et filet de plateforme sinon : point de restauration système, `wsl --export`. Une cible sans instantané possible n'est pas éligible à l'application automatique (P3) ; une cible dont le filet n'est pas **éprouvé** ne l'est pas davantage (NF-07). *Le point de contrôle Hyper-V ne figure plus parmi les mécanismes : hors d'atteinte du poste de référence, en édition Famille, et non éprouvé dans le labo — voir [ADR-0021](adr/0021-ce-quun-instantane-sait-defaire.md).* |
 | D3-08 | **Application par vagues ordonnées**, avec dépendances déclarées. Deux composants couplés (noyau WSL et Docker Desktop, par exemple) ne sont jamais mis à jour dans la même transaction : sinon l'imputation de la panne est impossible. |
 | D3-09 | **Tests de fumée définis par l'utilisateur** comme unique juge du résultat : build d'un dépôt de référence, `docker run`, montée du VPN, détection GPU par CUDA, démarrage de l'IDE. |
 | D3-10 | **Rollback automatique** en cas d'échec d'un test, avec épinglage automatique du composant fautif et compte rendu de ce qui a été annulé. *(Moment M5 du brief.)* |
@@ -245,7 +245,7 @@ Priorités : **P0** = indispensable au premier usage réel · **P1** = valeur fo
 | D3-12 | Pilotes et firmware : **jamais via Windows Update**, toujours via le flux constructeur avec validation explicite. Le firmware exige secteur branché, batterie > 50 %, suspension propre de BitLocker, et n'est jamais automatique. |
 | D3-13 | Applications à mise à jour autonome (navigateurs, IDE, clients de messagerie) : **observées, non combattues**. Chaque changement de version détecté est écrit dans la timeline (D14) pour la traçabilité. |
 | D3-14 | Cache local de paquets et mode hors ligne : rien ne se déclenche sur connexion facturée au volume. |
-| D3-15 | Distros WSL et VM : mêmes anneaux, mais **automatisation plus poussée assumée**, l'instantané y étant instantané et le retour arrière de l'ordre de 20 secondes. |
+| D3-15 | Distros WSL et VM : mêmes anneaux, mais **automatisation plus poussée assumée pour les VM**, dont le retour arrière tient au point de retour de l'hyperviseur. Ce mécanisme n'est pas éprouvé : le poste de référence, en édition Famille, ne sait pas le produire, et le labo ne l'a pas mesuré — l'automatisation reste donc conditionnée à son épreuve (NF-07). **Pour WSL, l'exigence est suspendue jusqu'à mesure** : ni l'instantanéité de l'export ni la durée du retour arrière ne sont mesurées, et les volumes relevés le 2026-08-17 — 54,19 Go pour une distribution — rendent les deux improbables. Voir [ADR-0021](adr/0021-ce-quun-instantane-sait-defaire.md). |
 
 ### D4 — Espace et propreté *(P0)*
 
@@ -319,7 +319,7 @@ Priorités : **P0** = indispensable au premier usage réel · **P1** = valeur fo
 | Réf. | Exigence |
 |---|---|
 | D9-01 | Distro de référence (*golden*) et **clonage en quelques secondes** depuis ce modèle. |
-| D9-02 | Instantané et retour arrière par distribution, avec rétention configurable. |
+| D9-02 | Instantané et retour arrière par distribution, avec rétention configurable. **Le retour arrière détruit d'abord ce qu'il restaure**, et l'interface le dit avant d'agir : `wsl --import` crée une *nouvelle* distribution, revenir à l'état d'avant suppose donc de désinscrire l'existante, et tout ce qui y a été écrit depuis l'export est perdu. Sur les 54,19 Go relevés le 2026-08-17 pour une distribution du poste de référence, ni la durée ni le volume d'un export ne sont mesurés à ce jour ([ADR-0021](adr/0021-ce-quun-instantane-sait-defaire.md)). |
 | D9-03 | Compaction automatique de `ext4.vhdx` sous seuil de fragmentation, pendant une fenêtre calme. |
 | D9-04 | `wsl.conf` et `.wslconfig` gérés comme configuration déclarative (D2). |
 | D9-05 | Diagnostic réseau WSL en un geste : réseau miroir, DNS, dérive d'horloge, MTU, coexistence VPN. |
@@ -530,7 +530,7 @@ acceptedDrift:                     # D2-06 — toujours daté et justifié
 `Drift` | écart : `Item` + auteur du changement + gravité + statut (active / acceptée / en conflit MDM) |
 `Plan` | ensemble ordonné d'`Action` en vagues, avec instantanés, tests de fumée et estimations |
 `Action` | verbe typé + paramètres + capacité de simulation + capacité de rollback |
-`Snapshot` | point de retour : type, cible, empreinte, taille, expiration |
+`Snapshot` | point de retour : type, cible, expiration. L'**empreinte** et la **taille** sont propres au mécanisme, non communes à la structure : elles sont hors d'atteinte pour un point de restauration système, dont la taille n'est pas attribuable — l'espace des clichés est global — et l'empreinte pas calculable. L'**expiration** n'engage Keystone que pour ce qu'il détient ; un filet de plateforme vit et disparaît selon les règles de la plateforme ([ADR-0021](adr/0021-ce-quun-instantane-sait-defaire.md)) |
 `JournalEntry` | entrée inaltérable : horodatage monotone, acteur, verbe, diff, résultat, empreinte du précédent |
 `Finding` | constat de sécurité : catégorie, source du signal, gravité, technique ATT&CK, statut |
 `Decision` | trace de choix humain : acceptation de dérive, épinglage, exclusion — avec raison et expiration |

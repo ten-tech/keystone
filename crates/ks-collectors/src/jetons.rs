@@ -562,6 +562,48 @@ impl TableDeCodes for Attribution {
     }
 }
 
+/// Ce qu'une mesure de disponibilité de filet a conclu, **quand elle conclut**.
+///
+/// Texte plutôt que booléen, pour la raison déjà écrite sur [`Attribution`] :
+/// « activé / désactivé » est le vocabulaire d'un interrupteur, et la
+/// disponibilité d'un mécanisme d'instantané n'en est pas un. Un item qui se lit
+/// « available : désactivé » est un item mal conçu, même si sa valeur est juste.
+///
+/// La table ne porte que les deux réponses qui **concluent**. Les deux autres
+/// issues d'une mesure ne sont pas des valeurs : une mesure qu'on n'a pas su
+/// faire donne un `ItemValue::Illisible` portant sa raison, un mécanisme sans
+/// objet ici donne une absence. Voir `crate::instantanes`.
+///
+/// Les deux jetons sont **qualifiés**, comme `disponible-sur-ce-materiel` : un
+/// `disponible` nu prendrait un sens différent selon l'item qui le porte, et la
+/// table des libellés interdit exactement cette fusion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisponibiliteFilet {
+    /// Le mécanisme a répondu sur cette machine.
+    Disponible,
+    /// Mesuré : la condition que ce mécanisme exige n'est pas remplie ici.
+    Indisponible,
+}
+
+impl TableDeCodes for DisponibiliteFilet {
+    fn variantes() -> Vec<Self> {
+        let echantillons = vec![Self::Disponible, Self::Indisponible];
+        for v in &echantillons {
+            match v {
+                Self::Disponible | Self::Indisponible => {}
+            }
+        }
+        echantillons
+    }
+
+    fn jeton(self) -> String {
+        match self {
+            Self::Disponible => "filet-disponible".to_owned(),
+            Self::Indisponible => "filet-indisponible".to_owned(),
+        }
+    }
+}
+
 /// Le vocabulaire complet, table par table.
 ///
 /// C'est le crochet dont la CLI se sert pour exiger que **chaque** jeton porte
@@ -583,6 +625,7 @@ pub fn tous() -> Vec<String> {
     ajouter::<ExecutionService>(&mut vocabulaire);
     ajouter::<ProprieteMaterielle>(&mut vocabulaire);
     ajouter::<Attribution>(&mut vocabulaire);
+    ajouter::<DisponibiliteFilet>(&mut vocabulaire);
     vocabulaire
 }
 
