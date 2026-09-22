@@ -375,6 +375,31 @@ impl TryFrom<String> for ExclusionPath {
     fn try_from(brut: String) -> Result<Self, Self::Error> {
         let normalise = brut.replace('/', "\\");
 
+        // **Le jeu de caracteres se ferme** (ADR-0023, § 21, regle 1).
+        //
+        // Ce controle vient EN PREMIER : les suivants raisonnent sur des
+        // segments de chemin, et un octet nul ou une inversion d'affichage
+        // rendrait ce raisonnement faux avant qu'il commence.
+        //
+        // Aucun de ces caracteres n'appartient a un chemin Windows legitime,
+        // et chacun defait une garde posee plus bas : l'octet nul tronque le
+        // chemin dans toute API C, et les controles bidirectionnels inversent
+        // l'affichage, donc le diff montrerait autre chose que ce qui sera
+        // ecrit, ce qui viderait P6 de son sens.
+        //
+        // Ce que ce controle NE borne PAS, et l'ADR l'ecrit : la syntaxe d'un
+        // interpreteur. C'est l'absence d'interpreteur qui borne cela. Une
+        // liste noire de metacaracteres serait la liste qu'on aura oubliee.
+        if let Some(fautif) = brut.chars().find(|c| {
+            c.is_control() || matches!(c, '\u{200e}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        }) {
+            return Err(format!(
+                "un chemin d'exclusion ne contient aucun caractere de controle : \
+                 « U+{:04X} » n'appartient a aucun nom de fichier, et il fait lire \
+                 au diff autre chose que ce qui serait ecrit",
+                u32::from(fautif)
+            ));
+        }
         if brut.contains('%') || brut.contains('$') {
             return Err(
                 "un chemin d'exclusion ne contient pas de variable d'environnement : \
@@ -1635,6 +1660,71 @@ mod tests {
     }
 
     #[test]
+    fn un_chemin_dexclusion_ferme_son_jeu_de_caracteres() {
+        // Regle 1 de l'ADR-0023, § 21, mesuree par M5 : le validateur bornait
+        // la SEMANTIQUE Defender, jamais le jeu de caracteres. Un octet nul,
+        // un saut de ligne et une inversion d'affichage passaient.
+        //
+        // Les caracteres sont construits par leur POINT DE CODE, jamais par un
+        // echappement dans un litteral : une premiere redaction de ce test
+        // ecrivait une contre-oblique suivie d'une lettre, donc un chemin
+        // parfaitement valide, et croyait eprouver un octet nul.
+        for (code, pourquoi) in [
+            (0x00_u32, "octet nul"),
+            (0x0A, "saut de ligne"),
+            (0x0D, "retour chariot"),
+            (0x09, "tabulation"),
+            (0x1B, "echappement"),
+            (0x202E, "inversion d'affichage"),
+            (0x200E, "marque de direction"),
+            (0x2066, "isolat directionnel"),
+        ] {
+            let c = char::from_u32(code).expect("point de code valide");
+            let brut = format!(r"C:\src\a{c}b");
+            assert!(
+                ExclusionPath::try_from(brut).is_err(),
+                "U+{code:04X} devrait etre refuse : {pourquoi}"
+            );
+        }
+
+        // Le MIROIR du refus, sans lequel une barriere qui refuse tout
+        // passerait ce test en cassant le produit.
+        for legitime in [
+            r"D:\src\target",
+            r"C:\Users\pc\Mes documents\build",
+            r"C:\Windows\Temp\ks-build",
+        ] {
+            assert!(
+                ExclusionPath::try_from(legitime.to_owned()).is_ok(),
+                "« {legitime} » est une exclusion parfaitement normale"
+            );
+        }
+    }
+
+    #[test]
+    fn la_validation_sapplique_aussi_a_la_deserialisation() {
+        // **La porte qui compte.** Le client parle au broker par le réseau, pas
+        // par le constructeur : une validation que serde contourne ne protège
+        // de rien. C'est ce que `serde(try_from)` garantit, et ce test l'éprouve
+        // plutôt que de le croire.
+        let attaque = r#"{"verb":"restore-snapshot","snapshot_id":"..\\..\\evil"}"#;
+        assert!(
+            serde_json::from_str::<Verb>(attaque).is_err(),
+            "un identifiant invalide doit être refusé À LA DÉSÉRIALISATION"
+        );
+
+        let exclusion = r#"{"verb":"add-defender-exclusion","path":"C:\\","reason":"x","expires":"2027-01-01T00:00:00Z"}"#;
+        assert!(
+            serde_json::from_str::<Verb>(exclusion).is_err(),
+            "une racine de volume doit être refusée à la désérialisation"
+        );
+
+        // Et le cas légitime passe bien la même porte.
+        let valide = r#"{"verb":"restore-snapshot","snapshot_id":"snap-1"}"#;
+        assert!(serde_json::from_str::<Verb>(valide).is_ok());
+    }
+
+    #[test]
     fn un_identifiant_dinstantane_ne_peut_pas_designer_un_chemin() {
         // Restaurer, c'est appliquer en SYSTEM un contenu que l'appelant
         // désigne. L'identifiant ne doit donc jamais pouvoir sortir de l'index.
@@ -1665,28 +1755,5 @@ mod tests {
         // La borne de longueur, des deux côtés.
         assert!(SnapshotId::try_from("a".repeat(64)).is_ok());
         assert!(SnapshotId::try_from("a".repeat(65)).is_err());
-    }
-
-    #[test]
-    fn la_validation_sapplique_aussi_a_la_deserialisation() {
-        // **La porte qui compte.** Le client parle au broker par le réseau, pas
-        // par le constructeur : une validation que serde contourne ne protège
-        // de rien. C'est ce que `serde(try_from)` garantit, et ce test l'éprouve
-        // plutôt que de le croire.
-        let attaque = r#"{"verb":"restore-snapshot","snapshot_id":"..\\..\\evil"}"#;
-        assert!(
-            serde_json::from_str::<Verb>(attaque).is_err(),
-            "un identifiant invalide doit être refusé À LA DÉSÉRIALISATION"
-        );
-
-        let exclusion = r#"{"verb":"add-defender-exclusion","path":"C:\\","reason":"x","expires":"2027-01-01T00:00:00Z"}"#;
-        assert!(
-            serde_json::from_str::<Verb>(exclusion).is_err(),
-            "une racine de volume doit être refusée à la désérialisation"
-        );
-
-        // Et le cas légitime passe bien la même porte.
-        let valide = r#"{"verb":"restore-snapshot","snapshot_id":"snap-1"}"#;
-        assert!(serde_json::from_str::<Verb>(valide).is_ok());
     }
 }

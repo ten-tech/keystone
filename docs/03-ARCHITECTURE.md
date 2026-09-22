@@ -105,11 +105,11 @@ mécanismes répondent à cela, et aucun ne dépend de l'intégrité de la machi
 | `ks-core` | vocabulaire : `Item`, `Nature`, `Desire`, `Drift`, `Change`, `Plan`, `Action`, `Snapshot`, `JournalEntry` | portable | aucun | ✅ 48 tests unitaires |
 | `ks-collectors` | collecte **lecture seule**, et l'attribution d'un changement | portable ; matériel, inventaire logiciel, posture par le registre **et état effectif par WMI**, **tâches planifiées par WMI** (D2-03, [ADR-0024](adr/0024-lecture-des-taches-planifiees.md)), **disponibilité des mécanismes d'instantané** (D3-07, [ADR-0021](adr/0021-ce-quun-instantane-sait-defaire.md)) — TPM, BitLocker et SMART restent hors de portée sans élévation (Phase 2) | aucun | ✅ 114 tests unitaires, 6 collecteurs |
 | `ks-cli` | la CLI `ks`, surface de référence | Windows (et Linux pour le dev) | aucun | ✅ `scan`/`status`/`explain`/`journal`/`report`/`import`/`diff`/`accept` + lecteur **et émetteur** de `workstation.yaml`, **et la source du JSON Schema** (ADR-0010), 95 tests unitaires + **13 d'intégration** (binaire lancé en sous-processus) |
-| `ks-broker` | service privilégié | Windows visé ; compile aussi ailleurs, sans effet | élevé | 🔨 verbes énumérés + **huit** barrières SEC-02 et SEC-03, 13 tests unitaires — aucun verbe implémenté |
+| `ks-broker` | service privilégié | Windows visé ; compile aussi ailleurs, sans effet | élevé | 🔨 verbes énumérés + **huit** barrières SEC-02 et SEC-03, 14 tests unitaires — aucun verbe implémenté |
 | `ks-agent-linux` | agent satellite | Linux musl | aucun | 🔨 scan local, 4 tests unitaires |
 | `ks-ui` | coque de bureau (ADR-0012) | Windows + WebView2 | aucun | ✅ affiche le **poste de pilotage** branché sur l'état réel, jamais les chiffres de la maquette · workspace **séparé**, 30 tests |
 
-**287 tests au total** dans le workspace principal — `ks-ui` vit dans un workspace séparé et porte les siens (42), tous portables et tous exécutés — `cargo test --workspace`,
+**288 tests au total** dans le workspace principal — `ks-ui` vit dans un workspace séparé et porte les siens (42), tous portables et tous exécutés — `cargo test --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings` et `cargo fmt --all --check`
 passent. Ce n'était pas le cas au premier commit : rien n'avait alors jamais été
 compilé, et les comptes annoncés étaient des déclarations.
