@@ -1,0 +1,47 @@
+# Configuration de cargo-nextest.
+#
+# `cargo test` reste la référence du projet : c'est lui que la CI exécute, et
+# c'est le seul à couvrir les doc-tests, que nextest ne lance pas. nextest est
+# un confort local — une sortie lisible, des échecs regroupés, du parallélisme —
+# jamais une porte de qualité à lui seul.
+#
+#   cargo nextest run --workspace
+#   cargo test --doc --workspace      ← le complément indispensable
+
+[profile.default]
+# On veut voir passer les barrières de conception, pas seulement leur silence.
+# `docs/08-CONVENTIONS.md` les place au premier rang des tests qui comptent :
+# un test qui casse quand quelqu'un enfreint un principe mérite d'être vu.
+status-level = "pass"
+
+# Un échec suffit à invalider la passe, mais on veut la liste complète pour ne
+# pas corriger à l'aveugle, un défaut à la fois.
+fail-fast = false
+
+# Les tests de ce projet sont purs et rapides — aucun n'a de raison de dépasser
+# quelques secondes. Un test qui traîne annonce une entrée/sortie cachée, ce que
+# `testing.md` appelle un smell.
+slow-timeout = { period = "10s", terminate-after = 6 }
+
+final-status-level = "fail"
+
+# ─── Barrières de conception ────────────────────────────────────────────────
+# Elles ne vérifient pas un comportement : elles provoquent une conversation
+# avant la fusion. Les afficher à part, c'est leur donner le rang que
+# docs/08-CONVENTIONS.md leur reconnaît.
+[[profile.default.overrides]]
+filter = 'test(/aucun_verbe_ne_transporte|lenumeration_des_verbes|aucun_item_collecte/)'
+# Aucune tolérance : une barrière qui échoue par intermittence n'est pas une
+# barrière. Pas de retry, jamais.
+retries = 0
+
+# ─── Profil d'intégration continue ──────────────────────────────────────────
+# Non utilisé par la CI aujourd'hui — elle reste sur `cargo test`, qui couvre
+# aussi les doc-tests. Ce profil existe pour le jour où on l'y bascule, et pour
+# que le choix soit alors explicite plutôt qu'improvisé.
+[profile.ci]
+status-level = "fail"
+final-status-level = "slow"
+fail-fast = false
+failure-output = "immediate-final"
+retries = 0
