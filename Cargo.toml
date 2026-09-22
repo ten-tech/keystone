@@ -103,7 +103,7 @@ serde_json = "1"
 # La surface consommée est `from_str` vers deux types, et **elle ne doit pas
 # grandir** : pas d'ancres, pas d'inclusions, pas de `figment`, pas de `garde`.
 # C'est ce qui garde le remplacement du crate à une journée de travail.
-serde-saphyr = { version = "=1.0.0", default-features = false, features = [
+serde-saphyr = { version = "=1.1.0", default-features = false, features = [
     "deserialize",
 ] }
 # Génération de `schema/workstation.schema.json` depuis les types de `ks-cli`
